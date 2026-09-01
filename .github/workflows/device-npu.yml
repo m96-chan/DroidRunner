@@ -14,7 +14,9 @@ permissions:
 
 jobs:
   npu:
-    runs-on: [self-hosted, android, nnapi-accelerator]
+    # android-npu is the SoC-name hint; nnapi-accelerator (probe-verified)
+    # appears on runners registered after this change.
+    runs-on: [self-hosted, android, android-npu]
     steps:
       - name: Device capabilities
         run: droidrunner-device capabilities
