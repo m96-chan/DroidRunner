@@ -20,6 +20,7 @@ class RunnerService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        RunnerStatus.attach(this)
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "GitHub Runner", NotificationManager.IMPORTANCE_LOW))
     }
@@ -69,7 +70,13 @@ class RunnerService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun stopRunner() {
-        process?.destroy()
+        // SIGTERM first and give the listener a moment to deregister its
+        // session with GitHub; otherwise the next start hits
+        // "a session for this runner already exists".
+        process?.let {
+            it.destroy()
+            runCatching { it.waitFor(5, java.util.concurrent.TimeUnit.SECONDS) }
+        }
         process = null
         starting.set(false)
         RunnerStatus.onServiceStopped()

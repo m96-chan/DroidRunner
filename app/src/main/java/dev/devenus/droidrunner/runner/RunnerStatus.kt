@@ -25,6 +25,28 @@ object RunnerStatus {
     private val _snapshot = MutableStateFlow(RunnerSnapshot())
     val snapshot: StateFlow<RunnerSnapshot> = _snapshot
 
+    private var prefs: android.content.SharedPreferences? = null
+
+    /** Loads persisted lifetime job counters; call once from app entry points. */
+    fun attach(context: android.content.Context) {
+        if (prefs != null) return
+        val store = context.applicationContext.getSharedPreferences("runner_stats", 0)
+        prefs = store
+        _snapshot.update {
+            it.copy(
+                jobsSucceeded = store.getInt("jobs_ok", 0),
+                jobsFailed = store.getInt("jobs_fail", 0),
+            )
+        }
+    }
+
+    private fun persistCounts(snapshot: RunnerSnapshot) {
+        prefs?.edit()
+            ?.putInt("jobs_ok", snapshot.jobsSucceeded)
+            ?.putInt("jobs_fail", snapshot.jobsFailed)
+            ?.apply()
+    }
+
     internal fun reset() {
         _snapshot.value = RunnerSnapshot()
     }
@@ -65,6 +87,7 @@ object RunnerStatus {
                         jobsSucceeded = next.jobsSucceeded + if (succeeded) 1 else 0,
                         jobsFailed = next.jobsFailed + if (succeeded) 0 else 1,
                     )
+                    persistCounts(next)
                 }
             }
             next

@@ -29,6 +29,7 @@ import java.io.File
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        RunnerStatus.attach(this)
         setContent {
             BtopTheme {
                 val capabilities = remember { DeviceCapabilities.detect() }

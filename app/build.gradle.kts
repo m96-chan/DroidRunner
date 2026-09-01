@@ -26,6 +26,20 @@ android {
         buildConfigField("String", "RUNTIME_REPO", "\"${project.findProperty("droidrunner.runtimeRepo") ?: ""}\"")
     }
 
+    signingConfigs {
+        create("release") {
+            // CI provides a real keystore via env; local builds fall back to
+            // the debug key below so the APK stays installable.
+            val keystore = System.getenv("ANDROID_KEYSTORE_FILE")
+            if (keystore != null) {
+                storeFile = file(keystore)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -33,6 +47,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = if (System.getenv("ANDROID_KEYSTORE_FILE") != null) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 

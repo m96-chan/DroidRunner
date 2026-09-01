@@ -395,6 +395,32 @@ fun SetupScreen(
         }
 
         Panel("power", titleColor = BtopColors.Cyan) {
+            var bootAutostart by remember {
+                mutableStateOf(prefs.getBoolean("boot_autostart", true))
+            }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        bootAutostart = !bootAutostart
+                        prefs.edit().putBoolean("boot_autostart", bootAutostart).apply()
+                    }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    if (bootAutostart) "[✓]" else "[ ]",
+                    color = if (bootAutostart) BtopColors.Green else BtopColors.Dim,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "start runner on device boot",
+                    color = BtopColors.Text,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+            Spacer(Modifier.padding(top = 6.dp))
             if (batteryExempt) {
                 Text(
                     "battery optimization: exempt — safe for long-running operation",
