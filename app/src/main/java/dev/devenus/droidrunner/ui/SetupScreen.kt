@@ -419,9 +419,14 @@ fun SetupScreen(
         }
 
         Text(
-            "Never route untrusted fork PRs to this runner. Jobs can read data on this device.",
-            color = BtopColors.Red,
+            "⚠ Security note: jobs run arbitrary workflow code on this device. " +
+                "Never let untrusted fork PRs run on this runner.",
+            color = BtopColors.Yellow,
             style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, BtopColors.Yellow.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                .padding(8.dp),
         )
         Spacer(Modifier.padding(bottom = 8.dp))
     }
