@@ -73,7 +73,8 @@ Compose:
   status, and network throughput
 - **runner** — runner state (stopped / starting / listening / running job), registered
   repository, uptime, succeeded and failed job counts, and a live tail of the runner log
-- **setup** — a collapsible panel with the registration form and start/stop controls
+- **setup** — a separate screen (⚙) with GitHub sign-in, repository picker, runtime
+  install, and registration; a registered runner starts automatically on app launch
 
 The runner state is parsed from the official runner's listener output by the foreground
 service and streamed to the UI as a `StateFlow`.
@@ -205,7 +206,8 @@ This repository also contains a GitHub Actions build definition.
 6. Pick the repository from the list
 7. Enter the runtime manifest URL and tap **Install runtime**
 8. Tap **Register \<owner\>/\<repo\>**
-9. Tap **Start** to put the runner into standby
+9. Done — the runner starts automatically whenever the app launches
+   (Start/Stop controls live in the dashboard's runner panel)
 
 Sign-in uses the GitHub App device flow, so no client secret is embedded in the APK
 and no PAT has to be created by hand. The user token is encrypted with the Android

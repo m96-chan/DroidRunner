@@ -70,7 +70,8 @@ Android APIやNPUへアクセスするテストは、loopback APIを介してAPK
   ネットワークスループット
 - **runner** — Runnerの状態(停止 / 起動中 / ジョブ待機 / ジョブ実行中)、登録先
   Repository、稼働時間、成功・失敗ジョブ数、Runnerログのライブテール
-- **setup** — 登録フォームと開始/停止ボタンをまとめた折りたたみパネル
+- **setup** — 別画面(⚙)にGitHubサインイン・リポジトリ選択・runtime導入・登録を集約。
+  登録済みならアプリ起動時にRunnerが自動スタート
 
 Runnerの状態は、Foreground Serviceが公式Runnerのlistener出力をパースし、
 `StateFlow`としてUIへストリームします。
@@ -199,7 +200,8 @@ app/build/outputs/apk/debug/app-debug.apk
 6. リストからリポジトリを選択する
 7. Runtime manifest URLを入力して**Install runtime**を押す
 8. **Register \<owner\>/\<repo\>**を押す
-9. **Start**を押してRunnerを待機状態にする
+9. 完了 — 以後はアプリを起動するだけでRunnerが自動スタートします
+   (Start/Stopはダッシュボードのrunnerパネルにあります)
 
 サインインはGitHub AppのDevice Flowを使うため、APKにclient secretは含まれず、
 PATを手動で発行する必要もありません。userトークンはAndroid Keystoreで暗号化され、

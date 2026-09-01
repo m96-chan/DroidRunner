@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,6 +28,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,7 +53,6 @@ import dev.devenus.droidrunner.github.storedDeviceAuthorization
 import dev.devenus.droidrunner.github.toStoredJson
 import dev.devenus.droidrunner.model.RunnerConfig
 import dev.devenus.droidrunner.runner.RunnerCommand
-import dev.devenus.droidrunner.runner.RunnerSnapshot
 import dev.devenus.droidrunner.runner.RunnerState
 import dev.devenus.droidrunner.runner.RunnerStatus
 import dev.devenus.droidrunner.runtime.RuntimeInstaller
@@ -62,14 +64,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
+/** Full-screen setup flow: GitHub login, repository pick, runtime, register. */
 @Composable
-fun SetupPanel(
+fun SetupScreen(
     capabilities: DeviceCapabilities,
     runtime: RuntimeInstaller,
     secretStore: SecretStore,
-    runner: RunnerSnapshot,
-    onStartRunner: () -> Unit,
-    onStopRunner: () -> Unit,
+    onClose: () -> Unit,
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -77,21 +78,18 @@ fun SetupPanel(
     val scope = rememberCoroutineScope()
     val api = remember { GitHubApi() }
     val clientId = BuildConfig.GITHUB_APP_CLIENT_ID
+    val runner by RunnerStatus.snapshot.collectAsState()
 
-    // Transient message from the running/last action; null falls back to the
-    // state derived below, so stale errors don't outlive the problem.
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val configured = remember(runner.state, status, busy) { File(runtime.runtimeDir, ".configured").isFile }
-    var expanded by remember { mutableStateOf(!configured) }
     val statusText = status ?: when {
         runner.state != RunnerState.STOPPED -> "runner active"
-        configured -> "registered — press Start"
+        configured -> "registered — runner starts automatically"
         runtime.installed -> "runtime installed — pick a repository"
         else -> "runtime not installed"
     }
 
-    // GitHub connection state.
     var userToken by remember { mutableStateOf(secretStore.getUserToken()) }
     var deviceAuth by remember { mutableStateOf<DeviceAuthorization?>(null) }
     var authJob by remember { mutableStateOf<Job?>(null) }
@@ -100,7 +98,6 @@ fun SetupPanel(
     var loadingRepos by remember { mutableStateOf(false) }
     var selectedRepo by remember { mutableStateOf<RepositoryRef?>(null) }
 
-    // Advanced manual fallback.
     var advanced by remember { mutableStateOf(false) }
     var owner by remember { mutableStateOf(prefs.getString("owner", "").orEmpty()) }
     var repo by remember { mutableStateOf(prefs.getString("repo", "").orEmpty()) }
@@ -136,8 +133,6 @@ fun SetupPanel(
                     val remembered = prefs.getString("selected_repo", null)
                     selectedRepo = found.firstOrNull { it.fullName == remembered } ?: found.singleOrNull()
                 }
-                // Launch check: nothing to register against -> surface the install prompt.
-                if (found.isEmpty() && !configured) expanded = true
             }.onFailure { failure ->
                 android.util.Log.e("DroidRunner", "repo refresh failed", failure)
                 if (failure.message?.contains("GitHub API 401") == true) {
@@ -222,26 +217,39 @@ fun SetupPanel(
                     secretStore.clearPendingAuth()
                 } else {
                     deviceAuth = auth
-                    expanded = true
                     startPolling(auth)
                 }
             }
         }
     }
 
-    Panel("setup", titleColor = BtopColors.Yellow) {
-        Row(
-            Modifier.fillMaxWidth().clickable { expanded = !expanded },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(if (expanded) "▼" else "▶", color = BtopColors.Yellow, style = MaterialTheme.typography.labelMedium)
-            Spacer(Modifier.width(8.dp))
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(BtopColors.Background)
+            .safeDrawingPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "‹ back",
+                color = BtopColors.Cyan,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.clickable { onClose() }.padding(vertical = 4.dp, horizontal = 2.dp),
+            )
+            Spacer(Modifier.weight(1f))
+            Text("setup", color = BtopColors.Yellow, style = MaterialTheme.typography.titleMedium)
+        }
+
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             val isError = statusText.startsWith("failed")
             Text(
                 statusText,
                 color = if (isError) BtopColors.Red else BtopColors.Dim,
                 style = MaterialTheme.typography.labelMedium,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
@@ -254,8 +262,8 @@ fun SetupPanel(
                 )
             }
         }
-        if (!expanded) return@Panel
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+
+        Panel("github", titleColor = BtopColors.Cyan) {
             when {
                 clientId.isBlank() -> Text(
                     "This build has no GitHub App client id (droidrunner.githubAppClientId). " +
@@ -314,24 +322,11 @@ fun SetupPanel(
                     onDisconnect = { disconnect() },
                 )
             }
+        }
 
-            if (userToken != null && selectedRepo != null) {
-                Button(
-                    enabled = !busy && runtime.installed,
-                    colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Green, contentColor = BtopColors.Background),
-                    onClick = { registerRunner(selectedRepo!!, userToken!!) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Register ${selectedRepo!!.fullName}") }
-                if (!runtime.installed) {
-                    Text(
-                        "Install the runtime below before registering.",
-                        color = BtopColors.Dim,
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                }
-            }
-
+        Panel("runtime", titleColor = BtopColors.Cyan) {
             SetupField(manifestUrl, { manifestUrl = it }, "Runtime manifest URL")
+            Spacer(Modifier.padding(top = 8.dp))
             Button(
                 enabled = !busy && manifestUrl.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Cyan, contentColor = BtopColors.Background),
@@ -348,51 +343,54 @@ fun SetupPanel(
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Install runtime") }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    enabled = runtime.installed && !busy && runner.state == RunnerState.STOPPED,
-                    colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Green, contentColor = BtopColors.Background),
-                    onClick = onStartRunner,
-                    modifier = Modifier.weight(1f),
-                ) { Text("Start") }
-                OutlinedButton(
-                    enabled = runner.state != RunnerState.STOPPED,
-                    onClick = onStopRunner,
-                    modifier = Modifier.weight(1f),
-                ) { Text("Stop") }
-            }
-
-            Row(
-                Modifier.fillMaxWidth().clickable { advanced = !advanced },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(if (advanced) "▼" else "▶", color = BtopColors.Dim, style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.width(8.dp))
-                Text("advanced: manual PAT setup", color = BtopColors.Dim, style = MaterialTheme.typography.labelMedium)
-            }
-            if (advanced) {
-                SetupField(owner, { owner = it }, "GitHub owner")
-                SetupField(repo, { repo = it }, "Repository")
-                SetupField(pat, { pat = it }, "Fine-grained PAT")
-                Button(
-                    enabled = !busy && runtime.installed && owner.isNotBlank() && repo.isNotBlank() && pat.isNotBlank(),
-                    colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Green, contentColor = BtopColors.Background),
-                    onClick = {
-                        prefs.edit().putString("owner", owner).putString("repo", repo).apply()
-                        secretStore.putPat(pat)
-                        registerRunner(RepositoryRef(owner, repo), pat)
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Register with PAT") }
-            }
-
-            Text(
-                "Never route untrusted fork PRs to this runner. Jobs can read data on this device.",
-                color = BtopColors.Red,
-                style = MaterialTheme.typography.labelSmall,
-            )
         }
+
+        if (userToken != null && selectedRepo != null) {
+            Button(
+                enabled = !busy && runtime.installed && !configured,
+                colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Green, contentColor = BtopColors.Background),
+                onClick = { registerRunner(selectedRepo!!, userToken!!) },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (configured) "Registered" else "Register ${selectedRepo!!.fullName}") }
+            if (!runtime.installed) {
+                Text(
+                    "Install the runtime above before registering.",
+                    color = BtopColors.Dim,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+
+        Row(
+            Modifier.fillMaxWidth().clickable { advanced = !advanced },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(if (advanced) "▼" else "▶", color = BtopColors.Dim, style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.width(8.dp))
+            Text("advanced: manual PAT setup", color = BtopColors.Dim, style = MaterialTheme.typography.labelMedium)
+        }
+        if (advanced) {
+            SetupField(owner, { owner = it }, "GitHub owner")
+            SetupField(repo, { repo = it }, "Repository")
+            SetupField(pat, { pat = it }, "Fine-grained PAT")
+            Button(
+                enabled = !busy && runtime.installed && owner.isNotBlank() && repo.isNotBlank() && pat.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Green, contentColor = BtopColors.Background),
+                onClick = {
+                    prefs.edit().putString("owner", owner).putString("repo", repo).apply()
+                    secretStore.putPat(pat)
+                    registerRunner(RepositoryRef(owner, repo), pat)
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Register with PAT") }
+        }
+
+        Text(
+            "Never route untrusted fork PRs to this runner. Jobs can read data on this device.",
+            color = BtopColors.Red,
+            style = MaterialTheme.typography.labelSmall,
+        )
+        Spacer(Modifier.padding(bottom = 8.dp))
     }
 }
 
@@ -488,7 +486,7 @@ private fun RepositoryPicker(
             else -> Column(
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 220.dp)
+                    .heightIn(max = 260.dp)
                     .border(1.dp, BtopColors.Border, RoundedCornerShape(6.dp))
                     .verticalScroll(rememberScrollState()),
             ) {

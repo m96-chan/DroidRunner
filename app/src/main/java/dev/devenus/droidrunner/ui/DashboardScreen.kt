@@ -1,6 +1,7 @@
 package dev.devenus.droidrunner.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,7 +12,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -29,7 +33,6 @@ import dev.devenus.droidrunner.runner.RunnerSnapshot
 import dev.devenus.droidrunner.runner.RunnerState
 import dev.devenus.droidrunner.runner.RunnerStatus
 import dev.devenus.droidrunner.runtime.RuntimeInstaller
-import dev.devenus.droidrunner.security.SecretStore
 import dev.devenus.droidrunner.ui.theme.BtopColors
 import java.io.File
 
@@ -37,8 +40,8 @@ import java.io.File
 fun DashboardScreen(
     capabilities: DeviceCapabilities,
     runtime: RuntimeInstaller,
-    secretStore: SecretStore,
     monitor: SystemMonitor,
+    onOpenSetup: () -> Unit,
     onStartRunner: () -> Unit,
     onStopRunner: () -> Unit,
 ) {
@@ -56,26 +59,33 @@ fun DashboardScreen(
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Header(capabilities, runner)
+        Header(capabilities, runner, onOpenSetup)
         CpuPanel(system)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             MemPanel(system, Modifier.weight(1f))
             DiskPanel(system, Modifier.weight(1f))
         }
         PowerNetPanel(system)
-        RunnerPanel(runner, runtime)
-        SetupPanel(capabilities, runtime, secretStore, runner, onStartRunner, onStopRunner)
+        RunnerPanel(runner, runtime, onStartRunner, onStopRunner)
         Spacer(Modifier.padding(bottom = 8.dp))
     }
 }
 
 @Composable
-private fun Header(capabilities: DeviceCapabilities, runner: RunnerSnapshot) {
+private fun Header(capabilities: DeviceCapabilities, runner: RunnerSnapshot, onOpenSetup: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("DroidRunner", style = MaterialTheme.typography.headlineMedium, color = BtopColors.Text)
         Spacer(Modifier.weight(1f))
         Text("● ", color = runner.state.color(), style = MaterialTheme.typography.bodyLarge)
         Text(runner.state.label(), color = runner.state.color(), style = MaterialTheme.typography.bodyMedium)
+        Text(
+            "⚙",
+            color = BtopColors.Yellow,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier
+                .clickable { onOpenSetup() }
+                .padding(start = 12.dp, top = 2.dp, bottom = 2.dp, end = 2.dp),
+        )
     }
     Text(
         "${capabilities.manufacturer} ${capabilities.model} · ${capabilities.labels().sorted().joinToString(" ")}",
@@ -172,7 +182,12 @@ private fun PowerNetPanel(system: SystemSnapshot) {
 }
 
 @Composable
-private fun RunnerPanel(runner: RunnerSnapshot, runtime: RuntimeInstaller) {
+private fun RunnerPanel(
+    runner: RunnerSnapshot,
+    runtime: RuntimeInstaller,
+    onStartRunner: () -> Unit,
+    onStopRunner: () -> Unit,
+) {
     // Keyed on state + log growth so a fresh registration shows up immediately.
     val configuredRepo = remember(runner.state, runner.recentLog.size) {
         runCatching { File(runtime.runtimeDir, ".configured").readText().trim() }.getOrNull()
@@ -227,6 +242,22 @@ private fun RunnerPanel(runner: RunnerSnapshot, runtime: RuntimeInstaller) {
                     )
                 }
             }
+        }
+        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                enabled = runtime.installed && configuredRepo != null && runner.state == RunnerState.STOPPED,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = BtopColors.Green,
+                    contentColor = BtopColors.Background,
+                ),
+                onClick = onStartRunner,
+                modifier = Modifier.weight(1f),
+            ) { Text("Start") }
+            OutlinedButton(
+                enabled = runner.state != RunnerState.STOPPED,
+                onClick = onStopRunner,
+                modifier = Modifier.weight(1f),
+            ) { Text("Stop") }
         }
     }
 }
