@@ -18,7 +18,8 @@ jobs:
       - name: Device Agent capabilities
         run: |
           curl -fsS -H "Authorization: Bearer $DROIDRUNNER_DEVICE_TOKEN" \
-            "$DROIDRUNNER_DEVICE_URL/v1/capabilities" | tee capabilities.json
+            "$DROIDRUNNER_DEVICE_URL/v1/capabilities" -o capabilities.json
+          cat capabilities.json
           echo
       - name: NNAPI devices
         run: |

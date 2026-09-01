@@ -23,6 +23,17 @@ class SecretStore(context: Context) {
 
     fun clearUserToken() = prefs.edit().remove(USER_TOKEN).apply()
 
+    /** Stable Device Agent capability token: survives app restarts so a
+     *  runner started by a previous app process can still authenticate. */
+    fun agentToken(): String {
+        getSecret(AGENT_TOKEN)?.let { return it }
+        val token = java.security.SecureRandom().let { rng ->
+            ByteArray(24).also(rng::nextBytes).joinToString("") { "%02x".format(it) }
+        }
+        putSecret(AGENT_TOKEN, token)
+        return token
+    }
+
     fun putPendingAuth(value: String) = putSecret(PENDING_AUTH, value)
 
     fun getPendingAuth(): String? = getSecret(PENDING_AUTH)
@@ -67,6 +78,7 @@ class SecretStore(context: Context) {
         const val PAT = "github_pat"
         const val USER_TOKEN = "github_user_token"
         const val PENDING_AUTH = "github_pending_auth"
+        const val AGENT_TOKEN = "device_agent_token"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
     }
 }

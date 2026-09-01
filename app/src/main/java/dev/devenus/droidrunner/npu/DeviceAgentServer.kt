@@ -11,7 +11,6 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
-import java.security.SecureRandom
 import kotlin.concurrent.thread
 
 /**
@@ -24,19 +23,18 @@ import kotlin.concurrent.thread
  * runner session.
  */
 class DeviceAgentServer(private val context: Context) {
-    val token: String = SecureRandom().let { rng ->
-        ByteArray(24).also(rng::nextBytes).joinToString("") { "%02x".format(it) }
-    }
-    var port: Int = 0
-        private set
+    // Fixed port + persisted token: a runner orphaned by an app-process
+    // restart still carries a valid DROIDRUNNER_DEVICE_URL/_TOKEN.
+    val token: String = dev.devenus.droidrunner.security.SecretStore(context).agentToken()
+    val port: Int = PORT
     val url: String get() = "http://127.0.0.1:$port"
 
     private var serverSocket: ServerSocket? = null
 
     fun start() {
         val socket = ServerSocket()
-        socket.bind(InetSocketAddress(InetAddress.getLoopbackAddress(), 0))
-        port = socket.localPort
+        socket.reuseAddress = true
+        socket.bind(InetSocketAddress(InetAddress.getLoopbackAddress(), port))
         serverSocket = socket
         thread(name = "device-agent", isDaemon = true) {
             while (!socket.isClosed) {
@@ -121,6 +119,10 @@ class DeviceAgentServer(private val context: Context) {
         val iterations = request.optInt("iterations", 100)
         val result = NnapiProbe.benchmark(device, iterations)
         return 200 to result
+    }
+
+    private companion object {
+        const val PORT = 41999
     }
 
     private fun writeResponse(client: Socket, status: Int, json: String) {
