@@ -49,13 +49,39 @@ class GitHubApi {
         return repos
     }
 
-    private fun request(method: String, url: String, token: String): JSONObject {
+    /**
+     * URL of runtime-manifest.json from the newest runtime-* release of
+     * [repo], or null when none exists. Works without a token on public
+     * repos; a token avoids rate limits.
+     */
+    fun latestRuntimeManifestUrl(repo: String, token: String?): String? {
+        val releases = org.json.JSONArray(
+            requestRaw("GET", "https://api.github.com/repos/$repo/releases?per_page=20", token),
+        )
+        for (index in 0 until releases.length()) {
+            val release = releases.getJSONObject(index)
+            if (!release.getString("tag_name").startsWith("runtime-")) continue
+            val assets = release.getJSONArray("assets")
+            for (assetIndex in 0 until assets.length()) {
+                val asset = assets.getJSONObject(assetIndex)
+                if (asset.getString("name") == "runtime-manifest.json") {
+                    return asset.getString("browser_download_url")
+                }
+            }
+        }
+        return null
+    }
+
+    private fun request(method: String, url: String, token: String): JSONObject =
+        JSONObject(requestRaw(method, url, token))
+
+    private fun requestRaw(method: String, url: String, token: String?): String {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = 15_000
             readTimeout = 15_000
             setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("Authorization", "Bearer $token")
+            token?.let { setRequestProperty("Authorization", "Bearer $it") }
             setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
             setRequestProperty("User-Agent", "DroidRunner/0.1")
             if (method == "POST") {
@@ -70,7 +96,7 @@ class GitHubApi {
             val message = runCatching { JSONObject(body).optString("message") }.getOrNull() ?: body
             error("GitHub API ${connection.responseCode}: $message")
         }
-        return JSONObject(body)
+        return body
     }
 
     private companion object {

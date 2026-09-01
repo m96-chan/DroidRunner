@@ -22,6 +22,8 @@ android {
         // Self-builders register their own app and set these in gradle.properties.
         buildConfigField("String", "GITHUB_APP_CLIENT_ID", "\"${project.findProperty("droidrunner.githubAppClientId") ?: ""}\"")
         buildConfigField("String", "GITHUB_APP_SLUG", "\"${project.findProperty("droidrunner.githubAppSlug") ?: ""}\"")
+        // Repo whose GitHub Releases host the runtime bundle (runtime-* tags).
+        buildConfigField("String", "RUNTIME_REPO", "\"${project.findProperty("droidrunner.runtimeRepo") ?: ""}\"")
     }
 
     buildTypes {

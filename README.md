@@ -194,20 +194,21 @@ This repository also contains a GitHub Actions build definition.
 
 ## Setup
 
-1. Run the **Runtime bundle** GitHub Actions workflow with a `release_tag`
-   (or build with `runtime/build-bundle.sh` on an ARM64 host) — see
-   `runtime/README.md`
-2. Copy the published `runtime-manifest.json` asset URL from the release
-3. Install the DroidRunner APK on the device
-4. Tap **Connect GitHub** in the setup panel — an 8-character code is shown (and
+1. Install the DroidRunner APK on the device
+2. Tap **Connect GitHub** on the setup screen — an 8-character code is shown (and
    copied to the clipboard); enter it at `github.com/login/device` and approve
-5. If the DroidRunner GitHub App is not installed on any of your repositories, the app
+3. If the DroidRunner GitHub App is not installed on any of your repositories, the app
    prompts you to install it — install it on the repository this runner should serve
-6. Pick the repository from the list
-7. Enter the runtime manifest URL and tap **Install runtime**
-8. Tap **Register \<owner\>/\<repo\>**
-9. Done — the runner starts automatically whenever the app launches
+4. Pick the repository and tap **Register \<owner\>/\<repo\>** — the runtime bundle
+   (~200MB) is discovered from the newest `runtime-*` GitHub Release and installed
+   automatically
+5. Done — the runner starts automatically whenever the app launches
    (Start/Stop controls live in the dashboard's runner panel)
+
+The app resolves the runtime from the repository named by the
+`droidrunner.runtimeRepo` build property. A manual manifest URL override lives
+under `advanced` for GitHub Enterprise Server or self-hosted bundles. Maintainers
+publish new bundles with the **Runtime bundle** workflow (see `runtime/README.md`).
 
 Sign-in uses the GitHub App device flow, so no client secret is embedded in the APK
 and no PAT has to be created by hand. The user token is encrypted with the Android

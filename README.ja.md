@@ -189,19 +189,19 @@ app/build/outputs/apk/debug/app-debug.apk
 
 ## セットアップ
 
-1. GitHub Actionsの**Runtime bundle**ワークフローを`release_tag`付きで実行する
-   (またはARM64ホストで`runtime/build-bundle.sh`を実行)— `runtime/README.md`参照
-2. Releaseに公開された`runtime-manifest.json`のURLを控える
-3. DroidRunner APKを端末へインストールする
-4. setupパネルの**Connect GitHub**を押す — 8桁のコードが表示される(クリップボードへ
+1. DroidRunner APKを端末へインストールする
+2. setup画面の**Connect GitHub**を押す — 8桁のコードが表示される(クリップボードへ
    自動コピー)。`github.com/login/device`でコードを入力して承認する
-5. DroidRunner GitHub Appがどのリポジトリにも未インストールの場合、アプリが
+3. DroidRunner GitHub Appがどのリポジトリにも未インストールの場合、アプリが
    インストールを促すので、Runnerを割り当てたいリポジトリへインストールする
-6. リストからリポジトリを選択する
-7. Runtime manifest URLを入力して**Install runtime**を押す
-8. **Register \<owner\>/\<repo\>**を押す
-9. 完了 — 以後はアプリを起動するだけでRunnerが自動スタートします
+4. リポジトリを選んで**Register \<owner\>/\<repo\>**を押す — runtime bundle
+   (約200MB)は最新の`runtime-*` GitHub Releaseから自動発見・自動インストール
+5. 完了 — 以後はアプリを起動するだけでRunnerが自動スタートします
    (Start/Stopはダッシュボードのrunnerパネルにあります)
+
+runtimeの取得元は`droidrunner.runtimeRepo`ビルドプロパティで指定したリポジトリです。
+manifest URLの手動上書きは`advanced`にあります(GitHub Enterprise Serverや自前ホスト用)。
+新しいbundleの公開は**Runtime bundle**ワークフローで行います(`runtime/README.md`参照)。
 
 サインインはGitHub AppのDevice Flowを使うため、APKにclient secretは含まれず、
 PATを手動で発行する必要もありません。userトークンはAndroid Keystoreで暗号化され、

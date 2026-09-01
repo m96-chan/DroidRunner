@@ -83,10 +83,27 @@ fun SetupScreen(
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val configured = remember(runner.state, status, busy) { File(runtime.runtimeDir, ".configured").isFile }
+
+    // Latest runtime-* release of the configured runtime repo; lets Register
+    // install the runtime automatically with no manifest URL to paste.
+    var resolvedManifest by remember { mutableStateOf<String?>(null) }
+    var resolvingManifest by remember { mutableStateOf(BuildConfig.RUNTIME_REPO.isNotBlank()) }
+    LaunchedEffect(Unit) {
+        if (BuildConfig.RUNTIME_REPO.isNotBlank()) {
+            resolvedManifest = runCatching {
+                withContext(Dispatchers.IO) {
+                    api.latestRuntimeManifestUrl(BuildConfig.RUNTIME_REPO, secretStore.getUserToken())
+                }
+            }.getOrNull()
+            resolvingManifest = false
+        }
+    }
+
     val statusText = status ?: when {
         runner.state != RunnerState.STOPPED -> "runner active"
         configured -> "registered — runner starts automatically"
         runtime.installed -> "runtime installed — pick a repository"
+        resolvedManifest != null -> "pick a repository — runtime installs on register"
         else -> "runtime not installed"
     }
 
@@ -165,6 +182,8 @@ fun SetupScreen(
         }
     }
 
+    fun manifestSource(): String? = manifestUrl.ifBlank { resolvedManifest.orEmpty() }.ifBlank { null }
+
     fun registerRunner(target: RepositoryRef, credential: String) {
         if (File(runtime.runtimeDir, ".configured").isFile) {
             status = null
@@ -179,10 +198,15 @@ fun SetupScreen(
             "android-${android.os.Build.MODEL}-$deviceId",
             capabilities.labels(),
         )
-        status = "registering ${target.fullName}…"
         scope.launch {
             status = runCatching {
                 config.validate()?.let { error(it) }
+                if (!runtime.installed) {
+                    val manifest = manifestSource()
+                        ?: error("No runtime release found — set a manifest URL under advanced")
+                    withContext(Dispatchers.IO) { runtime.install(manifest) { status = "runtime: $it" } }
+                }
+                status = "registering ${target.fullName}…"
                 withContext(Dispatchers.IO) {
                     val token = api.createRegistrationToken(target.owner, target.name, credential)
                     val process = RunnerCommand.configure(context, runtime.runtimeDir, config, token)
@@ -325,40 +349,40 @@ fun SetupScreen(
         }
 
         Panel("runtime", titleColor = BtopColors.Cyan) {
-            SetupField(manifestUrl, { manifestUrl = it }, "Runtime manifest URL")
-            Spacer(Modifier.padding(top = 8.dp))
-            Button(
-                enabled = !busy && manifestUrl.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Cyan, contentColor = BtopColors.Background),
-                onClick = {
-                    busy = true
-                    prefs.edit().putString("manifest", manifestUrl).apply()
-                    scope.launch {
-                        status = runCatching {
-                            withContext(Dispatchers.IO) { runtime.install(manifestUrl) { status = "runtime: $it" } }
-                            null
-                        }.getOrElse { "failed: ${it.message}" }
-                        busy = false
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Install runtime") }
+            when {
+                runtime.installed -> Text(
+                    "installed: ${runtime.installedVersion}",
+                    color = BtopColors.Green,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+
+                resolvingManifest -> Text(
+                    "checking runtime releases…",
+                    color = BtopColors.Dim,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+
+                manifestSource() != null -> Text(
+                    "latest release found — downloads automatically when you register (~200MB)",
+                    color = BtopColors.Dim,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+
+                else -> Text(
+                    "no runtime release found — set a manifest URL under advanced",
+                    color = BtopColors.Yellow,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
         }
 
         if (userToken != null && selectedRepo != null) {
             Button(
-                enabled = !busy && runtime.installed && !configured,
+                enabled = !busy && !configured && (runtime.installed || manifestSource() != null),
                 colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Green, contentColor = BtopColors.Background),
                 onClick = { registerRunner(selectedRepo!!, userToken!!) },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(if (configured) "Registered" else "Register ${selectedRepo!!.fullName}") }
-            if (!runtime.installed) {
-                Text(
-                    "Install the runtime above before registering.",
-                    color = BtopColors.Dim,
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
         }
 
         Row(
@@ -370,11 +394,20 @@ fun SetupScreen(
             Text("advanced: manual PAT setup", color = BtopColors.Dim, style = MaterialTheme.typography.labelMedium)
         }
         if (advanced) {
+            SetupField(
+                manifestUrl,
+                {
+                    manifestUrl = it
+                    prefs.edit().putString("manifest", it).apply()
+                },
+                "Runtime manifest URL (override)",
+            )
             SetupField(owner, { owner = it }, "GitHub owner")
             SetupField(repo, { repo = it }, "Repository")
             SetupField(pat, { pat = it }, "Fine-grained PAT")
             Button(
-                enabled = !busy && runtime.installed && owner.isNotBlank() && repo.isNotBlank() && pat.isNotBlank(),
+                enabled = !busy && owner.isNotBlank() && repo.isNotBlank() && pat.isNotBlank() &&
+                    (runtime.installed || manifestSource() != null),
                 colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Green, contentColor = BtopColors.Background),
                 onClick = {
                     prefs.edit().putString("owner", owner).putString("repo", repo).apply()

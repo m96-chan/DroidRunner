@@ -13,6 +13,8 @@ data class RuntimeManifest(val version: String, val url: String, val sha256: Str
 class RuntimeInstaller(private val context: Context) {
     val runtimeDir = File(context.filesDir, "runner-runtime")
     val installed: Boolean get() = File(runtimeDir, ".installed").isFile
+    val installedVersion: String?
+        get() = File(runtimeDir, ".installed").takeIf { it.isFile }?.readText()?.trim()
 
     fun install(manifestUrl: String, progress: (String) -> Unit = {}) {
         require(manifestUrl.startsWith("https://")) { "Manifest must use HTTPS" }
