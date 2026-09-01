@@ -21,7 +21,28 @@ class RuntimeInstaller(private val context: Context) {
         require(manifest.url.startsWith("https://")) { "Runtime must use HTTPS" }
         val archive = File(context.cacheDir, "runtime-${manifest.version}.tar.gz")
         progress("download")
-        URL(manifest.url).openStream().use { input -> archive.outputStream().use(input::copyTo) }
+        val connection = URL(manifest.url).openConnection()
+        val totalBytes = connection.contentLengthLong
+        connection.getInputStream().use { input ->
+            archive.outputStream().use { out ->
+                val buffer = ByteArray(128 * 1024)
+                var copied = 0L
+                var lastStep = -1
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    out.write(buffer, 0, count)
+                    copied += count
+                    if (totalBytes > 0) {
+                        val step = (copied * 20 / totalBytes).toInt()
+                        if (step != lastStep) {
+                            lastStep = step
+                            progress("download ${step * 5}%")
+                        }
+                    }
+                }
+            }
+        }
         check(sha256(archive).equals(manifest.sha256, ignoreCase = true)) { "Runtime SHA-256 mismatch" }
 
         progress("extract")

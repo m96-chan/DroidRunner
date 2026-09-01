@@ -173,7 +173,8 @@ private fun PowerNetPanel(system: SystemSnapshot) {
 
 @Composable
 private fun RunnerPanel(runner: RunnerSnapshot, runtime: RuntimeInstaller) {
-    val configuredRepo = remember(runner.state) {
+    // Keyed on state + log growth so a fresh registration shows up immediately.
+    val configuredRepo = remember(runner.state, runner.recentLog.size) {
         runCatching { File(runtime.runtimeDir, ".configured").readText().trim() }.getOrNull()
     }
     Panel("runner", titleColor = BtopColors.Green) {

@@ -41,6 +41,12 @@ object RunnerCommand {
                 "HOME=/home/runner",
                 "LANG=C.UTF-8",
                 "TMPDIR=/tmp",
+                // proot -0 fakes uid 0; the official runner refuses root
+                // unless this is set.
+                "RUNNER_ALLOW_RUNASROOT=1",
+                // .NET's GC cannot reserve its default heap inside proot on
+                // Android (0x8007000E); cap it at 768MB.
+                "DOTNET_GCHeapHardLimit=0x30000000",
                 "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
             ) + command,
         )

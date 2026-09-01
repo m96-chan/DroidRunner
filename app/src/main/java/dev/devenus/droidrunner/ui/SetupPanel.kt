@@ -52,6 +52,7 @@ import dev.devenus.droidrunner.model.RunnerConfig
 import dev.devenus.droidrunner.runner.RunnerCommand
 import dev.devenus.droidrunner.runner.RunnerSnapshot
 import dev.devenus.droidrunner.runner.RunnerState
+import dev.devenus.droidrunner.runner.RunnerStatus
 import dev.devenus.droidrunner.runtime.RuntimeInstaller
 import dev.devenus.droidrunner.security.SecretStore
 import dev.devenus.droidrunner.ui.theme.BtopColors
@@ -123,7 +124,10 @@ fun SetupPanel(
             }.onSuccess { found ->
                 repos = found
                 reposLoaded = true
-                if (selectedRepo !in found) selectedRepo = found.singleOrNull()
+                if (selectedRepo !in found) {
+                    val remembered = prefs.getString("selected_repo", null)
+                    selectedRepo = found.firstOrNull { it.fullName == remembered } ?: found.singleOrNull()
+                }
                 // Launch check: nothing to register against -> surface the install prompt.
                 if (found.isEmpty() && !configured) expanded = true
             }.onFailure { failure ->
@@ -159,6 +163,10 @@ fun SetupPanel(
     }
 
     fun registerRunner(target: RepositoryRef, credential: String) {
+        if (File(runtime.runtimeDir, ".configured").isFile) {
+            status = "already registered — press Start"
+            return
+        }
         busy = true
         val deviceId = android.provider.Settings.Secure.getString(
             context.contentResolver, android.provider.Settings.Secure.ANDROID_ID,
@@ -168,6 +176,7 @@ fun SetupPanel(
             "android-${android.os.Build.MODEL}-$deviceId",
             capabilities.labels(),
         )
+        status = "registering ${target.fullName}…"
         scope.launch {
             status = runCatching {
                 config.validate()?.let { error(it) }
@@ -175,8 +184,14 @@ fun SetupPanel(
                     val token = api.createRegistrationToken(target.owner, target.name, credential)
                     val process = RunnerCommand.configure(context, runtime.runtimeDir, config, token)
                         .redirectErrorStream(true).start()
-                    val output = process.inputStream.bufferedReader().readText()
-                    check(process.waitFor() == 0) { output.takeLast(1000) }
+                    // Stream config.sh output into the runner panel's log tail
+                    // so the slow proot/.NET startup is visible.
+                    val output = StringBuilder()
+                    process.inputStream.bufferedReader().forEachLine { line ->
+                        output.appendLine(line)
+                        RunnerStatus.onLogLine(line)
+                    }
+                    check(process.waitFor() == 0) { output.toString().takeLast(1000) }
                     File(runtime.runtimeDir, ".configured").writeText(config.repositoryUrl)
                 }
                 "registered to ${target.fullName}"
@@ -266,7 +281,10 @@ fun SetupPanel(
                     reposLoaded = reposLoaded,
                     loading = loadingRepos,
                     selected = selectedRepo,
-                    onSelect = { selectedRepo = it },
+                    onSelect = {
+                        selectedRepo = it
+                        prefs.edit().putString("selected_repo", it.fullName).apply()
+                    },
                     onInstallApp = {
                         val slug = BuildConfig.GITHUB_APP_SLUG
                             .ifBlank { prefs.getString("app_slug", "").orEmpty() }

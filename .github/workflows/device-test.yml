@@ -1,0 +1,20 @@
+name: Device test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  device:
+    runs-on: [self-hosted, android, arm64]
+    steps:
+      - name: Kernel and OS
+        run: |
+          uname -a
+          head -2 /etc/os-release
+      - name: CPU info
+        run: grep -m1 -iE 'hardware|model name' /proc/cpuinfo || true
+      - name: Hello
+        run: echo "Hello from a $(nproc)-core Android phone runner"
