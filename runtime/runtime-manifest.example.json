@@ -1,0 +1,5 @@
+{
+  "version": "0.1.0-arm64",
+  "url": "https://github.com/OWNER/DroidRunner/releases/download/runtime-0.1.0/droidrunner-runtime-arm64.tar.gz",
+  "sha256": "REPLACE_WITH_SHA256"
+}
