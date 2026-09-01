@@ -212,10 +212,12 @@ Java_dev_devenus_droidrunner_npu_NnapiProbe_convBenchmark(
 
     do {
         if (p_modelCreate(&model) != 0) { err = "model_create"; break; }
-        // 0 input, 1 weights, 2 bias, 3..6 padding, 7/8 stride, 9 fuse, 10 output
+        // Operands: 0 input, 1 weights, 2 bias, 3-6 padding, 7-8 stride,
+        // 9 fused activation, 10 output.
         if (p_addOperand(model, &inType) != 0 || p_addOperand(model, &wType) != 0 ||
             p_addOperand(model, &bType) != 0) { err = "add_operand"; break; }
-        for (int i = 0; i < 6; i++) {
+        // 7 scalars: padding left/right/top/bottom, stride w/h, fused activation.
+        for (int i = 0; i < 7; i++) {
             if (p_addOperand(model, &scalar) != 0) { err = "add_scalar"; break; }
         }
         if (err) break;
@@ -237,7 +239,7 @@ Java_dev_devenus_droidrunner_npu_NnapiProbe_convBenchmark(
         if (!ok) { err = "set_scalars"; break; }
 
         uint32_t convIns[10] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
-        uint32_t convOuts[1] = { 10 };
+        uint32_t convOuts[1] = { 10 };  // operand 10 is the output tensor
         if (p_addOperation(model, OP_CONV_2D, 10, convIns, 1, convOuts) != 0) {
             err = "add_operation"; break;
         }
