@@ -52,6 +52,7 @@ import dev.devenus.droidrunner.github.RepositoryRef
 import dev.devenus.droidrunner.github.storedDeviceAuthorization
 import dev.devenus.droidrunner.github.toStoredJson
 import dev.devenus.droidrunner.model.RunnerConfig
+import dev.devenus.droidrunner.npu.NpuLabels
 import dev.devenus.droidrunner.runner.RunnerCommand
 import dev.devenus.droidrunner.runner.RunnerState
 import dev.devenus.droidrunner.runner.RunnerStatus
@@ -211,10 +212,12 @@ fun SetupScreen(
         val deviceId = android.provider.Settings.Secure.getString(
             context.contentResolver, android.provider.Settings.Secure.ANDROID_ID,
         )?.takeLast(6) ?: "device"
+        // Probe-verified NNAPI labels join the SoC-name hints, so jobs can
+        // target backends this device actually reports.
         val config = RunnerConfig(
             target.owner, target.name,
             "android-${android.os.Build.MODEL}-$deviceId",
-            capabilities.labels(),
+            capabilities.labels() + NpuLabels.refresh(context),
         )
         scope.launch {
             status = runCatching {

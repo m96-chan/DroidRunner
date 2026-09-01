@@ -86,6 +86,10 @@ trap - EXIT
 
 chmod 1777 "$WORK_DIR/rootfs/tmp"
 
+# Device Agent CLI: lets jobs reach Android-side hardware without knowing the
+# loopback/token plumbing.
+install -Dm755 "$SCRIPT_DIR/droidrunner-device" "$WORK_DIR/rootfs/usr/local/bin/droidrunner-device"
+
 ##
 ## home/runner: official GitHub Actions runner (linux-arm64)
 ##

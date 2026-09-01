@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/npu-device-agent
+      - feature/npu-device-agent-part2
     paths-ignore:
       - "**.md"
   workflow_dispatch:
@@ -13,29 +14,19 @@ permissions:
 
 jobs:
   npu:
-    runs-on: [self-hosted, android, android-npu]
+    runs-on: [self-hosted, android, nnapi-accelerator]
     steps:
-      - name: Device Agent capabilities
-        run: |
-          curl -fsS -H "Authorization: Bearer $DROIDRUNNER_DEVICE_TOKEN" \
-            "$DROIDRUNNER_DEVICE_URL/v1/capabilities" -o capabilities.json
-          cat capabilities.json
-          echo
+      - name: Device capabilities
+        run: droidrunner-device capabilities
+
       - name: NNAPI devices
-        run: |
-          grep -o '"name":"[^"]*"' capabilities.json | sort -u
-      - name: NNAPI ADD benchmark (default device)
-        run: |
-          curl -fsS -X POST -H "Authorization: Bearer $DROIDRUNNER_DEVICE_TOKEN" \
-            -d '{"iterations":200}' \
-            "$DROIDRUNNER_DEVICE_URL/v1/tests/nnapi"
-          echo
-      - name: NNAPI ADD benchmark per device
-        run: |
-          for dev in $(grep -o '"name":"[^"]*"' capabilities.json | cut -d'"' -f4 | sort -u); do
-            echo "=== $dev ==="
-            curl -fsS -X POST -H "Authorization: Bearer $DROIDRUNNER_DEVICE_TOKEN" \
-              -d "{\"iterations\":200,\"device\":\"$dev\"}" \
-              "$DROIDRUNNER_DEVICE_URL/v1/tests/nnapi" || true
-            echo
-          done
+        run: droidrunner-device devices
+
+      - name: CONV_2D benchmark across all accelerators
+        run: droidrunner-device bench-all --iterations 50 --size 64
+
+      - name: CONV_2D on the default (NNAPI-chosen) device
+        run: droidrunner-device test conv --iterations 50 --size 64
+
+      - name: Trivial ADD for comparison
+        run: droidrunner-device test add --iterations 200

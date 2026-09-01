@@ -88,6 +88,7 @@ class DeviceAgentServer(private val context: Context) {
             !authorized -> 401 to """{"error":"missing or invalid capability token"}"""
             method == "GET" && path == "/v1/capabilities" -> 200 to capabilities()
             method == "POST" && path == "/v1/tests/nnapi" -> nnapiTest(body)
+            method == "POST" && path == "/v1/tests/conv" -> convTest(body)
             else -> 404 to """{"error":"unknown endpoint"}"""
         }
         writeResponse(client, response.first, response.second)
@@ -125,6 +126,19 @@ class DeviceAgentServer(private val context: Context) {
 
     private companion object {
         const val PORT = 41999
+    }
+
+    private fun convTest(body: String): Pair<Int, String> {
+        val request = runCatching { JSONObject(body.ifBlank { "{}" }) }.getOrElse {
+            return 400 to """{"error":"invalid JSON body"}"""
+        }
+        return 200 to NnapiProbe.conv(
+            request.optString("device").takeIf { it.isNotBlank() },
+            request.optInt("iterations", 50),
+            request.optInt("size", 64),
+            request.optInt("channels", 16),
+            request.optInt("filters", 16),
+        )
     }
 
     private fun writeResponse(client: Socket, status: Int, json: String) {
