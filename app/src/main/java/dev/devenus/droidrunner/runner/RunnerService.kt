@@ -42,7 +42,7 @@ class RunnerService : Service() {
             val runtime = RuntimeInstaller(this).runtimeDir
             runCatching {
                 check(File(runtime, ".configured").isFile) { "Runner is not configured" }
-                val started = ProcessBuilder(RunnerCommand.run(runtime))
+                val started = RunnerCommand.run(this, runtime)
                     .redirectErrorStream(true)
                     .start()
                 process = started

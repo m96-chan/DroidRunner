@@ -87,6 +87,7 @@ service and streamed to the UI as a `StateFlow`.
 | Repository registration token exchange | Implemented (PoC) |
 | Credential storage in the Keystore (user token / PAT) | Implemented (PoC) |
 | Runtime bundle download + SHA-256 verification | Implemented (PoC) |
+| proot NDK build (in-APK) + runtime bundle CI | Implemented (PoC) |
 | Official runner under PRoot | Implemented (PoC), pending on-device validation |
 | Foreground service with runner-state parsing | Implemented (PoC) |
 | SoC/NPU candidate labels | Implemented (PoC) |
@@ -175,8 +176,12 @@ example above shows the planned interface.
 ```bash
 git clone <repository-url>
 cd DroidRunner
+ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/<version> runtime/build-proot.sh
 gradle assembleDebug
 ```
+
+`build-proot.sh` cross-compiles proot with the NDK into `app/src/main/jniLibs/`
+(required once — Android 10+ can only exec binaries shipped inside the APK).
 
 Resulting APK:
 
@@ -188,8 +193,10 @@ This repository also contains a GitHub Actions build definition.
 
 ## Setup
 
-1. Build an ARM64 runtime bundle following `runtime/README.md`
-2. Publish the bundle and its runtime manifest over HTTPS
+1. Run the **Runtime bundle** GitHub Actions workflow with a `release_tag`
+   (or build with `runtime/build-bundle.sh` on an ARM64 host) — see
+   `runtime/README.md`
+2. Copy the published `runtime-manifest.json` asset URL from the release
 3. Install the DroidRunner APK on the device
 4. Tap **Connect GitHub** in the setup panel — an 8-character code is shown (and
    copied to the clipboard); enter it at `github.com/login/device` and approve
@@ -231,30 +238,33 @@ setup.
 
 ## Runtime bundle
 
-The runtime is not embedded in the APK; it is downloaded during first-time setup. This
-keeps the APK small and lets the Linux environment and the official runner update
+The Linux environment is not embedded in the APK; it is downloaded during first-time
+setup. This keeps the APK small and lets the rootfs and the official runner update
 independently of the APK. No companion app is needed.
+
+proot itself ships **inside the APK** as jniLibs and is executed from
+`nativeLibraryDir`, because Android 10+ refuses to `exec()` binaries stored in app
+data. The downloaded bundle is therefore data only:
 
 ```text
 bundle/
-├── bin/
-│   └── proot
-├── rootfs/
+├── rootfs/            Ubuntu ARM64 base + runner dependencies
 │   ├── bin/
 │   └── usr/
 └── home/
-    └── runner/
+    └── runner/        official Actions runner (linux-arm64)
         ├── config.sh
         ├── run.sh
         └── bin/Runner.Listener
 ```
 
-Manifest format:
+The **Runtime bundle** CI workflow builds and publishes this to a GitHub Release
+together with a matching manifest:
 
 ```json
 {
-  "version": "0.1.0-arm64",
-  "url": "https://example.com/droidrunner-runtime-arm64.tar.gz",
+  "version": "runner-2.337.0-ubuntu-24.04.3",
+  "url": "https://github.com/OWNER/DroidRunner/releases/download/runtime-0.1.0/droidrunner-runtime-arm64.tar.gz",
   "sha256": "..."
 }
 ```

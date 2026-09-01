@@ -42,6 +42,9 @@ android {
     buildFeatures.compose = true
     buildFeatures.buildConfig = true
     packaging.resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+    // proot must exist as real files under nativeLibraryDir so the app can
+    // exec them; run runtime/build-proot.sh once to populate jniLibs.
+    packaging.jniLibs.useLegacyPackaging = true
 }
 
 dependencies {

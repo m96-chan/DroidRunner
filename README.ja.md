@@ -84,6 +84,7 @@ Runnerの状態は、Foreground Serviceが公式Runnerのlistener出力をパー
 | Repository登録トークンの取得 | PoC実装済み |
 | 資格情報のKeystore保存(userトークン / PAT) | PoC実装済み |
 | runtime bundleの取得・SHA-256検証 | PoC実装済み |
+| prootのNDKビルド(APK同梱)+ bundle CI | PoC実装済み |
 | PRootでの公式Runner起動 | PoC実装済み・実機検証待ち |
 | Foreground Service(Runner状態パース付き) | PoC実装済み |
 | SoC/NPU候補ラベル | PoC実装済み |
@@ -170,8 +171,12 @@ jobs:
 ```bash
 git clone <repository-url>
 cd DroidRunner
+ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/<version> runtime/build-proot.sh
 gradle assembleDebug
 ```
+
+`build-proot.sh`はNDKでprootをクロスビルドして`app/src/main/jniLibs/`へ配置します
+(初回に1度必要。Android 10以降はAPK同梱バイナリしかexecできないため)。
 
 生成されるAPK:
 
@@ -183,8 +188,9 @@ app/build/outputs/apk/debug/app-debug.apk
 
 ## セットアップ
 
-1. `runtime/README.md`に従ってARM64 runtime bundleを作成する
-2. bundleとruntime manifestをHTTPSで公開する
+1. GitHub Actionsの**Runtime bundle**ワークフローを`release_tag`付きで実行する
+   (またはARM64ホストで`runtime/build-bundle.sh`を実行)— `runtime/README.md`参照
+2. Releaseに公開された`runtime-manifest.json`のURLを控える
 3. DroidRunner APKを端末へインストールする
 4. setupパネルの**Connect GitHub**を押す — 8桁のコードが表示される(クリップボードへ
    自動コピー)。`github.com/login/device`でコードを入力して承認する
@@ -223,29 +229,32 @@ droidrunner.githubAppSlug=your-app-slug
 
 ## Runtime bundle
 
-runtimeはAPKへ直接含めず、初回セットアップ時に取得します。APKサイズを抑え、Linux環境や
+Linux環境はAPKへ直接含めず、初回セットアップ時に取得します。APKサイズを抑え、rootfsや
 公式RunnerをAPKとは独立して更新するためです。コンパニオンアプリは必要ありません。
+
+proot自体は**APK内のjniLibs**として同梱し、`nativeLibraryDir`から実行します。
+Android 10以降はアプリのデータ領域にあるバイナリを`exec()`できないためです。
+そのためダウンロードするbundleはデータのみです:
 
 ```text
 bundle/
-├── bin/
-│   └── proot
-├── rootfs/
+├── rootfs/            Ubuntu ARM64 base + Runner依存パッケージ
 │   ├── bin/
 │   └── usr/
 └── home/
-    └── runner/
+    └── runner/        公式Actions Runner(linux-arm64)
         ├── config.sh
         ├── run.sh
         └── bin/Runner.Listener
 ```
 
-manifest形式:
+**Runtime bundle** CIワークフローがこれをビルドし、対応するmanifestと一緒に
+GitHub Releaseへ公開します:
 
 ```json
 {
-  "version": "0.1.0-arm64",
-  "url": "https://example.com/droidrunner-runtime-arm64.tar.gz",
+  "version": "runner-2.337.0-ubuntu-24.04.3",
+  "url": "https://github.com/OWNER/DroidRunner/releases/download/runtime-0.1.0/droidrunner-runtime-arm64.tar.gz",
   "sha256": "..."
 }
 ```
