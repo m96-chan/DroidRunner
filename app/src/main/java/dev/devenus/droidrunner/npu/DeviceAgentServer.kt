@@ -34,7 +34,9 @@ class DeviceAgentServer(private val context: Context) {
     fun start() {
         val socket = ServerSocket()
         socket.reuseAddress = true
-        socket.bind(InetSocketAddress(InetAddress.getLoopbackAddress(), port))
+        // Explicit IPv4 loopback: getLoopbackAddress() resolves to ::1 on some
+        // devices, unreachable from the guest's http://127.0.0.1 URL.
+        socket.bind(InetSocketAddress(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), port))
         serverSocket = socket
         thread(name = "device-agent", isDaemon = true) {
             while (!socket.isClosed) {
