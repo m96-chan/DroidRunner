@@ -78,10 +78,18 @@ fun SetupPanel(
     val api = remember { GitHubApi() }
     val clientId = BuildConfig.GITHUB_APP_CLIENT_ID
 
-    val configured = remember { File(runtime.runtimeDir, ".configured").isFile }
-    var expanded by remember { mutableStateOf(!configured) }
-    var status by remember { mutableStateOf(if (runtime.installed) "runtime installed" else "runtime not installed") }
+    // Transient message from the running/last action; null falls back to the
+    // state derived below, so stale errors don't outlive the problem.
+    var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    val configured = remember(runner.state, status, busy) { File(runtime.runtimeDir, ".configured").isFile }
+    var expanded by remember { mutableStateOf(!configured) }
+    val statusText = status ?: when {
+        runner.state != RunnerState.STOPPED -> "runner active"
+        configured -> "registered — press Start"
+        runtime.installed -> "runtime installed — pick a repository"
+        else -> "runtime not installed"
+    }
 
     // GitHub connection state.
     var userToken by remember { mutableStateOf(secretStore.getUserToken()) }
@@ -150,7 +158,7 @@ fun SetupPanel(
                 secretStore.clearPendingAuth()
                 secretStore.putUserToken(token.accessToken)
                 userToken = token.accessToken
-                status = "connected to GitHub"
+                status = null
             }.onFailure {
                 deviceAuth = null
                 if (it is kotlinx.coroutines.CancellationException) throw it
@@ -164,7 +172,7 @@ fun SetupPanel(
 
     fun registerRunner(target: RepositoryRef, credential: String) {
         if (File(runtime.runtimeDir, ".configured").isFile) {
-            status = "already registered — press Start"
+            status = null
             return
         }
         busy = true
@@ -194,7 +202,7 @@ fun SetupPanel(
                     check(process.waitFor() == 0) { output.toString().takeLast(1000) }
                     File(runtime.runtimeDir, ".configured").writeText(config.repositoryUrl)
                 }
-                "registered to ${target.fullName}"
+                null
             }.getOrElse { "failed: ${it.message}" }
             busy = false
         }
@@ -228,13 +236,23 @@ fun SetupPanel(
         ) {
             Text(if (expanded) "▼" else "▶", color = BtopColors.Yellow, style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.width(8.dp))
+            val isError = statusText.startsWith("failed")
             Text(
-                status,
-                color = BtopColors.Dim,
+                statusText,
+                color = if (isError) BtopColors.Red else BtopColors.Dim,
                 style = MaterialTheme.typography.labelMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
+            if (isError) {
+                Text(
+                    "✕",
+                    color = BtopColors.Dim,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.clickable { status = null }.padding(horizontal = 6.dp),
+                )
+            }
         }
         if (!expanded) return@Panel
         Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
@@ -323,7 +341,7 @@ fun SetupPanel(
                     scope.launch {
                         status = runCatching {
                             withContext(Dispatchers.IO) { runtime.install(manifestUrl) { status = "runtime: $it" } }
-                            "runtime installed"
+                            null
                         }.getOrElse { "failed: ${it.message}" }
                         busy = false
                     }
