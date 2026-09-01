@@ -24,8 +24,10 @@ object RunnerCommand {
             ),
         )
 
-    fun run(context: Context, runtimeDir: File): ProcessBuilder =
-        proot(context, runtimeDir, listOf("/home/runner/run.sh"))
+    fun run(context: Context, runtimeDir: File, extraEnv: Map<String, String> = emptyMap()): ProcessBuilder =
+        proot(context, runtimeDir, listOf("/home/runner/run.sh")).also {
+            it.environment().putAll(extraEnv)
+        }
 
     private fun proot(context: Context, dir: File, command: List<String>): ProcessBuilder {
         val nativeDir = context.applicationInfo.nativeLibraryDir

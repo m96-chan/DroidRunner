@@ -8,3 +8,4 @@ runtime/out/
 app/src/main/jniLibs/
 *.jks
 *.keystore
+app/.cxx/
