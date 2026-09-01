@@ -1,0 +1,35 @@
+name: Device CI smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: [self-hosted, android, arm64]
+    steps:
+      - name: Checkout (JavaScript action on bundled node)
+        uses: actions/checkout@v4
+
+      - name: Inspect workspace
+        run: |
+          pwd
+          git log --oneline -3
+          ls -la | head
+
+      - name: Toolchain versions
+        run: |
+          git --version
+          curl --version | head -1
+          "$RUNNER_TOOL_CACHE/../externals/node20/bin/node" --version || node --version || true
+
+      - name: Tiny build task
+        run: |
+          cat > /tmp/hello.c <<'EOF'
+          int main() { return 0; }
+          EOF
+          echo "runner user: $(id)"
+          echo "labels say this phone has an NPU candidate: MediaTek Neuron"
+          sha256sum README.md
