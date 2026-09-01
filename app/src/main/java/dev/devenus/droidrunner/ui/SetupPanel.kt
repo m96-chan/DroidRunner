@@ -173,7 +173,7 @@ fun SetupPanel(
                 config.validate()?.let { error(it) }
                 withContext(Dispatchers.IO) {
                     val token = api.createRegistrationToken(target.owner, target.name, credential)
-                    val process = ProcessBuilder(RunnerCommand.configure(runtime.runtimeDir, config, token))
+                    val process = RunnerCommand.configure(context, runtime.runtimeDir, config, token)
                         .redirectErrorStream(true).start()
                     val output = process.inputStream.bufferedReader().readText()
                     check(process.waitFor() == 0) { output.takeLast(1000) }

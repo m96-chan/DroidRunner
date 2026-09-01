@@ -27,9 +27,12 @@ class RuntimeInstaller(private val context: Context) {
         progress("extract")
         val staging = File(context.filesDir, "runner-runtime.new").apply { deleteRecursively(); mkdirs() }
         extractTarGz(archive, staging)
-        File(staging, "bin/proot").setExecutable(true)
+        // The bundle is data only (proot ships inside the APK): validate the
+        // pieces the runner needs before activating it.
+        check(File(staging, "rootfs/usr/bin/env").exists()) { "Runtime bundle has no rootfs" }
+        check(File(staging, "home/runner/run.sh").isFile) { "Runtime bundle has no runner" }
         File(staging, "home/runner/run.sh").setExecutable(true)
-        check(File(staging, "bin/proot").canExecute()) { "Runtime bundle has no executable proot" }
+        File(staging, "home/runner/config.sh").setExecutable(true)
         File(staging, ".installed").writeText(manifest.version)
         runtimeDir.deleteRecursively()
         check(staging.renameTo(runtimeDir)) { "Cannot activate runtime" }

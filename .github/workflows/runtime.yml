@@ -1,0 +1,55 @@
+name: Runtime bundle
+
+on:
+  pull_request:
+    paths:
+      - "runtime/**"
+      - ".github/workflows/runtime.yml"
+  workflow_dispatch:
+    inputs:
+      runner_version:
+        description: "actions/runner version without v (blank = latest)"
+        required: false
+        default: ""
+      release_tag:
+        description: "Publish a GitHub release with this tag (blank = artifact only)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build runtime bundle
+        env:
+          RUNNER_VERSION: ${{ inputs.runner_version }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: sudo -E runtime/build-bundle.sh
+
+      - name: Upload artifact
+        if: github.event_name != 'workflow_dispatch' || inputs.release_tag == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: droidrunner-runtime-arm64
+          path: |
+            runtime/out/droidrunner-runtime-arm64.tar.gz
+            runtime/out/runtime-manifest.json
+
+      - name: Publish release
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag='${{ inputs.release_tag }}'
+          gh release create "$tag" --title "Runtime bundle $tag" \
+            --notes "ARM64 runtime bundle: Ubuntu rootfs + official Actions runner. Point the app at runtime-manifest.json below." \
+            || true
+          gh release upload "$tag" --clobber \
+            runtime/out/droidrunner-runtime-arm64.tar.gz \
+            runtime/out/runtime-manifest.json
