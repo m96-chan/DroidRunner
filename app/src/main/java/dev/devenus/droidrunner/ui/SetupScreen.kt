@@ -115,6 +115,24 @@ fun SetupScreen(
     var loadingRepos by remember { mutableStateOf(false) }
     var selectedRepo by remember { mutableStateOf<RepositoryRef?>(null) }
 
+    // Battery-optimization exemption keeps Doze from throttling the runner
+    // when the device sits idle and unplugged. Re-checked on resume because
+    // the grant happens in a system dialog outside the app.
+    val powerManager = remember { context.getSystemService(android.os.PowerManager::class.java) }
+    var batteryExempt by remember {
+        mutableStateOf(powerManager.isIgnoringBatteryOptimizations(context.packageName))
+    }
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                batteryExempt = powerManager.isIgnoringBatteryOptimizations(context.packageName)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     var advanced by remember { mutableStateOf(false) }
     var owner by remember { mutableStateOf(prefs.getString("owner", "").orEmpty()) }
     var repo by remember { mutableStateOf(prefs.getString("repo", "").orEmpty()) }
@@ -372,6 +390,42 @@ fun SetupScreen(
                     "no runtime release found — set a manifest URL under advanced",
                     color = BtopColors.Yellow,
                     style = MaterialTheme.typography.labelMedium,
+                )
+            }
+        }
+
+        Panel("power", titleColor = BtopColors.Cyan) {
+            if (batteryExempt) {
+                Text(
+                    "battery optimization: exempt — safe for long-running operation",
+                    color = BtopColors.Green,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            } else {
+                Text(
+                    "battery optimization is active — Android may throttle the runner " +
+                        "while the device is idle and unplugged",
+                    color = BtopColors.Yellow,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Spacer(Modifier.padding(top = 8.dp))
+                Button(
+                    onClick = {
+                        context.startActivity(
+                            Intent(
+                                android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                Uri.parse("package:${context.packageName}"),
+                            ),
+                        )
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Yellow, contentColor = BtopColors.Background),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Disable battery optimization") }
+                Spacer(Modifier.padding(top = 4.dp))
+                Text(
+                    "Xiaomi/HyperOS: also set Battery saver to \"No restrictions\" and enable Autostart.",
+                    color = BtopColors.Dim,
+                    style = MaterialTheme.typography.labelSmall,
                 )
             }
         }
