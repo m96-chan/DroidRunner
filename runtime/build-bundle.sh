@@ -35,8 +35,9 @@ die() {
 command -v curl >/dev/null || die "curl is required"
 
 if [ -z "${RUNNER_VERSION:-}" ]; then
-    RUNNER_VERSION="$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest \
-        | grep -om1 '"tag_name": *"v[^"]*"' | sed 's/.*"v\([^"]*\)".*/\1/')"
+    release_json="$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest)" \
+        || die "Unable to query actions/runner releases"
+    RUNNER_VERSION="$(sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' <<<"$release_json" | head -n1)"
     [ -n "$RUNNER_VERSION" ] || die "Unable to resolve latest actions/runner version"
 fi
 echo "==> actions/runner v$RUNNER_VERSION, ubuntu-base $UBUNTU_VERSION"
