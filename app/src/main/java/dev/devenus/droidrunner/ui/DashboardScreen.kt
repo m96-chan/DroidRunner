@@ -1,8 +1,6 @@
 package dev.devenus.droidrunner.ui
 
-import android.content.Context
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,43 +9,28 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.devenus.droidrunner.device.DeviceCapabilities
-import dev.devenus.droidrunner.github.GitHubApi
-import dev.devenus.droidrunner.model.RunnerConfig
 import dev.devenus.droidrunner.monitor.SystemMonitor
 import dev.devenus.droidrunner.monitor.SystemSnapshot
-import dev.devenus.droidrunner.runner.RunnerCommand
 import dev.devenus.droidrunner.runner.RunnerSnapshot
 import dev.devenus.droidrunner.runner.RunnerState
 import dev.devenus.droidrunner.runner.RunnerStatus
 import dev.devenus.droidrunner.runtime.RuntimeInstaller
 import dev.devenus.droidrunner.security.SecretStore
 import dev.devenus.droidrunner.ui.theme.BtopColors
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
 
 @Composable
@@ -245,132 +228,6 @@ private fun RunnerPanel(runner: RunnerSnapshot, runtime: RuntimeInstaller) {
             }
         }
     }
-}
-
-@Composable
-private fun SetupPanel(
-    capabilities: DeviceCapabilities,
-    runtime: RuntimeInstaller,
-    secretStore: SecretStore,
-    runner: RunnerSnapshot,
-    onStartRunner: () -> Unit,
-    onStopRunner: () -> Unit,
-) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val prefs = remember { context.getSharedPreferences("setup", Context.MODE_PRIVATE) }
-    val scope = rememberCoroutineScope()
-    val configured = remember { File(runtime.runtimeDir, ".configured").isFile }
-    var expanded by remember { mutableStateOf(!configured) }
-    var owner by remember { mutableStateOf(prefs.getString("owner", "").orEmpty()) }
-    var repo by remember { mutableStateOf(prefs.getString("repo", "").orEmpty()) }
-    var pat by remember { mutableStateOf(secretStore.getPat().orEmpty()) }
-    var manifestUrl by remember { mutableStateOf(prefs.getString("manifest", "").orEmpty()) }
-    var status by remember { mutableStateOf(if (runtime.installed) "runtime installed" else "runtime not installed") }
-    var busy by remember { mutableStateOf(false) }
-
-    Panel("setup", titleColor = BtopColors.Yellow) {
-        Row(
-            Modifier.fillMaxWidth().clickable { expanded = !expanded },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(if (expanded) "▼" else "▶", color = BtopColors.Yellow, style = MaterialTheme.typography.labelMedium)
-            Spacer(Modifier.width(8.dp))
-            Text(status, color = BtopColors.Dim, style = MaterialTheme.typography.labelMedium)
-        }
-        if (expanded) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                SetupField(owner, { owner = it }, "GitHub owner")
-                SetupField(repo, { repo = it }, "Repository")
-                SetupField(pat, { pat = it }, "Fine-grained PAT")
-                SetupField(manifestUrl, { manifestUrl = it }, "Runtime manifest URL")
-
-                Button(
-                    enabled = !busy && manifestUrl.isNotBlank(),
-                    colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Cyan, contentColor = BtopColors.Background),
-                    onClick = {
-                        busy = true
-                        prefs.edit().putString("manifest", manifestUrl).apply()
-                        scope.launch {
-                            status = runCatching {
-                                withContext(Dispatchers.IO) { runtime.install(manifestUrl) { status = "runtime: $it" } }
-                                "runtime installed"
-                            }.getOrElse { "failed: ${it.message}" }
-                            busy = false
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Install runtime") }
-
-                Button(
-                    enabled = !busy && runtime.installed && owner.isNotBlank() && repo.isNotBlank() && pat.isNotBlank(),
-                    colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Green, contentColor = BtopColors.Background),
-                    onClick = {
-                        busy = true
-                        prefs.edit().putString("owner", owner).putString("repo", repo).apply()
-                        val deviceId = android.provider.Settings.Secure.getString(
-                            context.contentResolver, android.provider.Settings.Secure.ANDROID_ID,
-                        )?.takeLast(6) ?: "device"
-                        val config = RunnerConfig(
-                            owner, repo,
-                            "android-${android.os.Build.MODEL}-$deviceId",
-                            capabilities.labels(),
-                        )
-                        scope.launch {
-                            status = runCatching {
-                                config.validate()?.let { error(it) }
-                                secretStore.putPat(pat)
-                                withContext(Dispatchers.IO) {
-                                    val token = GitHubApi().createRegistrationToken(owner, repo, pat)
-                                    val process = ProcessBuilder(RunnerCommand.configure(runtime.runtimeDir, config, token))
-                                        .redirectErrorStream(true).start()
-                                    val output = process.inputStream.bufferedReader().readText()
-                                    check(process.waitFor() == 0) { output.takeLast(1000) }
-                                    File(runtime.runtimeDir, ".configured").writeText(config.repositoryUrl)
-                                }
-                                "registered to $owner/$repo"
-                            }.getOrElse { "failed: ${it.message}" }
-                            busy = false
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Register repository") }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        enabled = runtime.installed && !busy && runner.state == RunnerState.STOPPED,
-                        colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Green, contentColor = BtopColors.Background),
-                        onClick = onStartRunner,
-                        modifier = Modifier.weight(1f),
-                    ) { Text("Start") }
-                    OutlinedButton(
-                        enabled = runner.state != RunnerState.STOPPED,
-                        onClick = onStopRunner,
-                        modifier = Modifier.weight(1f),
-                    ) { Text("Stop") }
-                }
-                Text(
-                    "Never route untrusted fork PRs to this runner. Jobs can read data on this device.",
-                    color = BtopColors.Red,
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SetupField(value: String, onChange: (String) -> Unit, label: String) {
-    OutlinedTextField(
-        value, onChange,
-        label = { Text(label, style = MaterialTheme.typography.labelMedium) },
-        singleLine = true,
-        textStyle = MaterialTheme.typography.bodyMedium,
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = BtopColors.Cyan,
-            unfocusedBorderColor = BtopColors.Border,
-        ),
-        modifier = Modifier.fillMaxWidth(),
-    )
 }
 
 private fun RunnerState.label(): String = when (this) {

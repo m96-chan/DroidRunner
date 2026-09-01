@@ -17,6 +17,11 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+
+        // Public identifiers of the DroidRunner GitHub App used for device-flow login.
+        // Self-builders register their own app and set these in gradle.properties.
+        buildConfigField("String", "GITHUB_APP_CLIENT_ID", "\"${project.findProperty("droidrunner.githubAppClientId") ?: ""}\"")
+        buildConfigField("String", "GITHUB_APP_SLUG", "\"${project.findProperty("droidrunner.githubAppSlug") ?: ""}\"")
     }
 
     buildTypes {
@@ -35,6 +40,7 @@ android {
     }
     kotlinOptions.jvmTarget = "17"
     buildFeatures.compose = true
+    buildFeatures.buildConfig = true
     packaging.resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
 }
 

@@ -29,6 +29,7 @@ Android端末固有のNNAPIやベンダーNPUをCIから検証できる端末プ
 - **root不要** — PRoot上でLinux ARM64環境を実行
 - **公式Runner** — GitHub公式のLinux ARM64 Actions Runnerを使用
 - **Repository限定** — 初期バージョンでは1つのRepositoryだけへ登録
+- **GitHub Appログイン** — Device Flowでサインインしてリポジトリを選ぶだけ。PATの手動発行は不要
 - **端末自動分類** — Android API、SoC、NPU候補からRunnerラベルを生成
 - **安全な資格情報管理** — PATをAndroid Keystoreで暗号化
 - **バックグラウンド待機** — Foreground ServiceとWakeLockでRunnerを維持
@@ -79,8 +80,9 @@ Runnerの状態は、Foreground Serviceが公式Runnerのlistener出力をパー
 | 機能 | 状態 |
 | --- | --- |
 | btop風ダッシュボードUI | PoC実装済み |
+| GitHub App Device Flowログイン+リポジトリ選択 | PoC実装済み |
 | Repository登録トークンの取得 | PoC実装済み |
-| PATのKeystore保存 | PoC実装済み |
+| 資格情報のKeystore保存(userトークン / PAT) | PoC実装済み |
 | runtime bundleの取得・SHA-256検証 | PoC実装済み |
 | PRootでの公式Runner起動 | PoC実装済み・実機検証待ち |
 | Foreground Service(Runner状態パース付き) | PoC実装済み |
@@ -184,14 +186,40 @@ app/build/outputs/apk/debug/app-debug.apk
 1. `runtime/README.md`に従ってARM64 runtime bundleを作成する
 2. bundleとruntime manifestをHTTPSで公開する
 3. DroidRunner APKを端末へインストールする
-4. 対象Repositoryだけに限定したfine-grained PATを作成する
-5. アプリのsetupパネルへGitHub owner、Repository、PAT、manifest URLを入力する
-6. **Install runtime**を押す
-7. **Register repository**を押す
-8. **Start**を押してRunnerを待機状態にする
+4. setupパネルの**Connect GitHub**を押す — 8桁のコードが表示される(クリップボードへ
+   自動コピー)。`github.com/login/device`でコードを入力して承認する
+5. DroidRunner GitHub Appがどのリポジトリにも未インストールの場合、アプリが
+   インストールを促すので、Runnerを割り当てたいリポジトリへインストールする
+6. リストからリポジトリを選択する
+7. Runtime manifest URLを入力して**Install runtime**を押す
+8. **Register \<owner\>/\<repo\>**を押す
+9. **Start**を押してRunnerを待機状態にする
 
-PATには、対象Repositoryのself-hosted runner登録トークンを発行できる管理権限が必要です。
-PAT自体はLinux環境へ渡さず、Android Controllerが短時間有効な登録トークンへ交換します。
+サインインはGitHub AppのDevice Flowを使うため、APKにclient secretは含まれず、
+PATを手動で発行する必要もありません。userトークンはAndroid Keystoreで暗号化され、
+Linux環境へは渡りません。Controllerが短時間有効な登録トークンへ交換します。
+
+手動フォールバック(`advanced: manual PAT setup`)では、対象Repositoryの
+Administration read/write権限を持つfine-grained PATを使えます(GitHub Enterprise
+ServerやGitHub Appなしビルド向け)。
+
+### GitHub Appの登録(セルフビルド向け)
+
+Device FlowにはGitHub Appの登録が必要です(無料・サーバー不要・1回だけ):
+
+1. GitHub → Settings → Developer settings → **New GitHub App**
+2. Repository permissionで**Administration: Read and write**を付与。webhookは不要
+3. **Device flow**を有効化
+4. 推奨: user access tokenの有効期限をオプトアウト(Optional features)しておくと
+   リフレッシュ処理が不要になる
+5. 公開識別子を`gradle.properties`へ設定する:
+
+```properties
+droidrunner.githubAppClientId=Iv1.xxxxxxxxxxxxxxxx
+droidrunner.githubAppSlug=your-app-slug
+```
+
+未設定の場合、アプリはGitHubログインを表示せず、手動PATセットアップだけを提供します。
 
 ## Runtime bundle
 

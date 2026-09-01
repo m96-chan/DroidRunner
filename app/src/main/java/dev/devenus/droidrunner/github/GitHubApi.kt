@@ -4,27 +4,76 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
+data class Installation(val id: Long, val account: String, val appSlug: String)
+
+data class RepositoryRef(val owner: String, val name: String) {
+    val fullName: String get() = "$owner/$name"
+}
+
 class GitHubApi {
-    fun createRegistrationToken(owner: String, repo: String, pat: String): String {
-        val url = URL("https://api.github.com/repos/$owner/$repo/actions/runners/registration-token")
-        val connection = (url.openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
+    fun createRegistrationToken(owner: String, repo: String, token: String): String =
+        request("POST", "https://api.github.com/repos/$owner/$repo/actions/runners/registration-token", token)
+            .getString("token")
+
+    /** Installations of the DroidRunner GitHub App visible to the signed-in user. */
+    fun listInstallations(token: String): List<Installation> {
+        val installations = request("GET", "https://api.github.com/user/installations?per_page=100", token)
+            .getJSONArray("installations")
+        return (0 until installations.length()).map { index ->
+            val installation = installations.getJSONObject(index)
+            Installation(
+                id = installation.getLong("id"),
+                account = installation.optJSONObject("account")?.optString("login").orEmpty(),
+                appSlug = installation.optString("app_slug"),
+            )
+        }
+    }
+
+    /** Repositories the given installation grants this user access to. */
+    fun listInstallationRepositories(token: String, installationId: Long): List<RepositoryRef> {
+        val repos = mutableListOf<RepositoryRef>()
+        var page = 1
+        while (page <= MAX_PAGES) {
+            val batch = request(
+                "GET",
+                "https://api.github.com/user/installations/$installationId/repositories?per_page=100&page=$page",
+                token,
+            ).getJSONArray("repositories")
+            for (index in 0 until batch.length()) {
+                val fullName = batch.getJSONObject(index).getString("full_name")
+                repos += RepositoryRef(fullName.substringBefore('/'), fullName.substringAfter('/'))
+            }
+            if (batch.length() < 100) break
+            page++
+        }
+        return repos
+    }
+
+    private fun request(method: String, url: String, token: String): JSONObject {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = method
             connectTimeout = 15_000
             readTimeout = 15_000
-            doOutput = true
             setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("Authorization", "Bearer $pat")
+            setRequestProperty("Authorization", "Bearer $token")
             setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
             setRequestProperty("User-Agent", "DroidRunner/0.1")
-            setFixedLengthStreamingMode(0)
+            if (method == "POST") {
+                doOutput = true
+                setFixedLengthStreamingMode(0)
+            }
         }
-        connection.outputStream.use { }
+        if (method == "POST") connection.outputStream.use { }
         val body = (if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream)
             .bufferedReader().use { it.readText() }
-        if (connection.responseCode != 201) {
+        if (connection.responseCode !in 200..299) {
             val message = runCatching { JSONObject(body).optString("message") }.getOrNull() ?: body
             error("GitHub API ${connection.responseCode}: $message")
         }
-        return JSONObject(body).getString("token")
+        return JSONObject(body)
+    }
+
+    private companion object {
+        const val MAX_PAGES = 5
     }
 }

@@ -13,24 +13,42 @@ import javax.crypto.spec.GCMParameterSpec
 class SecretStore(context: Context) {
     private val prefs = context.getSharedPreferences("secrets", Context.MODE_PRIVATE)
 
-    fun putPat(value: String) {
+    fun putPat(value: String) = putSecret(PAT, value)
+
+    fun getPat(): String? = getSecret(PAT)
+
+    fun putUserToken(value: String) = putSecret(USER_TOKEN, value)
+
+    fun getUserToken(): String? = getSecret(USER_TOKEN)
+
+    fun clearUserToken() = prefs.edit().remove(USER_TOKEN).apply()
+
+    fun putPendingAuth(value: String) = putSecret(PENDING_AUTH, value)
+
+    fun getPendingAuth(): String? = getSecret(PENDING_AUTH)
+
+    fun clearPendingAuth() = prefs.edit().remove(PENDING_AUTH).apply()
+
+    fun clear() = prefs.edit().clear().apply()
+
+    private fun putSecret(name: String, value: String) {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key())
         val packed = cipher.iv + cipher.doFinal(value.toByteArray(Charsets.UTF_8))
-        prefs.edit().putString(PAT, Base64.encodeToString(packed, Base64.NO_WRAP)).apply()
+        // commit(): these writes must survive an imminent process death (the OS
+        // often kills the app while the user approves the code in the browser).
+        prefs.edit().putString(name, Base64.encodeToString(packed, Base64.NO_WRAP)).commit()
     }
 
-    fun getPat(): String? {
-        val encoded = prefs.getString(PAT, null) ?: return null
+    private fun getSecret(name: String): String? {
+        val encoded = prefs.getString(name, null) ?: return null
         return runCatching {
-        val packed = Base64.decode(encoded, Base64.NO_WRAP)
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, packed.copyOfRange(0, 12)))
-        cipher.doFinal(packed.copyOfRange(12, packed.size)).toString(Charsets.UTF_8)
+            val packed = Base64.decode(encoded, Base64.NO_WRAP)
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, packed.copyOfRange(0, 12)))
+            cipher.doFinal(packed.copyOfRange(12, packed.size)).toString(Charsets.UTF_8)
         }.getOrNull()
     }
-
-    fun clear() = prefs.edit().clear().apply()
 
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -47,6 +65,8 @@ class SecretStore(context: Context) {
     private companion object {
         const val ALIAS = "droidrunner-pat"
         const val PAT = "github_pat"
+        const val USER_TOKEN = "github_user_token"
+        const val PENDING_AUTH = "github_pending_auth"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
     }
 }

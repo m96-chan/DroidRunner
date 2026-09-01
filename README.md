@@ -32,6 +32,7 @@ real hardware.
 - **No root** — runs a Linux ARM64 environment on top of PRoot
 - **Official runner** — uses GitHub's official Linux ARM64 Actions Runner
 - **Repository-scoped** — the initial version registers with exactly one repository
+- **GitHub App login** — device-flow sign-in with a repository picker; no manual PAT handling
 - **Automatic device classification** — generates runner labels from Android API level, SoC, and NPU hints
 - **Safe credential handling** — encrypts the PAT with the Android Keystore
 - **Background standby** — keeps the runner alive with a Foreground Service and a wake lock
@@ -82,8 +83,9 @@ service and streamed to the UI as a `StateFlow`.
 | Feature | Status |
 | --- | --- |
 | btop-style dashboard UI | Implemented (PoC) |
+| GitHub App device-flow login + repository picker | Implemented (PoC) |
 | Repository registration token exchange | Implemented (PoC) |
-| PAT storage in the Keystore | Implemented (PoC) |
+| Credential storage in the Keystore (user token / PAT) | Implemented (PoC) |
 | Runtime bundle download + SHA-256 verification | Implemented (PoC) |
 | Official runner under PRoot | Implemented (PoC), pending on-device validation |
 | Foreground service with runner-state parsing | Implemented (PoC) |
@@ -189,15 +191,43 @@ This repository also contains a GitHub Actions build definition.
 1. Build an ARM64 runtime bundle following `runtime/README.md`
 2. Publish the bundle and its runtime manifest over HTTPS
 3. Install the DroidRunner APK on the device
-4. Create a fine-grained PAT restricted to the target repository only
-5. Enter the GitHub owner, repository, PAT, and manifest URL in the app's setup panel
-6. Tap **Install runtime**
-7. Tap **Register repository**
-8. Tap **Start** to put the runner into standby
+4. Tap **Connect GitHub** in the setup panel — an 8-character code is shown (and
+   copied to the clipboard); enter it at `github.com/login/device` and approve
+5. If the DroidRunner GitHub App is not installed on any of your repositories, the app
+   prompts you to install it — install it on the repository this runner should serve
+6. Pick the repository from the list
+7. Enter the runtime manifest URL and tap **Install runtime**
+8. Tap **Register \<owner\>/\<repo\>**
+9. Tap **Start** to put the runner into standby
 
-The PAT needs the administration permission that can issue self-hosted runner
-registration tokens for the target repository. The PAT itself never enters the Linux
-environment; the Android controller exchanges it for a short-lived registration token.
+Sign-in uses the GitHub App device flow, so no client secret is embedded in the APK
+and no PAT has to be created by hand. The user token is encrypted with the Android
+Keystore and never enters the Linux environment; the controller exchanges it for a
+short-lived registration token.
+
+A manual fallback (`advanced: manual PAT setup`) accepts a fine-grained PAT with the
+repository Administration read/write permission, for GitHub Enterprise Server or
+builds without a GitHub App.
+
+### GitHub App registration (for self-builders)
+
+The device flow needs a GitHub App identity. Register one once (free, no server
+required):
+
+1. GitHub → Settings → Developer settings → **New GitHub App**
+2. Repository permission **Administration: Read and write**; no webhook
+3. Enable **Device flow**
+4. Recommended: opt out of user access token expiration (Optional features), so the
+   login does not need refresh handling
+5. Put the public identifiers into `gradle.properties`:
+
+```properties
+droidrunner.githubAppClientId=Iv1.xxxxxxxxxxxxxxxx
+droidrunner.githubAppSlug=your-app-slug
+```
+
+Without these values the app hides the GitHub login and offers only the manual PAT
+setup.
 
 ## Runtime bundle
 
