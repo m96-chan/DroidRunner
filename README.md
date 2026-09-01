@@ -88,7 +88,7 @@ service and streamed to the UI as a `StateFlow`.
 | Credential storage in the Keystore (user token / PAT) | Implemented (PoC) |
 | Runtime bundle download + SHA-256 verification | Implemented (PoC) |
 | proot NDK build (in-APK) + runtime bundle CI | Implemented (PoC) |
-| Official runner under PRoot | Implemented (PoC), pending on-device validation |
+| Official runner under PRoot | Verified on-device (job executed successfully) |
 | Foreground service with runner-state parsing | Implemented (PoC) |
 | SoC/NPU candidate labels | Implemented (PoC) |
 | Charging / thermal / storage admission control | Designed, not implemented |

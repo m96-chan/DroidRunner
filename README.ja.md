@@ -85,7 +85,7 @@ Runnerの状態は、Foreground Serviceが公式Runnerのlistener出力をパー
 | 資格情報のKeystore保存(userトークン / PAT) | PoC実装済み |
 | runtime bundleの取得・SHA-256検証 | PoC実装済み |
 | prootのNDKビルド(APK同梱)+ bundle CI | PoC実装済み |
-| PRootでの公式Runner起動 | PoC実装済み・実機検証待ち |
+| PRootでの公式Runner起動 | 実機検証済み(ジョブ実行成功) |
 | Foreground Service(Runner状態パース付き) | PoC実装済み |
 | SoC/NPU候補ラベル | PoC実装済み |
 | 充電・温度・ストレージ制御 | 設計済み・未実装 |
