@@ -93,7 +93,7 @@ service and streamed to the UI as a `StateFlow`.
 | Official runner under PRoot | Verified on-device (job executed successfully) |
 | Foreground service with runner-state parsing | Implemented (PoC) |
 | SoC/NPU candidate labels | Implemented (PoC) |
-| Charging / thermal / storage admission control | Designed, not implemented |
+| Charging / thermal / storage admission control | Implemented (PoC) |
 | NPU Device Agent (loopback API, NNAPI probes, CLI) | Implemented (PoC) |
 | Probe-verified NNAPI labels | Implemented (PoC) |
 | Arbitrary model (`.tflite`) execution | Designed, not implemented |
@@ -338,7 +338,7 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 
 - [ ] Stabilize the runtime bootstrap on real devices, following GABE
 - [ ] Generate a GPL-compliant runtime source archive and SBOM
-- [ ] Job admission control based on battery, charging, thermal, and free storage
+- [x] Job admission control based on battery, charging, thermal, and free storage
 - [ ] Automatic runner updates and crash recovery
 - [ ] Device Agent with per-job capability tokens
 - [ ] NNAPI capability probe and smoke test

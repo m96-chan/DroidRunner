@@ -90,7 +90,7 @@ Runnerの状態は、Foreground Serviceが公式Runnerのlistener出力をパー
 | PRootでの公式Runner起動 | 実機検証済み(ジョブ実行成功) |
 | Foreground Service(Runner状態パース付き) | PoC実装済み |
 | SoC/NPU候補ラベル | PoC実装済み |
-| 充電・温度・ストレージ制御 | 設計済み・未実装 |
+| 充電・温度・ストレージ制御 | PoC実装済み |
 | NPU Device Agent(loopback API・NNAPI probe・CLI) | PoC実装済み |
 | probe検証済みNNAPIラベル | PoC実装済み |
 | 任意モデル(`.tflite`)の実行 | 設計済み・未実装 |
@@ -329,7 +329,7 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 
 - [ ] GABEを参考にruntime bootstrapを実機で安定化
 - [ ] GPL対応のruntime source archiveとSBOMを生成
-- [ ] バッテリー・充電・温度・空き容量によるジョブ受付制御
+- [x] バッテリー・充電・温度・空き容量によるジョブ受付制御
 - [ ] Runnerの自動更新と異常終了時の復旧
 - [ ] per-job capability token付きDevice Agent
 - [ ] NNAPI capability probeとsmoke test
