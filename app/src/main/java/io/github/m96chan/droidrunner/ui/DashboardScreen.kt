@@ -18,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -55,7 +56,6 @@ fun DashboardScreen(
             .fillMaxSize()
             .background(BtopColors.Background)
             .safeDrawingPadding()
-            .verticalScroll(rememberScrollState())
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -66,8 +66,9 @@ fun DashboardScreen(
             DiskPanel(system, Modifier.weight(1f))
         }
         PowerNetPanel(system)
-        RunnerPanel(runner, runtime, onStartRunner, onStopRunner)
-        Spacer(Modifier.padding(bottom = 8.dp))
+        // Claims the space the monitors leave, so the log grows with the
+        // screen instead of stranding an empty gap below the panel.
+        RunnerPanel(runner, runtime, onStartRunner, onStopRunner, Modifier.weight(1f))
     }
 }
 
@@ -187,12 +188,13 @@ private fun RunnerPanel(
     runtime: RuntimeInstaller,
     onStartRunner: () -> Unit,
     onStopRunner: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     // Keyed on state + log growth so a fresh registration shows up immediately.
     val configuredRepo = remember(runner.state, runner.recentLog.size) {
         runCatching { File(runtime.runtimeDir, ".configured").readText().trim() }.getOrNull()
     }
-    Panel("runner", titleColor = BtopColors.Green) {
+    Panel("runner", modifier, titleColor = BtopColors.Green, fillHeight = true) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("● ", color = runner.state.color(), style = MaterialTheme.typography.bodyLarge)
             Text(runner.state.label(), color = runner.state.color(), style = MaterialTheme.typography.bodyMedium)
@@ -232,23 +234,26 @@ private fun RunnerPanel(
                 )
             }
         }
-        if (runner.recentLog.isNotEmpty()) {
-            Spacer(Modifier.padding(top = 6.dp))
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .background(BtopColors.Background)
-                    .padding(6.dp),
-            ) {
-                runner.recentLog.takeLast(8).forEach { line ->
-                    Text(
-                        line,
-                        color = BtopColors.Dim,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+        Spacer(Modifier.padding(top = 6.dp))
+        val logScroll = rememberScrollState()
+        // Newest lines stay in view as the runner talks.
+        LaunchedEffect(runner.recentLog.size) { logScroll.animateScrollTo(logScroll.maxValue) }
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .background(BtopColors.Background)
+                .verticalScroll(logScroll)
+                .padding(6.dp),
+        ) {
+            runner.recentLog.forEach { line ->
+                Text(
+                    line,
+                    color = BtopColors.Dim,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
         Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

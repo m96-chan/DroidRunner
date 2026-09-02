@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -38,12 +39,15 @@ fun Panel(
     title: String,
     modifier: Modifier = Modifier,
     titleColor: Color = BtopColors.Cyan,
+    /** Grow to the height handed down, so a panel can claim leftover screen. */
+    fillHeight: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Box(modifier.padding(top = 7.dp)) {
         Column(
             Modifier
                 .fillMaxWidth()
+                .then(if (fillHeight) Modifier.fillMaxHeight() else Modifier)
                 .border(1.dp, BtopColors.Border, RoundedCornerShape(6.dp))
                 .background(BtopColors.Panel, RoundedCornerShape(6.dp))
                 .padding(horizontal = 12.dp, vertical = 12.dp),
