@@ -52,6 +52,8 @@ import dev.devenus.droidrunner.github.RepositoryRef
 import dev.devenus.droidrunner.github.storedDeviceAuthorization
 import dev.devenus.droidrunner.github.toStoredJson
 import dev.devenus.droidrunner.model.RunnerConfig
+import dev.devenus.droidrunner.runner.AdmissionThresholds
+import dev.devenus.droidrunner.runner.ThermalStatus
 import dev.devenus.droidrunner.npu.NpuLabels
 import dev.devenus.droidrunner.runner.RunnerCommand
 import dev.devenus.droidrunner.runner.RunnerState
@@ -397,6 +399,47 @@ fun SetupScreen(
             }
         }
 
+        Panel("job policy", titleColor = BtopColors.Cyan) {
+            var thresholds by remember { mutableStateOf(AdmissionThresholds.load(context)) }
+            fun update(next: AdmissionThresholds) {
+                thresholds = next
+                next.save(context)
+            }
+
+            Text(
+                "New jobs are held while the device is unfit; a running job is only " +
+                    "interrupted at critical heat.",
+                color = BtopColors.Dim,
+                style = MaterialTheme.typography.labelSmall,
+            )
+            Spacer(Modifier.padding(top = 8.dp))
+
+            Toggle("require charging", thresholds.requireCharging) {
+                update(thresholds.copy(requireCharging = it))
+            }
+            Spacer(Modifier.padding(top = 6.dp))
+            Choice(
+                "min battery",
+                listOf(0, 20, 30, 50, 80),
+                thresholds.minimumBatteryPercent,
+                { "$it%" },
+            ) { update(thresholds.copy(minimumBatteryPercent = it)) }
+            Spacer(Modifier.padding(top = 6.dp))
+            Choice(
+                "max thermal",
+                listOf(ThermalStatus.NONE, ThermalStatus.LIGHT, ThermalStatus.MODERATE, ThermalStatus.SEVERE),
+                thresholds.maximumThermalStatus,
+                { ThermalStatus.label(it) },
+            ) { update(thresholds.copy(maximumThermalStatus = it)) }
+            Spacer(Modifier.padding(top = 6.dp))
+            Choice(
+                "min free",
+                listOf(512, 1024, 2048, 5120, 10240),
+                thresholds.minimumFreeStorageMb,
+                { if (it >= 1024) "${it / 1024}GB" else "${it}MB" },
+            ) { update(thresholds.copy(minimumFreeStorageMb = it)) }
+        }
+
         Panel("power", titleColor = BtopColors.Cyan) {
             var bootAutostart by remember {
                 mutableStateOf(prefs.getBoolean("boot_autostart", true))
@@ -654,4 +697,56 @@ internal fun SetupField(value: String, onChange: (String) -> Unit, label: String
         ),
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+/** Checkbox-style row, matching the terminal aesthetic. */
+@Composable
+private fun Toggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            if (checked) "[✓]" else "[ ]",
+            color = if (checked) BtopColors.Green else BtopColors.Dim,
+            style = MaterialTheme.typography.labelMedium,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(label, color = BtopColors.Text, style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+/** Inline option row: tapping a value selects it. */
+@Composable
+private fun <T> Choice(
+    label: String,
+    options: List<T>,
+    selected: T,
+    render: (T) -> String,
+    onSelect: (T) -> Unit,
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            label,
+            color = BtopColors.Dim,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.width(96.dp),
+        )
+        options.forEach { option ->
+            val isSelected = option == selected
+            Text(
+                render(option),
+                color = if (isSelected) BtopColors.Background else BtopColors.Dim,
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier
+                    .clickable { onSelect(option) }
+                    .background(
+                        if (isSelected) BtopColors.Cyan else BtopColors.Panel,
+                        RoundedCornerShape(4.dp),
+                    )
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+        }
+    }
 }

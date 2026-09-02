@@ -4,12 +4,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 
-enum class RunnerState { STOPPED, STARTING, LISTENING, JOB_RUNNING }
+enum class RunnerState { STOPPED, STARTING, LISTENING, JOB_RUNNING, PAUSED }
 
 data class RunnerSnapshot(
     val state: RunnerState = RunnerState.STOPPED,
     val startedAtMillis: Long? = null,
     val currentJob: String? = null,
+    /** Why admission control is holding jobs, when [state] is PAUSED. */
+    val pausedReason: String? = null,
     val jobsSucceeded: Int = 0,
     val jobsFailed: Int = 0,
     val recentLog: List<String> = emptyList(),
@@ -73,8 +75,20 @@ object RunnerStatus {
         }
     }
 
+    /** Admission control is holding new jobs; the listener is stopped. */
+    fun onPaused(reason: String) {
+        _snapshot.update { it.copy(state = RunnerState.PAUSED, currentJob = null, pausedReason = reason) }
+    }
+
+    /** Conditions recovered; the listener is starting again. */
+    fun onResumed() {
+        _snapshot.update { it.copy(state = RunnerState.STARTING, pausedReason = null) }
+    }
+
     fun onServiceStopped() {
-        _snapshot.update { it.copy(state = RunnerState.STOPPED, currentJob = null, startedAtMillis = null) }
+        _snapshot.update {
+            it.copy(state = RunnerState.STOPPED, currentJob = null, startedAtMillis = null, pausedReason = null)
+        }
     }
 
     @Synchronized
