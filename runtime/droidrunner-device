@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+#
+# droidrunner-device — talk to the DroidRunner Device Agent from a CI job.
+#
+# The agent runs in the Android app and exposes hardware (NNAPI today) that a
+# process inside the PRoot guest cannot reach. The runner injects
+# DROIDRUNNER_DEVICE_URL and DROIDRUNNER_DEVICE_TOKEN; this wrapper hides the
+# HTTP/token plumbing.
+#
+# Usage:
+#   droidrunner-device capabilities
+#   droidrunner-device devices
+#   droidrunner-device test add  [--device NAME] [--iterations N]
+#   droidrunner-device test conv [--device NAME] [--iterations N]
+#                                [--size N] [--channels N] [--filters N]
+#   droidrunner-device bench-all [--iterations N] [--size N]
+set -euo pipefail
+
+die() { echo "droidrunner-device: $*" >&2; exit 1; }
+
+[ -n "${DROIDRUNNER_DEVICE_URL:-}" ] || die "DROIDRUNNER_DEVICE_URL is not set (is this job running on a DroidRunner device?)"
+command -v curl >/dev/null || die "curl is required"
+
+# The capability token is issued per job and delivered through a file in the
+# app-private runtime directory, so it never sits in the environment (where it
+# would outlive the job and show up in process listings).
+if [ -z "${DROIDRUNNER_DEVICE_TOKEN:-}" ]; then
+    token_file="${DROIDRUNNER_DEVICE_TOKEN_FILE:-/home/runner/.droidrunner-agent-token}"
+    [ -r "$token_file" ] || die "no capability token at $token_file (the agent only issues one while a job runs)"
+    DROIDRUNNER_DEVICE_TOKEN="$(cat "$token_file")"
+fi
+
+api() {
+    local method="$1" path="$2" data="${3:-}"
+    if [ "$method" = "GET" ]; then
+        curl -fsS -H "Authorization: Bearer $DROIDRUNNER_DEVICE_TOKEN" \
+            "$DROIDRUNNER_DEVICE_URL$path"
+    else
+        curl -fsS -X POST -H "Authorization: Bearer $DROIDRUNNER_DEVICE_TOKEN" \
+            -H "Content-Type: application/json" -d "$data" \
+            "$DROIDRUNNER_DEVICE_URL$path"
+    fi
+}
+
+# Device names from the capabilities payload, without needing jq.
+device_names() {
+    api GET /v1/capabilities | grep -o '"name":"[^"]*"' | cut -d'"' -f4
+}
+
+json_field() {  # json_field <json> <key>
+    printf '%s' "$1" | grep -o "\"$2\":[^,}]*" | head -n1 | cut -d: -f2- | tr -d '" '
+}
+
+cmd="${1:-}"
+[ -n "$cmd" ] || { sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+shift || true
+
+case "$cmd" in
+    capabilities)
+        api GET /v1/capabilities
+        echo
+        ;;
+
+    devices)
+        device_names
+        ;;
+
+    test)
+        kind="${1:-}"; shift || true
+        [ -n "$kind" ] || die "usage: droidrunner-device test add|conv [options]"
+        device=""; iterations=""; size=""; channels=""; filters=""
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --device) device="$2"; shift 2 ;;
+                --iterations) iterations="$2"; shift 2 ;;
+                --size) size="$2"; shift 2 ;;
+                --channels) channels="$2"; shift 2 ;;
+                --filters) filters="$2"; shift 2 ;;
+                *) die "unknown option: $1" ;;
+            esac
+        done
+        body="{"
+        [ -n "$device" ] && body="$body\"device\":\"$device\","
+        [ -n "$iterations" ] && body="$body\"iterations\":$iterations,"
+        [ -n "$size" ] && body="$body\"size\":$size,"
+        [ -n "$channels" ] && body="$body\"channels\":$channels,"
+        [ -n "$filters" ] && body="$body\"filters\":$filters,"
+        body="${body%,}}"
+        case "$kind" in
+            add) api POST /v1/tests/nnapi "$body" ;;
+            conv) api POST /v1/tests/conv "$body" ;;
+            *) die "unknown test: $kind (expected add or conv)" ;;
+        esac
+        echo
+        ;;
+
+    bench-all)
+        iterations=50; size=64
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --iterations) iterations="$2"; shift 2 ;;
+                --size) size="$2"; shift 2 ;;
+                *) die "unknown option: $1" ;;
+            esac
+        done
+        printf '%-22s %12s %10s\n' DEVICE AVG_US GFLOPS
+        for dev in $(device_names); do
+            result="$(api POST /v1/tests/conv \
+                "{\"device\":\"$dev\",\"iterations\":$iterations,\"size\":$size}" || true)"
+            if printf '%s' "$result" | grep -q '"ok":true'; then
+                printf '%-22s %12s %10s\n' "$dev" \
+                    "$(json_field "$result" avgUs)" "$(json_field "$result" gflops)"
+            else
+                printf '%-22s %12s %10s\n' "$dev" "-" "$(json_field "$result" error)"
+            fi
+        done
+        ;;
+
+    *)
+        die "unknown command: $cmd"
+        ;;
+esac

@@ -1,0 +1,34 @@
+name: Device NPU probe
+
+on:
+  push:
+    branches:
+      - feature/npu-device-agent
+      - feature/npu-device-agent-part2
+    paths-ignore:
+      - "**.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  npu:
+    # android-npu is the SoC-name hint; nnapi-accelerator (probe-verified)
+    # appears on runners registered after this change.
+    runs-on: [self-hosted, android, android-npu]
+    steps:
+      - name: Device capabilities
+        run: droidrunner-device capabilities
+
+      - name: NNAPI devices
+        run: droidrunner-device devices
+
+      - name: CONV_2D benchmark across all accelerators
+        run: droidrunner-device bench-all --iterations 50 --size 64
+
+      - name: CONV_2D on the default (NNAPI-chosen) device
+        run: droidrunner-device test conv --iterations 50 --size 64
+
+      - name: Trivial ADD for comparison
+        run: droidrunner-device test add --iterations 200
