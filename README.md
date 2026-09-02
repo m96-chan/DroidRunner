@@ -189,7 +189,33 @@ from probes rather than SoC names.
 
 32-bit ARM, x86 Android, Docker, KVM, and nested virtualization are not supported.
 
-### Build environment
+### Install
+
+Releases are published to [GitHub Releases](https://github.com/m96-chan/DroidRunner/releases)
+as `droidrunner-v<version>.apk` (arm64 only).
+
+**With [Obtainium](https://github.com/ImranR98/Obtainium)** — recommended, since an
+unattended runner should not wait for someone to notice a release:
+
+1. Add app → paste `https://github.com/m96-chan/DroidRunner`
+2. APK filter (only needed if a release ever carries several assets):
+   `droidrunner-v.*\.apk`
+
+Obtainium then updates the app in place as new tags are published.
+
+**By hand**: download the APK from the latest release and install it.
+
+> [!NOTE]
+> Updates install over the existing app only while the signing key stays the same.
+> Reinstalling from a differently signed source (a future F-Droid build, or your own
+> build) requires uninstalling first, which discards the runner registration and the
+> stored GitHub credentials — you would have to register the device again.
+
+Google Play is not a distribution target: the app exists to execute code fetched from
+outside the store, which runs into the Device & Network Abuse policy on dynamic code
+execution.
+
+## Build environment
 
 - JDK 17
 - Android SDK 35
@@ -214,6 +240,26 @@ app/build/outputs/apk/debug/app-debug.apk
 ```
 
 This repository also contains a GitHub Actions build definition.
+
+### Publishing a release
+
+Pushing a `v*` tag builds and publishes the APK. `versionName` and `versionCode` are
+derived from the tag, so an update always outranks the version it replaces; a local
+build without a tag reports `0.0.0-dev`.
+
+Releases must be signed with a stable key, and the build refuses to produce a tagged
+release with the debug key. Create one keystore, keep it safe, and store it in the
+repository secrets:
+
+```bash
+keytool -genkey -v -keystore release.jks -alias droidrunner \
+    -keyalg RSA -keysize 4096 -validity 10000
+base64 -w0 release.jks   # → ANDROID_KEYSTORE_BASE64
+```
+
+Secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
+`ANDROID_KEY_PASSWORD`. Losing the key means users have to uninstall and re-register
+their devices to move to a new one.
 
 ## Setup
 

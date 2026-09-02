@@ -184,7 +184,31 @@ MDLA)は量子化モデル向けで、SoC名ではなくprobeでラベルを決�
 
 32bit ARM、x86 Android、Docker、KVM、nested virtualizationには対応しません。
 
-### ビルド環境
+### インストール
+
+リリースは[GitHub Releases](https://github.com/m96-chan/DroidRunner/releases)に
+`droidrunner-v<version>.apk`(arm64のみ)として公開しています。
+
+**[Obtainium](https://github.com/ImranR98/Obtainium)を使う** — 無人運用のRunnerが
+リリースに気づいてもらうのを待つ必要がなくなるため、こちらを推奨します:
+
+1. アプリを追加 → `https://github.com/m96-chan/DroidRunner` を貼り付け
+2. APKフィルタ(1リリースに複数アセットが載る場合のみ必要):
+   `droidrunner-v.*\.apk`
+
+以後、新しいタグが公開されるとその場で更新されます。
+
+**手動**: 最新リリースからAPKをダウンロードしてインストールします。
+
+> [!NOTE]
+> 上書き更新できるのは署名鍵が同じ場合だけです。別の署名(将来のF-Droid版や自前ビルド)へ
+> 移る場合は一度アンインストールが必要で、**Runnerの登録と保存済みGitHub認証情報は失われます**
+> (端末の再登録が必要になります)。
+
+Google Playは配布先として想定していません。ストア外から取得したコードを実行することが
+アプリの目的そのもので、Device & Network Abuseポリシーの動的コード実行に該当するためです。
+
+## ビルド環境
 
 - JDK 17
 - Android SDK 35
@@ -209,6 +233,25 @@ app/build/outputs/apk/debug/app-debug.apk
 ```
 
 このRepositoryにはGitHub Actions用のビルド定義も含まれています。
+
+### リリースの公開
+
+`v*`タグをpushするとAPKがビルドされ公開されます。`versionName`と`versionCode`は
+タグから導出されるため、更新版は必ず既存版より上位になります(タグなしのローカルビルドは
+`0.0.0-dev`)。
+
+リリースは固定の鍵で署名する必要があり、debug鍵でタグ付きリリースをビルドしようとすると
+ビルドが失敗します。鍵は1つ作って安全に保管し、リポジトリのsecretsへ登録してください:
+
+```bash
+keytool -genkey -v -keystore release.jks -alias droidrunner \
+    -keyalg RSA -keysize 4096 -validity 10000
+base64 -w0 release.jks   # → ANDROID_KEYSTORE_BASE64
+```
+
+secrets: `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、
+`ANDROID_KEY_PASSWORD`。鍵を失うと、新しい鍵へ移行するために利用者全員が
+アンインストールと端末の再登録を強いられます。
 
 ## セットアップ
 

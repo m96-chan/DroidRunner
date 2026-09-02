@@ -4,6 +4,14 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Version comes from the v* tag being released, so an installed app always sees
+// a higher versionCode than the one it replaces. Local builds fall back to
+// 0.0.0-dev / code 1, which no published release can be confused with.
+val releaseTag: String? = (project.findProperty("droidrunner.releaseTag") as String?)
+    ?: System.getenv("DROIDRUNNER_RELEASE_TAG")
+val semver: String? = releaseTag?.removePrefix("v")
+    ?.takeIf { Regex("""\d+\.\d+\.\d+""").matches(it) }
+
 android {
     namespace = "dev.devenus.droidrunner"
     compileSdk = 35
@@ -12,8 +20,10 @@ android {
         applicationId = "dev.devenus.droidrunner"
         minSdk = 28
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = semver?.split(".")?.let { (major, minor, patch) ->
+            major.toInt() * 1_000_000 + minor.toInt() * 1_000 + patch.toInt()
+        } ?: 1
+        versionName = semver ?: "0.0.0-dev"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -67,7 +77,18 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = if (System.getenv("ANDROID_KEYSTORE_FILE") != null) {
+            // A published release must never be debug-signed: Android refuses
+            // to upgrade across a signature change, and reinstalling this app
+            // loses the runner registration and the stored GitHub credentials.
+            // Local builds may fall back, tagged releases may not.
+            val hasReleaseKey = System.getenv("ANDROID_KEYSTORE_FILE") != null
+            val isTaggedRelease = releaseTag != null
+            check(hasReleaseKey || !isTaggedRelease) {
+                "Refusing to build $releaseTag with the debug key: configure " +
+                    "ANDROID_KEYSTORE_FILE (CI: the ANDROID_KEYSTORE_BASE64 secret). " +
+                    "Publishing a debug-signed release would strand every installed device."
+            }
+            signingConfig = if (hasReleaseKey) {
                 signingConfigs.getByName("release")
             } else {
                 signingConfigs.getByName("debug")
