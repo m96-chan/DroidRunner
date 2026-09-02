@@ -15,7 +15,8 @@ real hardware.
 
 > [!WARNING]
 > This is an early proof of concept. The runner-management basics are implemented, but
-> the distributable runtime bundle and the NPU Device Agent are still in development.
+> the NPU Device Agent runs built-in benchmarks only, and arbitrary model execution
+> is still in development.
 > Do not use it in production or with repositories you do not trust.
 
 ## Goals
@@ -93,7 +94,9 @@ service and streamed to the UI as a `StateFlow`.
 | Foreground service with runner-state parsing | Implemented (PoC) |
 | SoC/NPU candidate labels | Implemented (PoC) |
 | Charging / thermal / storage admission control | Designed, not implemented |
-| NPU Device Agent | Designed, not implemented |
+| NPU Device Agent (loopback API, NNAPI probes, CLI) | Implemented (PoC) |
+| Probe-verified NNAPI labels | Implemented (PoC) |
+| Arbitrary model (`.tflite`) execution | Designed, not implemented |
 | Multi-device fleet dashboard | Not implemented |
 | Signed runtime manifest | Not implemented |
 
@@ -140,19 +143,33 @@ jobs:
       - run: ./ci/test-arm64.sh
 ```
 
-### Target a Qualcomm NPU device
+### Exercise the device's NPU
 
 ```yaml
 jobs:
-  qnn-test:
-    runs-on: [self-hosted, android, android-npu, npu-qnn]
+  npu-test:
+    runs-on: [self-hosted, android, nnapi-accelerator]
     steps:
-      - uses: actions/checkout@v4
-      - run: droidrunner-device test qnn ./models/model.onnx
+      - run: droidrunner-device capabilities        # device info, thermal, NNAPI drivers
+      - run: droidrunner-device bench-all           # CONV_2D across every driver
+      - run: droidrunner-device test conv --device mtk-neuron_shim --iterations 50
 ```
 
-The `droidrunner-device` CLI and the Device Agent API are not implemented yet; the
-example above shows the planned interface.
+`droidrunner-device` ships in the runtime bundle and talks to the Device Agent for
+you. Sample output from a MediaTek MT6899 phone:
+
+```text
+DEVICE                       AVG_US     GFLOPS
+mtk-dsp_shim                      - compilation_finish
+mtk-mdla_shim                     - compilation_finish
+mtk-neuron_shim              4148.9       4.55
+nnapi-reference              1107.7      17.04
+```
+
+Today the agent runs built-in ADD and CONV_2D benchmarks; running your own model is
+the next milestone (see issue #4). Drivers that reject the float32 convolution
+(here the DSP and MDLA) expect quantized models — which is exactly why labels come
+from probes rather than SoC names.
 
 ## Requirements
 

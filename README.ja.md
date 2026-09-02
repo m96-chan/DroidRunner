@@ -13,7 +13,8 @@ Android端末固有のNNAPIやベンダーNPUをCIから検証できる端末プ
 
 > [!WARNING]
 > 現在は初期PoCです。Runner管理の基礎実装はありますが、配布可能なruntime bundleと
-> NPU Device Agentは開発中です。本番環境や信頼できないRepositoryでは使用しないでください。
+> NPU Device Agentは組み込みベンチマークのみ対応で、任意モデルの実行は開発中です。
+> 本番環境や信頼できないRepositoryでは使用しないでください。
 
 ## 目標
 
@@ -90,7 +91,9 @@ Runnerの状態は、Foreground Serviceが公式Runnerのlistener出力をパー
 | Foreground Service(Runner状態パース付き) | PoC実装済み |
 | SoC/NPU候補ラベル | PoC実装済み |
 | 充電・温度・ストレージ制御 | 設計済み・未実装 |
-| NPU Device Agent | 設計済み・未実装 |
+| NPU Device Agent(loopback API・NNAPI probe・CLI) | PoC実装済み |
+| probe検証済みNNAPIラベル | PoC実装済み |
+| 任意モデル(`.tflite`)の実行 | 設計済み・未実装 |
 | 複数端末ダッシュボード | 未実装 |
 | 署名付きruntime manifest | 未実装 |
 
@@ -136,18 +139,32 @@ jobs:
       - run: ./ci/test-arm64.sh
 ```
 
-### Qualcomm NPU端末を指定
+### 端末のNPUを叩く
 
 ```yaml
 jobs:
-  qnn-test:
-    runs-on: [self-hosted, android, android-npu, npu-qnn]
+  npu-test:
+    runs-on: [self-hosted, android, nnapi-accelerator]
     steps:
-      - uses: actions/checkout@v4
-      - run: droidrunner-device test qnn ./models/model.onnx
+      - run: droidrunner-device capabilities        # 端末情報・温度・NNAPIドライバ一覧
+      - run: droidrunner-device bench-all           # 全ドライバでCONV_2Dベンチ
+      - run: droidrunner-device test conv --device mtk-neuron_shim --iterations 50
 ```
 
-`droidrunner-device` CLIとDevice Agent APIは未実装です。上の例は予定しているインターフェースです。
+`droidrunner-device`はruntime bundleに同梱され、Device Agentとの通信を代行します。
+MediaTek MT6899端末での実測例:
+
+```text
+DEVICE                       AVG_US     GFLOPS
+mtk-dsp_shim                      - compilation_finish
+mtk-mdla_shim                     - compilation_finish
+mtk-neuron_shim              4148.9       4.55
+nnapi-reference              1107.7      17.04
+```
+
+現在のAgentは組み込みのADD/CONV_2Dベンチマークのみ実行できます。任意モデルの実行は
+次のマイルストーンです(issue #4)。float32の畳み込みを拒否するドライバ(ここではDSPと
+MDLA)は量子化モデル向けで、SoC名ではなくprobeでラベルを決めるべき理由がこれです。
 
 ## 必要環境
 
@@ -279,6 +296,10 @@ GitHub job
 
 任意の`.so`をControllerへロードする設計にはしません。許可されたadapterを隔離Serviceで実行し、
 モデル、入力、タイムアウト、出力先を明示したテスト要求だけを受け付けます。
+
+Agentはloopback限定ですが、loopbackは端末上の他アプリとも共有されます。そのため二重に
+制限しています: **ジョブ実行中しか応答せず**、capability tokenはジョブごとに発行して
+終了時に失効します。トークンは環境変数ではなくアプリ専用ディレクトリ経由で渡します。
 
 詳しい設計は[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)を参照してください。
 
