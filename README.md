@@ -365,9 +365,19 @@ environment from an Android service.
 
 ## License
 
-DroidRunner will be released under the **GNU General Public License v2.0 only
-(`GPL-2.0-only`)**.
+DroidRunner is released under the **GNU General Public License v2.0 only
+(`GPL-2.0-only`)** — see [`LICENSE`](LICENSE).
 
-PRoot, the Linux rootfs, the GitHub Actions Runner, and every bundled package keep
-their own licenses. If you distribute a runtime bundle, provide the corresponding
-sources, patches, build instructions, and copyright notices along with it.
+The APK also ships third-party components under their own licenses:
+
+| Component | License | Corresponding source |
+| --- | --- | --- |
+| [PRoot](https://github.com/termux/proot) (`libproot.so`, loaders) | GPL-2.0 | commit pinned in [`runtime/build-proot.sh`](runtime/build-proot.sh), patches in [`runtime/patches/`](runtime/patches) |
+| [talloc](https://talloc.samba.org/) (statically linked into proot) | LGPL-3.0 | version pinned in `runtime/build-proot.sh` |
+
+The runtime bundle carries more: the [GitHub Actions Runner](https://github.com/actions/runner)
+(MIT) and an Ubuntu rootfs whose packages keep their own licenses. If you distribute a
+bundle, provide the corresponding sources, patches, build instructions, and copyright
+notices along with it — `runtime/build-bundle.sh` pins exactly what goes in.
+
+The app's About screen lists the same information on the device.

@@ -356,8 +356,19 @@ DroidRunnerは、特にGABEの「PRoot環境をAndroid Serviceとして管理す
 
 ## ライセンス
 
-DroidRunnerは **GNU General Public License v2.0 only(`GPL-2.0-only`)** で公開予定です。
+DroidRunnerは **GNU General Public License v2.0 only(`GPL-2.0-only`)** で公開しています
+([`LICENSE`](LICENSE))。
 
-PRoot、Linux rootfs、GitHub Actions Runnerおよび各同梱パッケージには、それぞれの
-ライセンスが適用されます。runtimeを配布する場合は、対応するソース、パッチ、ビルド手順、
-著作権表示を一緒に提供してください。
+APKには次のサードパーティ製コンポーネントも同梱され、それぞれのライセンスが適用されます。
+
+| コンポーネント | ライセンス | 対応するソース |
+| --- | --- | --- |
+| [PRoot](https://github.com/termux/proot)(`libproot.so`とloader) | GPL-2.0 | [`runtime/build-proot.sh`](runtime/build-proot.sh)で固定したコミット、パッチは[`runtime/patches/`](runtime/patches) |
+| [talloc](https://talloc.samba.org/)(prootへ静的リンク) | LGPL-3.0 | `runtime/build-proot.sh`で固定したバージョン |
+
+runtime bundleにはさらに[GitHub Actions Runner](https://github.com/actions/runner)(MIT)と
+Ubuntu rootfs(各パッケージのライセンス)が含まれます。bundleを配布する場合は、対応する
+ソース、パッチ、ビルド手順、著作権表示を一緒に提供してください
+(`runtime/build-bundle.sh`が中身を固定しています)。
+
+同じ情報はアプリのAbout画面でも確認できます。
