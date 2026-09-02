@@ -36,6 +36,10 @@ class RunnerService : Service() {
     private val jobRunning = AtomicBoolean(false)
     private lateinit var monitor: SystemMonitor
 
+    /** Restart backoff state, owned by the supervisor and the output thread. */
+    @Volatile private var restartDelayMs = 0L
+    @Volatile private var nextStartAtMillis = 0L
+
     override fun onCreate() {
         super.onCreate()
         RunnerStatus.attach(this)
@@ -81,7 +85,7 @@ class RunnerService : Service() {
     /** Starts, holds, and restarts the listener according to device conditions. */
     private fun supervise(runtimeDir: File) {
         runCatching {
-            check(File(runtimeDir, ".configured").isFile) { "Runner is not configured" }
+            check(RunnerRegistration.isConfigured(runtimeDir)) { "Runner is not configured" }
             var pausedFor: String? = null
 
             while (!stopRequested.get()) {
@@ -95,7 +99,9 @@ class RunnerService : Service() {
                             RunnerStatus.onLogLine("admission: conditions recovered, resuming")
                             pausedFor = null
                         }
-                        if (process == null) startListener(runtimeDir)
+                        if (process == null && System.currentTimeMillis() >= nextStartAtMillis) {
+                            launchListener(runtimeDir)
+                        }
                     }
 
                     decision is Admission.Blocked -> {
@@ -115,6 +121,8 @@ class RunnerService : Service() {
                         }
                     }
                 }
+                // Short sleep so a due restart is honoured promptly; the
+                // condition sampling itself is cheap.
                 Thread.sleep(POLL_INTERVAL_MS)
             }
         }.onFailure {
@@ -134,6 +142,52 @@ class RunnerService : Service() {
         )
     }
 
+    /**
+     * Registers if needed (always, for ephemeral runners, since the previous
+     * job consumed the registration) and starts the listener.
+     */
+    private fun launchListener(runtimeDir: File) {
+        val ephemeral = RunnerRegistration.ephemeralEnabled(this)
+        // Re-register when the mode changed: an existing persistent
+        // registration would otherwise keep serving jobs forever.
+        val modeChanged = RunnerRegistration.isRegistered(runtimeDir) &&
+            RunnerRegistration.registeredAsEphemeral(runtimeDir) != ephemeral
+        if (!RunnerRegistration.isRegistered(runtimeDir) || modeChanged) {
+            val config = RunnerRegistration.load(runtimeDir)
+            if (config == null) {
+                // Configured before this build, without the stored details
+                // needed to re-register; the existing registration still works.
+                if (!ephemeral) return startListener(runtimeDir)
+                RunnerStatus.onLogLine(
+                    "ephemeral: re-register once from the setup screen to enable per-job registration",
+                )
+                backOff("missing stored registration details", ranMillis = 0)
+                return
+            }
+            val outcome = runCatching {
+                if (ephemeral) RunnerRegistration.cleanWorkDirectory(runtimeDir)
+                RunnerStatus.onLogLine(
+                    if (ephemeral) "ephemeral: registering for the next job" else "registering runner",
+                )
+                RunnerRegistration.register(this, runtimeDir, config, ephemeral) { line ->
+                    RunnerStatus.onLogLine(line)
+                }
+            }
+            if (outcome.isFailure) {
+                backOff("registration failed: ${outcome.exceptionOrNull()?.message}", ranMillis = 0)
+                return
+            }
+        }
+        startListener(runtimeDir)
+    }
+
+    /** Delays the next start attempt, growing the wait while failures repeat. */
+    private fun backOff(reason: String, ranMillis: Long) {
+        restartDelayMs = RestartPolicy.nextDelayMs(restartDelayMs, ranMillis)
+        nextStartAtMillis = System.currentTimeMillis() + restartDelayMs
+        RunnerStatus.onRestarting("$reason — retrying in ${restartDelayMs / 1000}s")
+    }
+
     private fun startListener(runtimeDir: File) {
         updateNotification("Waiting for GitHub Actions jobs")
         val started = RunnerCommand.run(
@@ -147,6 +201,7 @@ class RunnerService : Service() {
             } ?: emptyMap(),
         ).redirectErrorStream(true).start()
         process = started
+        val startedAt = System.currentTimeMillis()
 
         // Streaming runs off the supervisor thread so conditions keep being
         // evaluated while the listener is busy.
@@ -160,9 +215,20 @@ class RunnerService : Service() {
                     }
                 }
             }
-            started.waitFor()
+            val exitCode = started.waitFor()
             jobRunning.set(false)
             if (process === started) process = null
+            if (stopRequested.get()) return@thread
+
+            val ranMillis = System.currentTimeMillis() - startedAt
+            if (RunnerRegistration.ephemeralEnabled(this) && exitCode == 0) {
+                // Expected: an ephemeral listener exits after one job.
+                restartDelayMs = 0
+                nextStartAtMillis = 0
+                RunnerStatus.onLogLine("ephemeral: job finished, cleaning up")
+            } else {
+                backOff("listener exited with code $exitCode", ranMillis)
+            }
         }
     }
 
@@ -215,7 +281,7 @@ class RunnerService : Service() {
         const val ACTION_STOP = "dev.devenus.droidrunner.STOP"
         private const val CHANNEL = "runner"
         private const val NOTIFICATION = 96
-        private const val POLL_INTERVAL_MS = 15_000L
+        private const val POLL_INTERVAL_MS = 5_000L
         private const val LISTENER_STOP_TIMEOUT_S = 5L
     }
 }

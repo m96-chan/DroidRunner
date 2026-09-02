@@ -11,7 +11,13 @@ import java.io.File
  * downloaded runtime bundle contains only data (rootfs + runner home).
  */
 object RunnerCommand {
-    fun configure(context: Context, runtimeDir: File, config: RunnerConfig, token: String): ProcessBuilder =
+    fun configure(
+        context: Context,
+        runtimeDir: File,
+        config: RunnerConfig,
+        token: String,
+        ephemeral: Boolean = false,
+    ): ProcessBuilder =
         proot(
             context, runtimeDir,
             listOf(
@@ -21,7 +27,7 @@ object RunnerCommand {
                 "--name", config.runnerName,
                 "--labels", config.labels.joinToString(","),
                 "--work", "_work",
-            ),
+            ) + if (ephemeral) listOf("--ephemeral") else emptyList(),
         )
 
     fun run(context: Context, runtimeDir: File, extraEnv: Map<String, String> = emptyMap()): ProcessBuilder =
