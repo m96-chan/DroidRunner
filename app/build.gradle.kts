@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "dev.devenus.droidrunner"
+    namespace = "io.github.m96chan.droidrunner"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "dev.devenus.droidrunner"
+        applicationId = "io.github.m96chan.droidrunner"
         minSdk = 28
         targetSdk = 35
         versionCode = 1

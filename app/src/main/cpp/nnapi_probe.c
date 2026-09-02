@@ -126,7 +126,7 @@ static const char* device_type_name(int32_t type) {
 }
 
 JNIEXPORT jstring JNICALL
-Java_dev_devenus_droidrunner_npu_NnapiProbe_devicesJson(JNIEnv* env, jobject thiz) {
+Java_io_github_m96chan_droidrunner_npu_NnapiProbe_devicesJson(JNIEnv* env, jobject thiz) {
     (void) thiz;
     static char out[8192];
     if (!ensure_lib()) {
@@ -179,7 +179,7 @@ static ANeuralNetworksDevice* find_device(const char* wanted) {
  * stride 1, RELU.
  */
 JNIEXPORT jstring JNICALL
-Java_dev_devenus_droidrunner_npu_NnapiProbe_convBenchmark(
+Java_io_github_m96chan_droidrunner_npu_NnapiProbe_convBenchmark(
         JNIEnv* env, jobject thiz, jstring jDeviceName, jint iterations,
         jint size, jint channels, jint filters) {
     (void) thiz;
@@ -368,7 +368,7 @@ Java_dev_devenus_droidrunner_npu_NnapiProbe_convBenchmark(
 }
 
 JNIEXPORT jstring JNICALL
-Java_dev_devenus_droidrunner_npu_NnapiProbe_addBenchmark(
+Java_io_github_m96chan_droidrunner_npu_NnapiProbe_addBenchmark(
         JNIEnv* env, jobject thiz, jstring jDeviceName, jint iterations) {
     (void) thiz;
     static char out[1024];

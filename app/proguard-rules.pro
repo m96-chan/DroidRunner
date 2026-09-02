@@ -1,2 +1,2 @@
 # Keep entry points launched by Android.
--keep class dev.devenus.droidrunner.runner.RunnerService { *; }
+-keep class io.github.m96chan.droidrunner.runner.RunnerService { *; }
