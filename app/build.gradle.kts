@@ -13,11 +13,11 @@ val semver: String? = releaseTag?.removePrefix("v")
     ?.takeIf { Regex("""\d+\.\d+\.\d+""").matches(it) }
 
 android {
-    namespace = "dev.devenus.droidrunner"
+    namespace = "io.github.m96chan.droidrunner"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "dev.devenus.droidrunner"
+        applicationId = "io.github.m96chan.droidrunner"
         minSdk = 28
         targetSdk = 35
         versionCode = semver?.split(".")?.let { (major, minor, patch) ->
