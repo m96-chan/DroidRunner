@@ -8,6 +8,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import dev.devenus.droidrunner.npu.DeviceAgentServer
+import dev.devenus.droidrunner.npu.DeviceCapabilitiesJson
 import dev.devenus.droidrunner.runtime.RuntimeInstaller
 import java.io.File
 import java.util.concurrent.Executors
@@ -45,7 +46,10 @@ class RunnerService : Service() {
         // hardware (NNAPI); URL and capability token are injected into the
         // runner environment, which jobs inherit.
         val runtimeDir = RuntimeInstaller(this).runtimeDir
-        agent = DeviceAgentServer(this, runtimeDir).also { server ->
+        agent = DeviceAgentServer(
+            runtimeDir = runtimeDir,
+            capabilitiesJson = { DeviceCapabilitiesJson.build(this) },
+        ).also { server ->
             server.start()
             // Fresh capability token per job; revoked when the job ends.
             RunnerStatus.setJobBoundaryListener { active -> server.onJobActive(active) }

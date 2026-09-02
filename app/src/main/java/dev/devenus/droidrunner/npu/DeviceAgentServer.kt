@@ -1,9 +1,5 @@
 package dev.devenus.droidrunner.npu
 
-import android.content.Context
-import android.os.Build
-import android.os.PowerManager
-import dev.devenus.droidrunner.device.DeviceCapabilities
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.File
@@ -30,10 +26,12 @@ import kotlin.concurrent.thread
  * other apps cannot read), not through the environment.
  */
 class DeviceAgentServer(
-    private val context: Context,
     private val runtimeDir: File,
+    private val requestedPort: Int = PORT,
+    private val capabilitiesJson: () -> String,
 ) {
-    val port: Int = PORT
+    var port: Int = requestedPort
+        private set
     val url: String get() = "http://127.0.0.1:$port"
 
     /** Token file as seen from inside the guest. */
@@ -53,7 +51,11 @@ class DeviceAgentServer(
         socket.reuseAddress = true
         // Explicit IPv4 loopback: getLoopbackAddress() resolves to ::1 on some
         // devices, unreachable from the guest's http://127.0.0.1 URL.
-        socket.bind(InetSocketAddress(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), port), BACKLOG)
+        socket.bind(
+            InetSocketAddress(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), requestedPort),
+            BACKLOG,
+        )
+        port = socket.localPort
         serverSocket = socket
         clearToken()
         thread(name = "device-agent", isDaemon = true) {
@@ -62,11 +64,11 @@ class DeviceAgentServer(
                 client.soTimeout = SOCKET_TIMEOUT_MS
                 workers.execute {
                     runCatching { client.use(::handle) }
-                        .onFailure { android.util.Log.e("DroidRunner", "device agent request failed", it) }
+                        .onFailure { logError("device agent request failed", it) }
                 }
             }
         }
-        android.util.Log.d("DroidRunner", "device agent listening on $url")
+        logInfo("device agent listening on $url")
     }
 
     fun stop() {
@@ -93,7 +95,7 @@ class DeviceAgentServer(
             tokenFile.parentFile?.mkdirs()
             tokenFile.writeText(token)
             tokenFile.setReadable(true, false)
-        }.onFailure { android.util.Log.e("DroidRunner", "cannot publish agent token", it) }
+        }.onFailure { logError("cannot publish agent token", it) }
     }
 
     private fun clearToken() {
@@ -143,7 +145,7 @@ class DeviceAgentServer(
                 """{"error":"device agent is only available while a job is running"}"""
             presentedToken == null || !constantTimeEquals(presentedToken, expected) ->
                 401 to """{"error":"missing or invalid capability token"}"""
-            method == "GET" && path == "/v1/capabilities" -> 200 to capabilities()
+            method == "GET" && path == "/v1/capabilities" -> 200 to capabilitiesJson()
             method == "POST" && path == "/v1/tests/nnapi" -> nnapiTest(body)
             method == "POST" && path == "/v1/tests/conv" -> convTest(body)
             else -> 404 to """{"error":"unknown endpoint"}"""
@@ -151,31 +153,21 @@ class DeviceAgentServer(
         writeResponse(client, response.first, response.second)
     }
 
+    /** Logging that degrades to stderr off-device (JVM unit tests). */
+    private fun logError(message: String, error: Throwable) {
+        runCatching { android.util.Log.e("DroidRunner", message, error) }
+            .onFailure { System.err.println("$message: $error") }
+    }
+
+    private fun logInfo(message: String) {
+        runCatching { android.util.Log.d("DroidRunner", message) }
+    }
+
     private fun constantTimeEquals(a: String, b: String): Boolean {
         if (a.length != b.length) return false
         var diff = 0
         for (i in a.indices) diff = diff or (a[i].code xor b[i].code)
         return diff == 0
-    }
-
-    private fun capabilities(): String {
-        val capabilities = DeviceCapabilities.detect()
-        val thermal = if (Build.VERSION.SDK_INT >= 29) {
-            context.getSystemService(PowerManager::class.java).currentThermalStatus
-        } else -1
-        return JSONObject()
-            .put("agent", "droidrunner/0.1")
-            .put(
-                "device",
-                JSONObject()
-                    .put("manufacturer", capabilities.manufacturer)
-                    .put("model", capabilities.model)
-                    .put("labels", org.json.JSONArray(capabilities.labels().sorted())),
-            )
-            .put("android", JSONObject().put("sdk", Build.VERSION.SDK_INT))
-            .put("thermalStatus", thermal)
-            .put("nnapi", JSONObject(NnapiProbe.devices()))
-            .toString()
     }
 
     private fun nnapiTest(body: String): Pair<Int, String> {

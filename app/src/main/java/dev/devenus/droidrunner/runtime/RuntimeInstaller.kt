@@ -1,8 +1,6 @@
 package dev.devenus.droidrunner.runtime
 
 import android.content.Context
-import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
-import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
 import org.json.JSONObject
 import java.io.File
 import java.net.URL
@@ -49,7 +47,7 @@ class RuntimeInstaller(private val context: Context) {
 
         progress("extract")
         val staging = File(context.filesDir, "runner-runtime.new").apply { deleteRecursively(); mkdirs() }
-        extractTarGz(archive, staging)
+        TarExtractor.extract(archive, staging)
         // The bundle is data only (proot ships inside the APK): validate the
         // pieces the runner needs before activating it.
         check(File(staging, "rootfs/usr/bin/env").exists()) { "Runtime bundle has no rootfs" }
@@ -64,29 +62,6 @@ class RuntimeInstaller(private val context: Context) {
 
     private fun parseManifest(text: String): RuntimeManifest = JSONObject(text).let {
         RuntimeManifest(it.getString("version"), it.getString("url"), it.getString("sha256"))
-    }
-
-    private fun extractTarGz(archive: File, target: File) {
-        TarArchiveInputStream(GzipCompressorInputStream(archive.inputStream().buffered())).use { tar ->
-            var entry = tar.nextTarEntry
-            while (entry != null) {
-                val out = File(target, entry.name).canonicalFile
-                check(out.path.startsWith(target.canonicalPath + File.separator)) { "Unsafe archive path" }
-                when {
-                    entry.isDirectory -> out.mkdirs()
-                    entry.isSymbolicLink -> {
-                        out.parentFile?.mkdirs()
-                        android.system.Os.symlink(entry.linkName, out.path)
-                    }
-                    entry.isFile -> {
-                        out.parentFile?.mkdirs()
-                        out.outputStream().use { tar.copyTo(it) }
-                        if (entry.mode and 0b001001001 != 0) out.setExecutable(true, false)
-                    }
-                }
-                entry = tar.nextTarEntry
-            }
-        }
     }
 
     private fun sha256(file: File): String {
