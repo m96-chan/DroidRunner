@@ -190,6 +190,8 @@ class RunnerService : Service() {
 
     private fun startListener(runtimeDir: File) {
         updateNotification("Waiting for GitHub Actions jobs")
+        // Keep the CLI in step with the agent API this build implements.
+        DeviceCliInstaller.install(this, runtimeDir)
         val started = RunnerCommand.run(
             this, runtimeDir,
             agent?.let {

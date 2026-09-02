@@ -103,7 +103,7 @@ case "$cmd" in
                 *) die "unknown option: $1" ;;
             esac
         done
-        printf '%-22s %12s %10s\n' DEVICE AVG_US GFLOPS
+        printf '%-22s %12s %10s %s\n' DEVICE AVG_US GFLOPS NOTE
         for dev in $(device_names); do
             result="$(api POST /v1/tests/conv \
                 "{\"device\":\"$dev\",\"iterations\":$iterations,\"size\":$size}" || true)"
@@ -111,7 +111,8 @@ case "$cmd" in
                 printf '%-22s %12s %10s\n' "$dev" \
                     "$(json_field "$result" avgUs)" "$(json_field "$result" gflops)"
             else
-                printf '%-22s %12s %10s\n' "$dev" "-" "$(json_field "$result" error)"
+                printf '%-22s %12s %10s %s\n' "$dev" "-" \
+                    "$(json_field "$result" error)" "$(json_field "$result" result)"
             fi
         done
         ;;

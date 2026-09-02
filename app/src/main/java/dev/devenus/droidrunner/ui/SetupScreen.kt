@@ -91,6 +91,7 @@ fun SetupScreen(
     // install the runtime automatically with no manifest URL to paste.
     var resolvedManifest by remember { mutableStateOf<String?>(null) }
     var resolvingManifest by remember { mutableStateOf(BuildConfig.RUNTIME_REPO.isNotBlank()) }
+    var latestRuntimeVersion by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         if (BuildConfig.RUNTIME_REPO.isNotBlank()) {
             resolvedManifest = runCatching {
@@ -98,6 +99,16 @@ fun SetupScreen(
                     api.latestRuntimeManifestUrl(BuildConfig.RUNTIME_REPO, secretStore.getUserToken())
                 }
             }.getOrNull()
+            // The manifest names the bundle version, so an installed runtime
+            // that has fallen behind the latest release can be reported.
+            latestRuntimeVersion = resolvedManifest?.let { url ->
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        org.json.JSONObject(java.net.URL(url).readText()).optString("version")
+                            .takeIf { it.isNotBlank() }
+                    }
+                }.getOrNull()
+            }
             resolvingManifest = false
         }
     }
@@ -367,11 +378,53 @@ fun SetupScreen(
 
         Panel("runtime", titleColor = BtopColors.Cyan) {
             when {
-                runtime.installed -> Text(
-                    "installed: ${runtime.installedVersion}",
-                    color = BtopColors.Green,
-                    style = MaterialTheme.typography.labelMedium,
-                )
+                runtime.installed -> {
+                    val installedVersion = runtime.installedVersion
+                    val outOfDate = latestRuntimeVersion != null &&
+                        latestRuntimeVersion != installedVersion
+                    Text(
+                        "installed: $installedVersion",
+                        color = if (outOfDate) BtopColors.Yellow else BtopColors.Green,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    if (outOfDate) {
+                        Spacer(Modifier.padding(top = 6.dp))
+                        Text(
+                            "update available: $latestRuntimeVersion",
+                            color = BtopColors.Yellow,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                        Spacer(Modifier.padding(top = 6.dp))
+                        Button(
+                            enabled = !busy && runner.state == RunnerState.STOPPED,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = BtopColors.Yellow,
+                                contentColor = BtopColors.Background,
+                            ),
+                            onClick = {
+                                val manifest = manifestSource() ?: return@Button
+                                busy = true
+                                scope.launch {
+                                    status = runCatching {
+                                        withContext(Dispatchers.IO) {
+                                            runtime.install(manifest) { status = "runtime: $it" }
+                                        }
+                                        null
+                                    }.getOrElse { "failed: ${it.message}" }
+                                    busy = false
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Update runtime") }
+                        if (runner.state != RunnerState.STOPPED) {
+                            Text(
+                                "Stop the runner first — updating swaps the directory it runs from.",
+                                color = BtopColors.Dim,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
+                    }
+                }
 
                 resolvingManifest -> Text(
                     "checking runtime releases…",

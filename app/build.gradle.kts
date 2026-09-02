@@ -76,6 +76,19 @@ android {
     packaging.jniLibs.useLegacyPackaging = true
 }
 
+// Single source of truth for the CLI: the copy the app installs into the
+// guest is generated from runtime/droidrunner-device at build time.
+val generatedAssets = layout.buildDirectory.dir("generated/deviceCliAsset")
+
+val copyDeviceCli by tasks.registering(Copy::class) {
+    from(rootProject.file("runtime/droidrunner-device"))
+    into(generatedAssets)
+}
+
+android.sourceSets.getByName("main").assets.srcDir(generatedAssets)
+
+tasks.named("preBuild") { dependsOn(copyDeviceCli) }
+
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.activity:activity-compose:1.10.0")

@@ -92,6 +92,29 @@ static int ensure_lib(void) {
     return p_getDeviceCount && p_getDevice && p_devName && p_modelCreate;
 }
 
+
+/** ANeuralNetworksResult names, so a rejection says why rather than where. */
+static const char* result_name(int code) {
+    switch (code) {
+        case 0: return "NO_ERROR";
+        case 1: return "OUT_OF_MEMORY";
+        case 2: return "INCOMPLETE";
+        case 3: return "UNEXPECTED_NULL";
+        case 4: return "BAD_DATA";
+        case 5: return "OP_FAILED";
+        case 6: return "BAD_STATE";
+        case 7: return "UNMAPPABLE";
+        case 8: return "OUTPUT_INSUFFICIENT_SIZE";
+        case 9: return "UNAVAILABLE_DEVICE";
+        case 10: return "MISSED_DEADLINE_TRANSIENT";
+        case 11: return "MISSED_DEADLINE_PERSISTENT";
+        case 12: return "RESOURCE_EXHAUSTED_TRANSIENT";
+        case 13: return "RESOURCE_EXHAUSTED_PERSISTENT";
+        case 14: return "DEAD_OBJECT";
+        default: return "UNKNOWN";
+    }
+}
+
 static const char* device_type_name(int32_t type) {
     switch (type) {
         case 1: return "other";
@@ -212,9 +235,11 @@ Java_dev_devenus_droidrunner_npu_NnapiProbe_convBenchmark(
     const char* usedDevice = "default";
     double avgUs = 0;
     int supported = -1;
+    int rc = 0;
 
     do {
-        if (p_modelCreate(&model) != 0) { err = "model_create"; break; }
+        rc = p_modelCreate(&model);
+        if (rc != 0) { err = "model_create"; break; }
         // Operands: 0 input, 1 weights, 2 bias, 3-6 padding, 7-8 stride,
         // 9 fused activation, 10 output.
         if (p_addOperand(model, &inType) != 0 || p_addOperand(model, &wType) != 0 ||
@@ -258,15 +283,32 @@ Java_dev_devenus_droidrunner_npu_NnapiProbe_convBenchmark(
                 bool flags[1] = { false };
                 if (p_modelSupportedOps(model, list, 1, flags) == 0) supported = flags[0] ? 1 : 0;
             }
-            if (p_compCreateForDevices(model, list, 1, &compilation) != 0) {
-                err = "compilation_for_device"; break;
-            }
+            rc = p_compCreateForDevices(model, list, 1, &compilation);
+            if (rc != 0) { err = "compilation_for_device"; break; }
             usedDevice = wantedName;
         } else {
-            if (p_compCreate(model, &compilation) != 0) { err = "compilation_create"; break; }
+            // Report support on the default path too, not only when pinned.
+            if (p_modelSupportedOps && p_getDeviceCount) {
+                uint32_t count = 0;
+                if (p_getDeviceCount(&count) == 0 && count > 0 && count <= 32) {
+                    const ANeuralNetworksDevice* all[32];
+                    uint32_t found = 0;
+                    for (uint32_t i = 0; i < count; i++) {
+                        ANeuralNetworksDevice* device = NULL;
+                        if (p_getDevice(i, &device) == 0 && device) all[found++] = device;
+                    }
+                    bool flags[1] = { false };
+                    if (found > 0 && p_modelSupportedOps(model, all, found, flags) == 0) {
+                        supported = flags[0] ? 1 : 0;
+                    }
+                }
+            }
+            rc = p_compCreate(model, &compilation);
+            if (rc != 0) { err = "compilation_create"; break; }
         }
         if (p_compSetPreference) p_compSetPreference(compilation, PREFER_SUSTAINED_SPEED);
-        if (p_compFinish(compilation) != 0) { err = "compilation_finish"; break; }
+        rc = p_compFinish(compilation);
+        if (rc != 0) { err = "compilation_finish"; break; }
 
         // Warm-up execution keeps driver init out of the timed loop.
         for (int warm = 0; warm < 2; warm++) {
@@ -303,8 +345,11 @@ Java_dev_devenus_droidrunner_npu_NnapiProbe_convBenchmark(
     } while (0);
 
     if (err) {
-        snprintf(out, sizeof(out), "{\"ok\":false,\"error\":\"%s\",\"device\":\"%s\"}",
-                 err, wantedName ? wantedName : "default");
+        snprintf(out, sizeof(out),
+                 "{\"ok\":false,\"error\":\"%s\",\"resultCode\":%d,\"result\":\"%s\","
+                 "\"device\":\"%s\",\"supported\":%s}",
+                 err, rc, result_name(rc), wantedName ? wantedName : "default",
+                 supported < 0 ? "null" : (supported ? "true" : "false"));
     } else {
         // 2 * K*K * Cin * Cout * H * W flops for the convolution.
         double gflops = 2.0 * 9.0 * channels * filters * size * size / (avgUs * 1e3);
@@ -349,9 +394,11 @@ Java_dev_devenus_droidrunner_npu_NnapiProbe_addBenchmark(
     const char* err = NULL;
     double avgUs = 0;
     int correct = 0;
+    int rc = 0;
 
     do {
-        if (p_modelCreate(&model) != 0) { err = "model_create"; break; }
+        rc = p_modelCreate(&model);
+        if (rc != 0) { err = "model_create"; break; }
         if (p_addOperand(model, &tensor) != 0 ||   // 0: a
             p_addOperand(model, &tensor) != 0 ||   // 1: b
             p_addOperand(model, &scalar) != 0 ||   // 2: fuse activation
@@ -383,12 +430,15 @@ Java_dev_devenus_droidrunner_npu_NnapiProbe_addBenchmark(
             }
             if (!chosen) { err = "device_not_found"; break; }
             const ANeuralNetworksDevice* list[1] = { chosen };
-            if (p_compCreateForDevices(model, list, 1, &compilation) != 0) { err = "compilation_for_device"; break; }
+            rc = p_compCreateForDevices(model, list, 1, &compilation);
+            if (rc != 0) { err = "compilation_for_device"; break; }
             usedDevice = wantedName;
         } else {
-            if (p_compCreate(model, &compilation) != 0) { err = "compilation_create"; break; }
+            rc = p_compCreate(model, &compilation);
+            if (rc != 0) { err = "compilation_create"; break; }
         }
-        if (p_compFinish(compilation) != 0) { err = "compilation_finish"; break; }
+        rc = p_compFinish(compilation);
+        if (rc != 0) { err = "compilation_finish"; break; }
 
         struct timespec t0, t1;
         clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -412,8 +462,10 @@ Java_dev_devenus_droidrunner_npu_NnapiProbe_addBenchmark(
     } while (0);
 
     if (err) {
-        snprintf(out, sizeof(out), "{\"ok\":false,\"error\":\"%s\",\"device\":\"%s\"}",
-                 err, wantedName ? wantedName : "default");
+        snprintf(out, sizeof(out),
+                 "{\"ok\":false,\"error\":\"%s\",\"resultCode\":%d,\"result\":\"%s\","
+                 "\"device\":\"%s\"}",
+                 err, rc, result_name(rc), wantedName ? wantedName : "default");
     } else {
         snprintf(out, sizeof(out),
                  "{\"ok\":true,\"device\":\"%s\",\"op\":\"ADD float32[%d]\",\"iterations\":%d,"
