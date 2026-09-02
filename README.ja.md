@@ -37,6 +37,9 @@ Android端末固有のNNAPIやベンダーNPUをCIから検証できる端末プ
 - **改ざん検出** — runtime bundleを展開する前にSHA-256を検証
 - **btop風ダッシュボード** — CPU・メモリ・バッテリー・温度・ディスク・ネットワークの
   リソースモニターとRunner稼働状況をリアルタイム表示
+- **自己防衛** — 非充電・残量低下・高温・容量不足のあいだはジョブを保留し、
+  異常終了しても自動でリスナーを再起動
+- **ephemeralモード** — ジョブごとに再登録し、work directoryを消去(任意)
 
 ## 全体構成
 
@@ -71,8 +74,9 @@ Android APIやNPUへアクセスするテストは、loopback APIを介してAPK
   ネットワークスループット
 - **runner** — Runnerの状態(停止 / 起動中 / ジョブ待機 / ジョブ実行中)、登録先
   Repository、稼働時間、成功・失敗ジョブ数、Runnerログのライブテール
-- **setup** — 別画面(⚙)にGitHubサインイン・リポジトリ選択・runtime導入・登録を集約。
-  登録済みならアプリ起動時にRunnerが自動スタート
+- **setup** — 別画面(⚙)にGitHubサインイン・リポジトリ選択・runtime導入・登録に加え、
+  ジョブ受付ポリシー(充電・バッテリー・温度・空き容量の閾値、ephemeralモード、
+  起動時自動スタート)を集約。登録済みならアプリ起動時にRunnerが自動スタート
 
 Runnerの状態は、Foreground Serviceが公式Runnerのlistener出力をパースし、
 `StateFlow`としてUIへストリームします。
@@ -91,6 +95,8 @@ Runnerの状態は、Foreground Serviceが公式Runnerのlistener出力をパー
 | Foreground Service(Runner状態パース付き) | PoC実装済み |
 | SoC/NPU候補ラベル | PoC実装済み |
 | 充電・温度・ストレージ制御 | PoC実装済み |
+| ephemeral runner(ジョブ後クリーンアップ) | PoC実装済み |
+| リスナー異常終了からの復旧 | PoC実装済み |
 | NPU Device Agent(loopback API・NNAPI probe・CLI) | PoC実装済み |
 | probe検証済みNNAPIラベル | PoC実装済み |
 | 任意モデル(`.tflite`)の実行 | 設計済み・未実装 |
@@ -312,7 +318,7 @@ self-hosted runnerは、Workflowに書かれたコードを端末上で実行し
 - `pull_request_target`とself-hosted runnerを安易に組み合わせない
 - 個人利用中の端末ではなく、CI専用に初期化した端末を使う
 - Runnerのwork directoryへ秘密情報を残さない
-- 実行後にwork directoryを消去するephemeral運用を将来的に利用する
+- 実行後にwork directoryを消去するephemeral運用を有効にする
 
 PRootは実行互換レイヤーであり、DockerやVMのような強いセキュリティ境界ではありません。
 
@@ -330,11 +336,11 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 - [ ] GABEを参考にruntime bootstrapを実機で安定化
 - [ ] GPL対応のruntime source archiveとSBOMを生成
 - [x] バッテリー・充電・温度・空き容量によるジョブ受付制御
-- [ ] Runnerの自動更新と異常終了時の復旧
+- [x] リスナー異常終了時の復旧(バックオフ付き再起動。runtime bundleの更新は #14)
 - [ ] per-job capability token付きDevice Agent
 - [ ] NNAPI capability probeとsmoke test
 - [ ] QNN / LiteRT / MediaTek Neuron / Samsung ENN adapter
-- [ ] ephemeral runnerとジョブ後クリーンアップ
+- [x] ephemeral runnerとジョブ後クリーンアップ
 - [ ] 複数端末の状態を表示する管理画面
 - [ ] runtime manifestの署名検証
 

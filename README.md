@@ -39,6 +39,8 @@ real hardware.
 - **Background standby** — keeps the runner alive with a Foreground Service and a wake lock
 - **Tamper detection** — verifies the runtime bundle's SHA-256 before extracting it
 - **btop-style dashboard** — live CPU, memory, battery, thermal, disk, and network monitor together with runner status
+- **Self-protecting** — holds jobs while the device is unplugged, low, hot, or short on space, and restarts the listener on its own after a failure
+- **Ephemeral mode** — optionally re-registers and wipes the work directory after every job
 
 ## Architecture overview
 
@@ -75,7 +77,9 @@ Compose:
 - **runner** — runner state (stopped / starting / listening / running job), registered
   repository, uptime, succeeded and failed job counts, and a live tail of the runner log
 - **setup** — a separate screen (⚙) with GitHub sign-in, repository picker, runtime
-  install, and registration; a registered runner starts automatically on app launch
+  install, registration, and the job policy (charging / battery / thermal / storage
+  thresholds, ephemeral mode, start-on-boot); a registered runner starts automatically
+  on app launch
 
 The runner state is parsed from the official runner's listener output by the foreground
 service and streamed to the UI as a `StateFlow`.
@@ -94,6 +98,8 @@ service and streamed to the UI as a `StateFlow`.
 | Foreground service with runner-state parsing | Implemented (PoC) |
 | SoC/NPU candidate labels | Implemented (PoC) |
 | Charging / thermal / storage admission control | Implemented (PoC) |
+| Ephemeral runners with post-job cleanup | Implemented (PoC) |
+| Listener crash recovery with restart backoff | Implemented (PoC) |
 | NPU Device Agent (loopback API, NNAPI probes, CLI) | Implemented (PoC) |
 | Probe-verified NNAPI labels | Implemented (PoC) |
 | Arbitrary model (`.tflite`) execution | Designed, not implemented |
@@ -321,7 +327,7 @@ A self-hosted runner executes whatever code the workflow contains, on your devic
 - Do not casually combine `pull_request_target` with self-hosted runners
 - Use devices wiped and dedicated to CI, not devices in personal use
 - Keep secrets out of the runner work directory
-- Adopt ephemeral runners that clean the work directory after each job (planned)
+- Enable ephemeral runners, which re-register and wipe the work directory after each job
 
 PRoot is a compatibility layer, not a strong security boundary like Docker or a VM.
 
@@ -339,11 +345,11 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 - [ ] Stabilize the runtime bootstrap on real devices, following GABE
 - [ ] Generate a GPL-compliant runtime source archive and SBOM
 - [x] Job admission control based on battery, charging, thermal, and free storage
-- [ ] Automatic runner updates and crash recovery
+- [x] Listener crash recovery with restart backoff (runtime bundle updates: #14)
 - [ ] Device Agent with per-job capability tokens
 - [ ] NNAPI capability probe and smoke test
 - [ ] QNN / LiteRT / MediaTek Neuron / Samsung ENN adapters
-- [ ] Ephemeral runners with post-job cleanup
+- [x] Ephemeral runners with post-job cleanup
 - [ ] Fleet dashboard showing the state of multiple devices
 - [ ] Runtime manifest signature verification
 
