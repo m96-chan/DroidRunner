@@ -35,6 +35,25 @@ class RunnerStatusTest {
         assertEquals(1, RunnerStatus.snapshot.value.jobsFailed)
     }
 
+    @Test fun notifiesJobBoundariesOnce() {
+        val transitions = mutableListOf<Boolean>()
+        RunnerStatus.setJobBoundaryListener { transitions += it }
+        try {
+            RunnerStatus.onServiceStarted()
+            RunnerStatus.onLogLine("Listening for Jobs")
+            assertEquals(emptyList<Boolean>(), transitions)
+
+            RunnerStatus.onLogLine("Running job: build")
+            RunnerStatus.onLogLine("some job output")
+            assertEquals(listOf(true), transitions)
+
+            RunnerStatus.onLogLine("Job build completed with result: Succeeded")
+            assertEquals(listOf(true, false), transitions)
+        } finally {
+            RunnerStatus.setJobBoundaryListener(null)
+        }
+    }
+
     @Test fun stopResetsStateButKeepsLog() {
         RunnerStatus.onServiceStarted()
         RunnerStatus.onLogLine("Listening for Jobs")

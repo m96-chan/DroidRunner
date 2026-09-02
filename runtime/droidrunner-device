@@ -19,8 +19,16 @@ set -euo pipefail
 die() { echo "droidrunner-device: $*" >&2; exit 1; }
 
 [ -n "${DROIDRUNNER_DEVICE_URL:-}" ] || die "DROIDRUNNER_DEVICE_URL is not set (is this job running on a DroidRunner device?)"
-[ -n "${DROIDRUNNER_DEVICE_TOKEN:-}" ] || die "DROIDRUNNER_DEVICE_TOKEN is not set"
 command -v curl >/dev/null || die "curl is required"
+
+# The capability token is issued per job and delivered through a file in the
+# app-private runtime directory, so it never sits in the environment (where it
+# would outlive the job and show up in process listings).
+if [ -z "${DROIDRUNNER_DEVICE_TOKEN:-}" ]; then
+    token_file="${DROIDRUNNER_DEVICE_TOKEN_FILE:-/home/runner/.droidrunner-agent-token}"
+    [ -r "$token_file" ] || die "no capability token at $token_file (the agent only issues one while a job runs)"
+    DROIDRUNNER_DEVICE_TOKEN="$(cat "$token_file")"
+fi
 
 api() {
     local method="$1" path="$2" data="${3:-}"

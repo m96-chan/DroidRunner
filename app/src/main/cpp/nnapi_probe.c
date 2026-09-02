@@ -164,14 +164,17 @@ Java_dev_devenus_droidrunner_npu_NnapiProbe_convBenchmark(
     if (!ensure_lib() || !p_modelCreate || !p_compute) {
         return (*env)->NewStringUTF(env, "{\"ok\":false,\"error\":\"NNAPI unavailable\"}");
     }
+    // Caps keep a job from cooking the phone or exhausting memory: the largest
+    // accepted shape allocates a few MB and stays well inside a second per
+    // iteration on the CPU fallback.
     if (iterations < 1) iterations = 1;
-    if (iterations > 500) iterations = 500;
+    if (iterations > 200) iterations = 200;
     if (size < 8) size = 8;
-    if (size > 256) size = 256;
+    if (size > 128) size = 128;
     if (channels < 1) channels = 1;
-    if (channels > 64) channels = 64;
+    if (channels > 32) channels = 32;
     if (filters < 1) filters = 1;
-    if (filters > 64) filters = 64;
+    if (filters > 32) filters = 32;
 
     const char* wantedName = NULL;
     if (jDeviceName) wantedName = (*env)->GetStringUTFChars(env, jDeviceName, NULL);

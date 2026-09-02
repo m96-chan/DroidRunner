@@ -44,9 +44,14 @@ class RunnerService : Service() {
         // Device Agent: loopback bridge that jobs use to reach Android-side
         // hardware (NNAPI); URL and capability token are injected into the
         // runner environment, which jobs inherit.
-        agent = DeviceAgentServer(this).also { it.start() }
+        val runtimeDir = RuntimeInstaller(this).runtimeDir
+        agent = DeviceAgentServer(this, runtimeDir).also { server ->
+            server.start()
+            // Fresh capability token per job; revoked when the job ends.
+            RunnerStatus.setJobBoundaryListener { active -> server.onJobActive(active) }
+        }
         executor.execute {
-            val runtime = RuntimeInstaller(this).runtimeDir
+            val runtime = runtimeDir
             runCatching {
                 check(File(runtime, ".configured").isFile) { "Runner is not configured" }
                 val started = RunnerCommand.run(
@@ -54,7 +59,8 @@ class RunnerService : Service() {
                     agent?.let {
                         mapOf(
                             "DROIDRUNNER_DEVICE_URL" to it.url,
-                            "DROIDRUNNER_DEVICE_TOKEN" to it.token,
+                            "DROIDRUNNER_DEVICE_TOKEN_FILE" to
+                                "/home/runner/${DeviceAgentServer.TOKEN_FILE_NAME}",
                         )
                     } ?: emptyMap(),
                 )
@@ -92,6 +98,7 @@ class RunnerService : Service() {
             runCatching { it.waitFor(5, java.util.concurrent.TimeUnit.SECONDS) }
         }
         process = null
+        RunnerStatus.setJobBoundaryListener(null)
         agent?.stop()
         agent = null
         starting.set(false)

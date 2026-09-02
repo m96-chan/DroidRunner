@@ -27,6 +27,18 @@ object RunnerStatus {
 
     private var prefs: android.content.SharedPreferences? = null
 
+    /** Notified when a job starts (true) and when it finishes (false). */
+    fun interface JobBoundaryListener {
+        fun onJobActive(active: Boolean)
+    }
+
+    @Volatile
+    private var jobListener: JobBoundaryListener? = null
+
+    fun setJobBoundaryListener(listener: JobBoundaryListener?) {
+        jobListener = listener
+    }
+
     /** Loads persisted lifetime job counters; call once from app entry points. */
     fun attach(context: android.content.Context) {
         if (prefs != null) return
@@ -65,9 +77,11 @@ object RunnerStatus {
         _snapshot.update { it.copy(state = RunnerState.STOPPED, currentJob = null, startedAtMillis = null) }
     }
 
+    @Synchronized
     fun onLogLine(rawLine: String) {
         val line = rawLine.trim()
         if (line.isEmpty()) return
+        val wasRunning = _snapshot.value.state == RunnerState.JOB_RUNNING
         _snapshot.update { current ->
             var next = current.copy(recentLog = (current.recentLog + line).takeLast(LOG_LINES))
             when {
@@ -92,5 +106,8 @@ object RunnerStatus {
             }
             next
         }
+        // Side effects run after the (retryable) update lambda, never inside it.
+        val isRunning = _snapshot.value.state == RunnerState.JOB_RUNNING
+        if (isRunning != wasRunning) jobListener?.onJobActive(isRunning)
     }
 }
