@@ -201,6 +201,14 @@ private fun RunnerPanel(
                 Text("up ${formatUptime(it)}", color = BtopColors.Dim, style = MaterialTheme.typography.labelMedium)
             }
         }
+        runner.pausedReason?.let { reason ->
+            Text(
+                "holding jobs: $reason",
+                color = BtopColors.Yellow,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 2,
+            )
+        }
         Text(
             configuredRepo ?: "not registered to a repository yet",
             color = if (configuredRepo != null) BtopColors.Text else BtopColors.Dim,
@@ -267,6 +275,7 @@ private fun RunnerState.label(): String = when (this) {
     RunnerState.STARTING -> "starting"
     RunnerState.LISTENING -> "listening for jobs"
     RunnerState.JOB_RUNNING -> "running job"
+    RunnerState.PAUSED -> "paused"
 }
 
 private fun RunnerState.color() = when (this) {
@@ -274,6 +283,7 @@ private fun RunnerState.color() = when (this) {
     RunnerState.STARTING -> BtopColors.Yellow
     RunnerState.LISTENING -> BtopColors.Green
     RunnerState.JOB_RUNNING -> BtopColors.Cyan
+    RunnerState.PAUSED -> BtopColors.Yellow
 }
 
 private fun thermalLabel(status: Int?): String = when (status) {
