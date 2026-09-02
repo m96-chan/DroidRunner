@@ -53,9 +53,9 @@ import dev.devenus.droidrunner.github.storedDeviceAuthorization
 import dev.devenus.droidrunner.github.toStoredJson
 import dev.devenus.droidrunner.model.RunnerConfig
 import dev.devenus.droidrunner.runner.AdmissionThresholds
+import dev.devenus.droidrunner.runner.RunnerRegistration
 import dev.devenus.droidrunner.runner.ThermalStatus
 import dev.devenus.droidrunner.npu.NpuLabels
-import dev.devenus.droidrunner.runner.RunnerCommand
 import dev.devenus.droidrunner.runner.RunnerState
 import dev.devenus.droidrunner.runner.RunnerStatus
 import dev.devenus.droidrunner.runtime.RuntimeInstaller
@@ -231,18 +231,12 @@ fun SetupScreen(
                 }
                 status = "registering ${target.fullName}…"
                 withContext(Dispatchers.IO) {
-                    val token = api.createRegistrationToken(target.owner, target.name, credential)
-                    val process = RunnerCommand.configure(context, runtime.runtimeDir, config, token)
-                        .redirectErrorStream(true).start()
                     // Stream config.sh output into the runner panel's log tail
                     // so the slow proot/.NET startup is visible.
-                    val output = StringBuilder()
-                    process.inputStream.bufferedReader().forEachLine { line ->
-                        output.appendLine(line)
-                        RunnerStatus.onLogLine(line)
-                    }
-                    check(process.waitFor() == 0) { output.toString().takeLast(1000) }
-                    File(runtime.runtimeDir, ".configured").writeText(config.repositoryUrl)
+                    RunnerRegistration.register(
+                        context, runtime.runtimeDir, config,
+                        ephemeral = RunnerRegistration.ephemeralEnabled(context),
+                    ) { line -> RunnerStatus.onLogLine(line) }
                 }
                 null
             }.getOrElse { "failed: ${it.message}" }
@@ -416,6 +410,11 @@ fun SetupScreen(
 
             Toggle("require charging", thresholds.requireCharging) {
                 update(thresholds.copy(requireCharging = it))
+            }
+            var ephemeral by remember { mutableStateOf(RunnerRegistration.ephemeralEnabled(context)) }
+            Toggle("ephemeral (re-register and wipe the work dir per job)", ephemeral) {
+                ephemeral = it
+                RunnerRegistration.setEphemeralEnabled(context, it)
             }
             Spacer(Modifier.padding(top = 6.dp))
             Choice(

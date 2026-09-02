@@ -14,6 +14,8 @@ data class RunnerSnapshot(
     val pausedReason: String? = null,
     val jobsSucceeded: Int = 0,
     val jobsFailed: Int = 0,
+    /** How many times the supervisor restarted the listener this session. */
+    val restarts: Int = 0,
     val recentLog: List<String> = emptyList(),
 )
 
@@ -78,6 +80,14 @@ object RunnerStatus {
     /** Admission control is holding new jobs; the listener is stopped. */
     fun onPaused(reason: String) {
         _snapshot.update { it.copy(state = RunnerState.PAUSED, currentJob = null, pausedReason = reason) }
+    }
+
+    /** The supervisor is bringing the listener back after an exit. */
+    fun onRestarting(reason: String) {
+        _snapshot.update {
+            it.copy(state = RunnerState.STARTING, currentJob = null, restarts = it.restarts + 1)
+        }
+        onLogLine("recovery: $reason")
     }
 
     /** Conditions recovered; the listener is starting again. */
