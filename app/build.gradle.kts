@@ -25,6 +25,18 @@ android {
         // Repo whose GitHub Releases host the runtime bundle (runtime-* tags).
         buildConfigField("String", "RUNTIME_REPO", "\"${project.findProperty("droidrunner.runtimeRepo") ?: ""}\"")
 
+        // GPL "corresponding source" pointers for the proot binaries shipped in
+        // the APK, read from the script that actually builds them so the About
+        // screen can never drift from what was compiled.
+        val prootScript = rootProject.file("runtime/build-proot.sh").readText()
+        fun pinnedValue(name: String): String {
+            // Matches e.g. PROOT_COMMIT="${PROOT_COMMIT:-<sha>}"
+            val pattern = Regex(name + "=\"\\$\\{" + name + ":-([^}]*)\\}\"")
+            return pattern.find(prootScript)?.groupValues?.get(1).orEmpty()
+        }
+        buildConfigField("String", "PROOT_COMMIT", "\"${pinnedValue("PROOT_COMMIT")}\"")
+        buildConfigField("String", "TALLOC_VERSION", "\"${pinnedValue("TALLOC_VERSION")}\"")
+
         ndk.abiFilters += "arm64-v8a"
     }
 

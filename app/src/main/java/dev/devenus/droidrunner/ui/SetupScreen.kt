@@ -596,6 +596,8 @@ fun SetupScreen(
             ) { Text("Register with PAT") }
         }
 
+        AboutPanel(capabilities, runtime)
+
         Text(
             "⚠ Security note: jobs run arbitrary workflow code on this device. " +
                 "Never let untrusted fork PRs run on this runner.",
