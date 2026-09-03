@@ -14,7 +14,15 @@ data class DeviceAuthorization(
     val expiresInSeconds: Int,
 )
 
-data class UserToken(val accessToken: String, val refreshToken: String?)
+/**
+ * A sign-in. [expiresInSeconds] is null when the GitHub App opted out of user
+ * access token expiration, in which case there is nothing to renew ahead of.
+ */
+data class UserToken(
+    val accessToken: String,
+    val refreshToken: String?,
+    val expiresInSeconds: Int? = null,
+)
 
 /**
  * GitHub App device flow (no client secret required). The app only needs its
@@ -45,7 +53,7 @@ class GitHubAuth(private val clientId: String) {
             delay(interval * 1000L)
             val json = try {
                 postForm(
-                    "https://github.com/login/oauth/access_token",
+                    TOKEN_URL,
                     mapOf(
                         "client_id" to clientId,
                         "device_code" to authorization.deviceCode,
@@ -63,17 +71,41 @@ class GitHubAuth(private val clientId: String) {
             }
             val error = json.optString("error").takeIf { it.isNotEmpty() }
             android.util.Log.d("DroidRunner", "device flow poll: ${error ?: "token received"}")
-            if (error == null) {
-                return UserToken(
-                    accessToken = json.getString("access_token"),
-                    refreshToken = json.optString("refresh_token").takeIf { it.isNotEmpty() },
-                )
-            }
+            if (error == null) return json.toUserToken()
             interval = nextDelaySeconds(error, interval)
                 ?: error("Authorization failed: ${json.optString("error_description").ifEmpty { error }}")
         }
         error("Device authorization expired before it was approved")
     }
+
+    /**
+     * Trades a refresh token for a new sign-in (issue #42). Same endpoint and
+     * reply shape as the device flow; only the grant differs.
+     *
+     * GitHub rotates the refresh token on every renewal, so the returned pair
+     * has to be stored as a whole — keeping the old refresh token would end
+     * the chain after one renewal.
+     */
+    fun refresh(refreshToken: String): UserToken {
+        val json = postForm(
+            TOKEN_URL,
+            mapOf(
+                "client_id" to clientId,
+                "grant_type" to "refresh_token",
+                "refresh_token" to refreshToken,
+            ),
+        )
+        json.optString("error").takeIf { it.isNotEmpty() }?.let { error ->
+            error("Token refresh failed: ${json.optString("error_description").ifEmpty { error }}")
+        }
+        return json.toUserToken()
+    }
+
+    private fun JSONObject.toUserToken() = UserToken(
+        accessToken = getString("access_token"),
+        refreshToken = optString("refresh_token").takeIf { it.isNotEmpty() },
+        expiresInSeconds = optInt("expires_in").takeIf { it > 0 },
+    )
 
     private fun postForm(url: String, fields: Map<String, String>): JSONObject {
         val body = fields.entries.joinToString("&") { (key, value) ->
@@ -97,6 +129,8 @@ class GitHubAuth(private val clientId: String) {
     }
 
     companion object {
+        private const val TOKEN_URL = "https://github.com/login/oauth/access_token"
+
         /**
          * Device-flow poll backoff: keep waiting while authorization is pending,
          * add 5s on slow_down, stop (null) on any terminal error.

@@ -96,6 +96,7 @@ service and streamed to the UI as a `StateFlow`.
 | Repository registration token exchange | Implemented (PoC) |
 | Organization-scoped runners | Implemented (PoC) |
 | Credential storage in the Keystore (user token / PAT) | Implemented (PoC) |
+| Sign-in renewal from the stored refresh token | Implemented (PoC) |
 | Runtime bundle download + SHA-256 verification | Implemented (PoC) |
 | proot NDK build (in-APK) + runtime bundle CI | Implemented (PoC) |
 | Official runner under PRoot | Verified on-device (job executed successfully) |
@@ -299,7 +300,11 @@ publish new bundles with the **Runtime bundle** workflow (see `runtime/README.md
 Sign-in uses the GitHub App device flow, so no client secret is embedded in the APK
 and no PAT has to be created by hand. The user token is encrypted with the Android
 Keystore and never enters the Linux environment; the controller exchanges it for a
-short-lived registration token.
+short-lived registration token. The refresh token is stored the same way, and the
+sign-in is renewed before it expires (and again if GitHub rejects a token anyway),
+so an ephemeral device keeps re-registering without anyone opening the app. If a
+renewal is refused, the device says so in a notification: that one does need a
+person.
 
 A manual fallback (`advanced: manual PAT setup`) accepts a fine-grained PAT with the
 repository Administration read/write permission, for GitHub Enterprise Server or
@@ -313,8 +318,9 @@ required):
 1. GitHub → Settings → Developer settings → **New GitHub App**
 2. Repository permission **Administration: Read and write**; no webhook
 3. Enable **Device flow**
-4. Recommended: opt out of user access token expiration (Optional features), so the
-   login does not need refresh handling
+4. Optional: opt out of user access token expiration (Optional features). The app
+   now stores the refresh token and renews the sign-in before it lapses, so this is
+   advice for a quieter setup rather than something the app depends on
 5. Put the public identifiers into `gradle.properties`:
 
 ```properties

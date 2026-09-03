@@ -47,8 +47,12 @@ import io.github.m96chan.droidrunner.BuildConfig
 import io.github.m96chan.droidrunner.device.DeviceCapabilities
 import io.github.m96chan.droidrunner.github.DeviceAuthorization
 import io.github.m96chan.droidrunner.github.GitHubApi
+import io.github.m96chan.droidrunner.github.GitHubApiException
 import io.github.m96chan.droidrunner.github.GitHubAuth
 import io.github.m96chan.droidrunner.github.RepositoryRef
+import io.github.m96chan.droidrunner.github.SignInExpiredException
+import io.github.m96chan.droidrunner.github.TokenRefreshPolicy
+import io.github.m96chan.droidrunner.github.UserSession
 import io.github.m96chan.droidrunner.github.storedDeviceAuthorization
 import io.github.m96chan.droidrunner.github.toStoredJson
 import io.github.m96chan.droidrunner.model.RunnerConfig
@@ -127,6 +131,7 @@ fun SetupScreen(
     }
 
     var userToken by remember { mutableStateOf(secretStore.getUserToken()) }
+    val session = remember { UserSession(secretStore, clientId) }
     var deviceAuth by remember { mutableStateOf<DeviceAuthorization?>(null) }
     var authJob by remember { mutableStateOf<Job?>(null) }
     var repos by remember { mutableStateOf<List<RepositoryRef>>(emptyList()) }
@@ -171,12 +176,23 @@ fun SetupScreen(
     }
 
     fun refreshRepos() {
-        val token = userToken ?: return
+        // Renewal can hand back a different access token part-way through, and
+        // the rest of the screen should go on with whichever one worked.
+        var token = userToken ?: return
         loadingRepos = true
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    val installations = api.listInstallations(token)
+                    // Renew before the sign-in lapses rather than after it
+                    // fails, and again on a 401, since the expiry is advisory.
+                    token = session.accessToken() ?: token
+                    val installations = try {
+                        api.listInstallations(token)
+                    } catch (rejected: GitHubApiException) {
+                        if (rejected.status != 401) throw rejected
+                        token = session.renew()
+                        api.listInstallations(token)
+                    }
                     // Remember the app slug so the install button can deep-link
                     // without a build-time GITHUB_APP_SLUG.
                     installations.firstOrNull { it.appSlug.isNotBlank() }?.let {
@@ -185,6 +201,7 @@ fun SetupScreen(
                     installations.flatMap { api.listInstallationRepositories(token, it.id) }
                 }
             }.onSuccess { found ->
+                userToken = token
                 repos = found
                 reposLoaded = true
                 organizations = runCatching {
@@ -201,7 +218,12 @@ fun SetupScreen(
                 }
             }.onFailure { failure ->
                 android.util.Log.e("DroidRunner", "repo refresh failed", failure)
-                if (failure.message?.contains("GitHub API 401") == true) {
+                // Only a refused renewal, or a rejection there was nothing to
+                // renew with, really ends the sign-in; a token that merely
+                // lapsed has already been replaced above.
+                if (failure is SignInExpiredException ||
+                    (failure as? GitHubApiException)?.status == 401
+                ) {
                     disconnect()
                     status = "GitHub session expired, connect again"
                 } else {
@@ -217,7 +239,16 @@ fun SetupScreen(
             runCatching {
                 val token = withContext(Dispatchers.IO) { GitHubAuth(clientId).awaitToken(auth) }
                 secretStore.clearPendingAuth()
-                secretStore.putUserToken(token.accessToken)
+                // The refresh token and the expiry are stored with the access
+                // token: without them this sign-in could never be renewed.
+                secretStore.putUserToken(
+                    token.accessToken,
+                    token.refreshToken,
+                    TokenRefreshPolicy.expiresAtMillis(
+                        token.expiresInSeconds,
+                        System.currentTimeMillis(),
+                    ),
+                )
                 userToken = token.accessToken
                 status = null
             }.onFailure {

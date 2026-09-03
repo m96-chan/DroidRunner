@@ -4,6 +4,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import android.os.PowerManager
+import io.github.m96chan.droidrunner.github.SignInExpiredException
 import io.github.m96chan.droidrunner.monitor.SystemMonitor
 import io.github.m96chan.droidrunner.npu.DeviceAgentServer
 import io.github.m96chan.droidrunner.npu.DeviceCapabilitiesJson
@@ -200,10 +201,17 @@ class RunnerService : Service() {
                 }
             }
             if (outcome.isFailure) {
+                val cause = outcome.exceptionOrNull()
                 backOff(
-                    "registration failed: ${outcome.exceptionOrNull()?.message}",
+                    "registration failed: ${cause?.message}",
                     ranMillis = 0,
-                    failure = AlertPolicy.Failure.REGISTRATION,
+                    // A refused renewal is a real sign-out, not a bad moment:
+                    // it says so at once instead of waiting out a streak.
+                    failure = if (cause is SignInExpiredException) {
+                        AlertPolicy.Failure.SIGN_IN
+                    } else {
+                        AlertPolicy.Failure.REGISTRATION
+                    },
                 )
                 return
             }
@@ -227,6 +235,12 @@ class RunnerService : Service() {
                 "GitHub would not accept this device $consecutiveFailures times in a row. " +
                     "The sign-in has probably expired — open the setup screen to connect again.\n\n" +
                     reason,
+            )
+
+            AlertPolicy.Failure.SIGN_IN -> notifications.alert(
+                "DroidRunner is signed out",
+                "GitHub would not renew this device's sign-in, so it can no longer " +
+                    "register — open the setup screen to connect again.\n\n" + reason,
             )
 
             AlertPolicy.Failure.LISTENER -> notifications.alert(

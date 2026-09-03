@@ -17,11 +17,32 @@ class SecretStore(context: Context) {
 
     fun getPat(): String? = getSecret(PAT)
 
-    fun putUserToken(value: String) = putSecret(USER_TOKEN, value)
+    /**
+     * Stores a sign-in whole (issue #42): renewing one is only possible if the
+     * refresh token and the expiry survive a restart with the access token, so
+     * all three live here under the same Keystore key.
+     */
+    fun putUserToken(value: String, refreshToken: String? = null, expiresAtMillis: Long? = null) {
+        putSecret(USER_TOKEN, value)
+        // A renewal that returned no new refresh token leaves the stored one in
+        // place; dropping it would end the chain after a single renewal.
+        refreshToken?.let { putSecret(USER_REFRESH_TOKEN, it) }
+        if (expiresAtMillis == null) prefs.edit().remove(USER_TOKEN_EXPIRES_AT).commit()
+        else putSecret(USER_TOKEN_EXPIRES_AT, expiresAtMillis.toString())
+    }
 
     fun getUserToken(): String? = getSecret(USER_TOKEN)
 
-    fun clearUserToken() = prefs.edit().remove(USER_TOKEN).apply()
+    fun getUserRefreshToken(): String? = getSecret(USER_REFRESH_TOKEN)
+
+    /** When the stored access token lapses, or null if GitHub never said. */
+    fun getUserTokenExpiresAt(): Long? = getSecret(USER_TOKEN_EXPIRES_AT)?.toLongOrNull()
+
+    fun clearUserToken() = prefs.edit()
+        .remove(USER_TOKEN)
+        .remove(USER_REFRESH_TOKEN)
+        .remove(USER_TOKEN_EXPIRES_AT)
+        .apply()
 
     /** Stable Device Agent capability token: survives app restarts so a
      *  runner started by a previous app process can still authenticate. */
@@ -77,6 +98,8 @@ class SecretStore(context: Context) {
         const val ALIAS = "droidrunner-pat"
         const val PAT = "github_pat"
         const val USER_TOKEN = "github_user_token"
+        const val USER_REFRESH_TOKEN = "github_user_refresh_token"
+        const val USER_TOKEN_EXPIRES_AT = "github_user_token_expires_at"
         const val PENDING_AUTH = "github_pending_auth"
         const val AGENT_TOKEN = "device_agent_token"
         const val TRANSFORMATION = "AES/GCM/NoPadding"

@@ -17,6 +17,13 @@ data class RepositoryRef(val owner: String, val name: String) {
     val fullName: String get() = "$owner/$name"
 }
 
+/**
+ * A refusal from the GitHub API. [status] is carried so callers can tell a
+ * rejected credential (401, worth renewing) from a missing permission, rather
+ * than matching on the message text.
+ */
+class GitHubApiException(val status: Int, message: String) : RuntimeException(message)
+
 class GitHubApi {
     /**
      * Short-lived token `config.sh` exchanges for a runner identity. The
@@ -119,7 +126,10 @@ class GitHubApi {
             .bufferedReader().use { it.readText() }
         if (connection.responseCode !in 200..299) {
             val message = runCatching { JSONObject(body).optString("message") }.getOrNull() ?: body
-            error("GitHub API ${connection.responseCode}: $message")
+            throw GitHubApiException(
+                connection.responseCode,
+                "GitHub API ${connection.responseCode}: $message",
+            )
         }
         return body
     }

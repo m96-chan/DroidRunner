@@ -95,6 +95,7 @@ Runnerの状態は、Foreground Serviceが公式Runnerのlistener出力をパー
 | Repository登録トークンの取得 | PoC実装済み |
 | Organizationスコープのrunner | PoC実装済み |
 | 資格情報のKeystore保存(userトークン / PAT) | PoC実装済み |
+| refresh tokenによるサインインの自動更新 | PoC実装済み |
 | runtime bundleの取得・SHA-256検証 | PoC実装済み |
 | prootのNDKビルド(APK同梱)+ bundle CI | PoC実装済み |
 | PRootでの公式Runner起動 | 実機検証済み(ジョブ実行成功) |
@@ -290,6 +291,9 @@ manifest URLの手動上書きは`advanced`にあります(GitHub Enterprise Ser
 サインインはGitHub AppのDevice Flowを使うため、APKにclient secretは含まれず、
 PATを手動で発行する必要もありません。userトークンはAndroid Keystoreで暗号化され、
 Linux環境へは渡りません。Controllerが短時間有効な登録トークンへ交換します。
+refresh tokenも同じ方式で保存し、期限切れ前に(そして401が返ればその時点でも)
+サインインを更新するため、ephemeralな端末もアプリを開かずに再登録を続けられます。
+更新自体が拒否された場合だけ通知で知らせます。
 
 手動フォールバック(`advanced: manual PAT setup`)では、対象Repositoryの
 Administration read/write権限を持つfine-grained PATを使えます(GitHub Enterprise
@@ -302,8 +306,8 @@ Device FlowにはGitHub Appの登録が必要です(無料・サーバー不要�
 1. GitHub → Settings → Developer settings → **New GitHub App**
 2. Repository permissionで**Administration: Read and write**を付与。webhookは不要
 3. **Device flow**を有効化
-4. 推奨: user access tokenの有効期限をオプトアウト(Optional features)しておくと
-   リフレッシュ処理が不要になる
+4. 任意: user access tokenの有効期限をオプトアウト(Optional features)する。
+   アプリがrefresh tokenを保存し期限切れ前に更新するため、必須ではなく推奨にとどまる
 5. 公開識別子を`gradle.properties`へ設定する:
 
 ```properties
