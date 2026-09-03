@@ -67,7 +67,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /** Full-screen setup flow: GitHub login, repository pick, runtime, register. */
 @Composable
@@ -76,6 +75,8 @@ fun SetupScreen(
     runtime: RuntimeInstaller,
     secretStore: SecretStore,
     onClose: () -> Unit,
+    /** Brings the listener up once a repair leaves nothing else to decide. */
+    onStartRunner: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -90,7 +91,9 @@ fun SetupScreen(
     // Long-running setup runs behind a modal, so nobody wanders off mid-flight.
     var progress by remember { mutableStateOf<SetupProgress?>(null) }
     var setupJob by remember { mutableStateOf<Job?>(null) }
-    val configured = remember(runner.state, status, busy) { File(runtime.runtimeDir, ".configured").isFile }
+    val configured = remember(runner.state, status, busy) {
+        RunnerRegistration.isConfigured(runtime.runtimeDir)
+    }
 
     // Latest runtime-* release of the configured runtime repo; lets Register
     // install the runtime automatically with no manifest URL to paste.
@@ -120,6 +123,9 @@ fun SetupScreen(
 
     val statusText = status ?: when {
         runner.state != RunnerState.STOPPED -> "runner active"
+        // A registered device with no runtime is broken, not ready: say so
+        // here rather than promising a runner that cannot start (issue #46).
+        configured && !runtime.installed -> "runtime missing — install it to bring this runner back"
         configured -> "registered — runner starts automatically"
         runtime.installed -> "runtime installed — pick a repository"
         resolvedManifest != null -> "pick a repository — runtime installs on register"
@@ -232,6 +238,47 @@ fun SetupScreen(
     }
 
     fun manifestSource(): String? = manifestUrl.ifBlank { resolvedManifest.orEmpty() }.ifBlank { null }
+
+    /**
+     * Installs the runtime and nothing else.
+     *
+     * Reinstalling a runtime and registering a runner are different
+     * operations — only one of them touches GitHub — so a device that lost its
+     * runtime does not have to re-register to get one back (issue #46). The
+     * registration details survive the install, so a device that was already a
+     * runner is one again as soon as the listener comes up, which it does here
+     * rather than sending the user to the dashboard to press Start.
+     */
+    fun installRuntime() {
+        val manifest = manifestSource() ?: return
+        busy = true
+        progress = SetupProgress("preparing")
+        setupJob = scope.launch {
+            status = runCatching {
+                // runInterruptible so Cancel actually breaks the blocking
+                // download and extraction, rather than leaving them running.
+                runInterruptible(Dispatchers.IO) {
+                    runtime.install(manifest) { phase, fraction ->
+                        progress = SetupProgress(phase, fraction)
+                    }
+                }
+                null
+            }.getOrElse { failure ->
+                if (failure is kotlinx.coroutines.CancellationException) "install cancelled"
+                else "failed: ${failure.message}"
+            }
+            progress = null
+            busy = false
+            // Read both back from disk rather than trusting what the screen
+            // believed before the install: the install is what decides whether
+            // the registration made it across.
+            val startRunner = RuntimeRecovery.shouldStartRunnerAfterInstall(
+                registered = RunnerRegistration.isConfigured(runtime.runtimeDir),
+                runnerState = RunnerStatus.snapshot.value.state,
+            )
+            if (status == null && startRunner) onStartRunner()
+        }
+    }
 
     fun registerRunner(target: RunnerTarget, credential: String) {
         if (RunnerRegistration.load(runtime.runtimeDir)?.target == target) {
@@ -446,31 +493,12 @@ fun SetupScreen(
                         )
                         Spacer(Modifier.padding(top = 6.dp))
                         Button(
-                            enabled = !busy && runner.state == RunnerState.STOPPED,
+                            enabled = RuntimeRecovery.canInstallNow(busy, runner.state),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = BtopColors.Yellow,
                                 contentColor = BtopColors.Background,
                             ),
-                            onClick = {
-                                val manifest = manifestSource() ?: return@Button
-                                busy = true
-                                progress = SetupProgress("preparing")
-                                setupJob = scope.launch {
-                                    status = runCatching {
-                                        runInterruptible(Dispatchers.IO) {
-                                            runtime.install(manifest) { phase, fraction ->
-                                                progress = SetupProgress(phase, fraction)
-                                            }
-                                        }
-                                        null
-                                    }.getOrElse { failure ->
-                                        if (failure is kotlinx.coroutines.CancellationException) "update cancelled"
-                                        else "failed: ${failure.message}"
-                                    }
-                                    progress = null
-                                    busy = false
-                                }
-                            },
+                            onClick = { installRuntime() },
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("Update runtime") }
                         if (runner.state != RunnerState.STOPPED) {
@@ -489,11 +517,38 @@ fun SetupScreen(
                     style = MaterialTheme.typography.labelMedium,
                 )
 
-                manifestSource() != null -> Text(
-                    "latest release found — downloads automatically when you register (~200MB)",
-                    color = BtopColors.Dim,
-                    style = MaterialTheme.typography.labelMedium,
-                )
+                RuntimeRecovery.shouldOfferInstall(runtime.installed, manifestSource() != null) -> {
+                    Text(
+                        if (configured) {
+                            "no runtime installed — this device is registered but cannot run " +
+                                "anything until one is back (~200MB)"
+                        } else {
+                            "latest release found — downloads automatically when you register (~200MB)"
+                        },
+                        color = if (configured) BtopColors.Yellow else BtopColors.Dim,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    Spacer(Modifier.padding(top = 6.dp))
+                    // Offered whatever the registration says: a device that
+                    // already registered is exactly the one that could not get
+                    // a runtime back any other way (issue #46).
+                    Button(
+                        enabled = RuntimeRecovery.canInstallNow(busy, runner.state),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = BtopColors.Cyan,
+                            contentColor = BtopColors.Background,
+                        ),
+                        onClick = { installRuntime() },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(RuntimeRecovery.installLabel(configured)) }
+                    if (runner.state != RunnerState.STOPPED) {
+                        Text(
+                            "Stop the runner first — installing replaces the directory it runs from.",
+                            color = BtopColors.Dim,
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
 
                 else -> Text(
                     "no runtime release found — set a manifest URL under advanced",
