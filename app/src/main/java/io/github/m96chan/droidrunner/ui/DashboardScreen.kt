@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import io.github.m96chan.droidrunner.device.DeviceCapabilities
 import io.github.m96chan.droidrunner.monitor.SystemMonitor
 import io.github.m96chan.droidrunner.monitor.SystemSnapshot
+import io.github.m96chan.droidrunner.runner.BootGapPolicy
 import io.github.m96chan.droidrunner.runner.RunnerSnapshot
 import io.github.m96chan.droidrunner.runner.RunnerState
 import io.github.m96chan.droidrunner.runner.RunnerStatus
@@ -209,6 +210,17 @@ private fun RunnerPanel(
                 color = BtopColors.Yellow,
                 style = MaterialTheme.typography.labelMedium,
                 maxLines = 2,
+            )
+        }
+        // Dim, and no notification behind it: this is something that already
+        // finished happening, and waking someone for it would help nobody.
+        runner.bootGapMs?.let { gap ->
+            Text(
+                "offline ${BootGapPolicy.describe(gap)} after boot — the device was " +
+                    "locked, and the runner cannot start before it is unlocked",
+                color = BtopColors.Dim,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 3,
             )
         }
         Text(

@@ -45,7 +45,9 @@
   <div class="note warn">
     <b>Pick the right phone.</b> It will execute whatever code your workflows contain,
     and it will run hot for long stretches. Use a device you have wiped and dedicated
-    to CI — not the one with your photos on it.
+    to CI — not the one with your photos on it. Leave that device without a lock
+    screen as well: a locked phone does not start its runner after a reboot until a
+    human unlocks it.
   </div>
 </section>
 
@@ -174,9 +176,18 @@
       </p>
       <p>
         <b style="display:inline">Start on boot</b> brings the runner back after a
-        reboot. Also worth granting the battery-optimization exemption the app asks
-        for; vendor task killers are the most common reason a runner quietly goes
-        offline overnight.
+        reboot — once the device is unlocked. Android holds the boot broadcast back
+        while the phone is credential-locked and delivers it at the first unlock, and
+        until then the runtime and the stored credentials cannot be read at all. So a
+        phone with a secure lock screen does not resume CI after a power cut until
+        somebody picks it up; a phone dedicated to CI should have no lock screen,
+        which is the configuration where a reboot really is unattended. When the wait
+        happens anyway, the runner panel says how long the device was offline.
+      </p>
+      <p>
+        Also worth granting the battery-optimization exemption the app asks for;
+        vendor task killers are the most common reason a runner quietly goes offline
+        overnight.
       </p>
     </li>
 

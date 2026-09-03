@@ -78,7 +78,8 @@ Android APIやNPUへアクセスするテストは、loopback APIを介してAPK
 - **pwr/net** — バッテリー残量と充電状態、バッテリー温度、Androidサーマルステータス、
   ネットワークスループット
 - **runner** — Runnerの状態(停止 / 起動中 / ジョブ待機 / ジョブ実行中)、登録先
-  Repository、稼働時間、成功・失敗ジョブ数、Runnerログのライブテール
+  Repository、稼働時間、成功・失敗ジョブ数、ロックされたまま再起動した端末が
+  どれだけオフラインだったか、Runnerログのライブテール
 - **setup** — 別画面(⚙)にGitHubサインイン・リポジトリ選択・runtime導入・登録に加え、
   ジョブ受付ポリシー(充電・バッテリー・温度・空き容量の閾値、ephemeralモード、
   起動時自動スタート)を集約。登録済みならアプリ起動時にRunnerが自動スタート
@@ -410,6 +411,13 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 - Docker-based actionsとservice containersは利用不可
 - PRootによるシステムコール変換のオーバーヘッドがある
 - Androidの省電力機能やメーカー独自タスクキラーの影響を受ける
+- 起動時自動スタートが効くのは、端末が**アンロックされてから**であり、起動した瞬間では
+  ない。Androidはユーザーがcredential-lock状態のあいだ`BOOT_COMPLETED`を保留し、
+  runtime bundleも保存済みの認証情報も、初回アンロックまで読めない
+  credential-encrypted storageに置かれているため。したがってCI専用の端末には
+  セキュアなロック画面を設定しないこと — さもなければ停電のあと、誰かが端末を手に取る
+  までCIは止まったままになる。無人だった時間はダッシュボードに表示される
+  ([#41](https://github.com/m96-chan/DroidRunner/issues/41))
 - Android 12以降ではForeground Serviceの起動方法に制約がある
 - 一部のActionsはARM64やAndroid上のLinux環境に対応していない
 - rootfsとビルドキャッシュに大きなストレージを使用する可能性がある
@@ -428,6 +436,7 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 - [x] runtime manifestの署名検証
 - [x] Runner状態と保留理由を出す通知、およびGitHubには見えないことだけを伝える警告
 - [x] スマホを他の用途で使いながらRunnerを見ておくPicture-in-Picture
+- [x] ロックされていたせいで再起動後に無人だった時間を記録して表示する([#41](https://github.com/m96-chan/DroidRunner/issues/41))
 - [ ] 1サンプルだけ条件に触れた程度でジョブを保留しない([#37](https://github.com/m96-chan/DroidRunner/issues/37))
 - [ ] runtime bundleの更新通知・自動導入([#14](https://github.com/m96-chan/DroidRunner/issues/14))
 - [ ] 複数端末の状態を表示する管理画面([#7](https://github.com/m96-chan/DroidRunner/issues/7))
