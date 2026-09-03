@@ -39,6 +39,17 @@ class AlertPolicyTest {
         )
     }
 
+    @Test fun aRefusedRenewalSpeaksUpTheFirstTime() {
+        // Unlike a registration that might fail for a dozen transient reasons,
+        // a refused refresh token is a decision GitHub will repeat: the device
+        // is signed out until a person reconnects it.
+        assertTrue(AlertPolicy.shouldAlert(AlertPolicy.Failure.SIGN_IN, 1, alreadyAlerted = false))
+        assertTrue(
+            AlertPolicy.SIGN_IN_FAILURES_BEFORE_ALERT <
+                AlertPolicy.REGISTRATION_FAILURES_BEFORE_ALERT,
+        )
+    }
+
     @Test fun oneAlertPerStreakHoweverLongItRuns() {
         assertFalse(AlertPolicy.shouldAlert(AlertPolicy.Failure.LISTENER, 50, alreadyAlerted = true))
         assertFalse(

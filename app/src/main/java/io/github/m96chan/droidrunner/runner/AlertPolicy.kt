@@ -11,7 +11,7 @@ package io.github.m96chan.droidrunner.runner
 object AlertPolicy {
 
     /** Failures the device can see and GitHub cannot. */
-    enum class Failure { LISTENER, REGISTRATION }
+    enum class Failure { LISTENER, REGISTRATION, SIGN_IN }
 
     /**
      * A listener that exits gets the benefit of the doubt for a few restarts —
@@ -27,6 +27,14 @@ object AlertPolicy {
      */
     const val REGISTRATION_FAILURES_BEFORE_ALERT = 2
 
+    /**
+     * A refused renewal is not a blip (issue #42). GitHub rejected the one
+     * credential that could restore the sign-in, and every retry would present
+     * the same one, so waiting for a second opinion only delays the person who
+     * has to reconnect.
+     */
+    const val SIGN_IN_FAILURES_BEFORE_ALERT = 1
+
     fun shouldAlert(
         failure: Failure,
         consecutiveFailures: Int,
@@ -36,6 +44,7 @@ object AlertPolicy {
         val threshold = when (failure) {
             Failure.LISTENER -> LISTENER_FAILURES_BEFORE_ALERT
             Failure.REGISTRATION -> REGISTRATION_FAILURES_BEFORE_ALERT
+            Failure.SIGN_IN -> SIGN_IN_FAILURES_BEFORE_ALERT
         }
         return consecutiveFailures >= threshold
     }
