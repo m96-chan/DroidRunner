@@ -30,7 +30,11 @@ jobs:
           RUNNER_VERSION: ${{ inputs.runner_version }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-        run: sudo -E runtime/build-bundle.sh
+        run: |
+          sudo -E runtime/build-bundle.sh
+          # The bundle build chroots, so it runs as root and leaves its output
+          # owned by root; later steps sign and upload as the runner user.
+          sudo chown -R "$(id -u):$(id -g)" runtime/out
 
       # A manifest is what points a device at a rootfs, so it needs an origin
       # of its own: the SHA-256 inside it only proves the archive matches the
