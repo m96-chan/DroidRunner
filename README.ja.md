@@ -112,6 +112,9 @@ Runnerの状態は、Foreground Serviceが公式Runnerのlistener出力をパー
 | 署名付きruntime manifest | PoC実装済み |
 | Runner状態・保留理由・警告を出す通知 | PoC実装済み |
 | Picture-in-PictureでのRunner表示 | PoC実装済み |
+| 失敗しても壊れず、登録も保つruntimeインストール | 実機検証済み |
+| サインインの更新(リフレッシュトークン) | PoC実装済み |
+| 履歴・ローテーション・アプリ行を持つログ | PoC実装済み |
 
 ## Runnerラベル
 
@@ -441,7 +444,10 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 - [x] Runner状態と保留理由を出す通知、およびGitHubには見えないことだけを伝える警告
 - [x] スマホを他の用途で使いながらRunnerを見ておくPicture-in-Picture
 - [x] ロックされていたせいで再起動後に無人だった時間を記録して表示する([#41](https://github.com/m96-chan/DroidRunner/issues/41))
+- [x] 登録を保ったまま、消えたruntimeを入れ直す(そして端末をruntime無しにしない)
+- [x] トークン期限切れでサインインを失わず、更新する
 - [ ] 1サンプルだけ条件に触れた程度でジョブを保留しない([#37](https://github.com/m96-chan/DroidRunner/issues/37))
+- [ ] GitHub応答の読めない要素を飛ばし、古いruntimeを選んだときは黙らない([#58](https://github.com/m96-chan/DroidRunner/issues/58))
 - [ ] runtime bundleの更新通知・自動導入([#14](https://github.com/m96-chan/DroidRunner/issues/14))
 - [ ] 複数端末の状態を表示する管理画面([#7](https://github.com/m96-chan/DroidRunner/issues/7))
 - [ ] F-Droidでの公開([#18](https://github.com/m96-chan/DroidRunner/issues/18))

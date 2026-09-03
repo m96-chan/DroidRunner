@@ -113,6 +113,9 @@ service and streamed to the UI as a `StateFlow`.
 | Signed runtime manifest | Implemented (PoC) |
 | Notification with runner state, hold reason, and alerts | Implemented (PoC) |
 | Picture-in-picture runner view | Implemented (PoC) |
+| Runtime install that survives failure and keeps the registration | Verified on-device |
+| Sign-in renewal (refresh token) | Implemented (PoC) |
+| Log with history, rotation, and the app's own lines | Implemented (PoC) |
 
 ## Runner labels
 
@@ -455,7 +458,10 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 - [x] Notification carrying the runner state, the hold reason, and alerts for what GitHub cannot see
 - [x] Picture-in-picture window for watching a runner while using the phone
 - [x] Report how long a reboot left the device unserved because it was locked ([#41](https://github.com/m96-chan/DroidRunner/issues/41))
+- [x] Reinstall a missing runtime without re-registering, and never leave a device with none
+- [x] Renew the GitHub sign-in instead of losing it when the token expires
 - [ ] Stop holding jobs for a condition that lasts one sample ([#37](https://github.com/m96-chan/DroidRunner/issues/37))
+- [ ] Skip unreadable entries in GitHub responses, and say when an older runtime was chosen ([#58](https://github.com/m96-chan/DroidRunner/issues/58))
 - [ ] Notify or auto-install when the runtime bundle is out of date ([#14](https://github.com/m96-chan/DroidRunner/issues/14))
 - [ ] Fleet dashboard showing the state of multiple devices ([#7](https://github.com/m96-chan/DroidRunner/issues/7))
 - [ ] Publish on F-Droid ([#18](https://github.com/m96-chan/DroidRunner/issues/18))
