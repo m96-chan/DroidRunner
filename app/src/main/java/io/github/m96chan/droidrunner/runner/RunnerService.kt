@@ -264,10 +264,10 @@ class RunnerService : Service() {
         // evaluated while the listener is busy.
         thread(name = "runner-output", isDaemon = true) {
             runCatching {
-                File(filesDir, "runner.log").bufferedWriter().use { log ->
+                RunnerLog(filesDir).use { log ->
+                    log.startAttempt(startedAt)
                     started.inputStream.bufferedReader().forEachLine { line ->
-                        log.appendLine(line)
-                        log.flush()
+                        log.append(line)
                         RunnerStatus.onLogLine(line)
                     }
                 }
