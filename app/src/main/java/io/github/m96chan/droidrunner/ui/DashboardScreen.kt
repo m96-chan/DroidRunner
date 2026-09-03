@@ -275,21 +275,6 @@ private fun RunnerPanel(
     }
 }
 
-private fun RunnerState.label(): String = when (this) {
-    RunnerState.STOPPED -> "stopped"
-    RunnerState.STARTING -> "starting"
-    RunnerState.LISTENING -> "listening for jobs"
-    RunnerState.JOB_RUNNING -> "running job"
-    RunnerState.PAUSED -> "paused"
-}
-
-private fun RunnerState.color() = when (this) {
-    RunnerState.STOPPED -> BtopColors.Dim
-    RunnerState.STARTING -> BtopColors.Yellow
-    RunnerState.LISTENING -> BtopColors.Green
-    RunnerState.JOB_RUNNING -> BtopColors.Cyan
-    RunnerState.PAUSED -> BtopColors.Yellow
-}
 
 private fun thermalLabel(status: Int?): String = when (status) {
     null -> "thermal n/a"
