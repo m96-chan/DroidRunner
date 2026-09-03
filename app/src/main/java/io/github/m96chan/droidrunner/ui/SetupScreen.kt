@@ -65,6 +65,7 @@ import io.github.m96chan.droidrunner.ui.theme.BtopColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -86,6 +87,9 @@ fun SetupScreen(
 
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    // Long-running setup runs behind a modal, so nobody wanders off mid-flight.
+    var progress by remember { mutableStateOf<SetupProgress?>(null) }
+    var setupJob by remember { mutableStateOf<Job?>(null) }
     val configured = remember(runner.state, status, busy) { File(runtime.runtimeDir, ".configured").isFile }
 
     // Latest runtime-* release of the configured runtime repo; lets Register
@@ -245,25 +249,39 @@ fun SetupScreen(
             "android-${android.os.Build.MODEL}-$deviceId",
             capabilities.labels() + NpuLabels.refresh(context),
         )
-        scope.launch {
+        progress = SetupProgress("preparing")
+        setupJob = scope.launch {
             status = runCatching {
                 config.validate()?.let { error(it) }
                 if (!runtime.installed) {
                     val manifest = manifestSource()
                         ?: error("No runtime release found — set a manifest URL under advanced")
-                    withContext(Dispatchers.IO) { runtime.install(manifest) { status = "runtime: $it" } }
+                    // runInterruptible so Cancel actually breaks the blocking
+                    // download and extraction, rather than leaving them running.
+                    runInterruptible(Dispatchers.IO) {
+                        runtime.install(manifest) { phase, fraction ->
+                            progress = SetupProgress(phase, fraction)
+                        }
+                    }
                 }
-                status = "registering ${target.displayName}…"
-                withContext(Dispatchers.IO) {
+                progress = SetupProgress("registering ${target.displayName}")
+                runInterruptible(Dispatchers.IO) {
                     // Stream config.sh output into the runner panel's log tail
                     // so the slow proot/.NET startup is visible.
                     RunnerRegistration.register(
                         context, runtime.runtimeDir, config,
                         ephemeral = RunnerRegistration.ephemeralEnabled(context),
-                    ) { line -> RunnerStatus.onLogLine(line) }
+                    ) { line ->
+                        RunnerStatus.onLogLine(line)
+                        progress = SetupProgress("registering ${target.displayName}", detail = line)
+                    }
                 }
                 null
-            }.getOrElse { "failed: ${it.message}" }
+            }.getOrElse { failure ->
+                if (failure is kotlinx.coroutines.CancellationException) "setup cancelled"
+                else "failed: ${failure.message}"
+            }
+            progress = null
             busy = false
         }
     }
@@ -285,6 +303,13 @@ fun SetupScreen(
                     startPolling(auth)
                 }
             }
+        }
+    }
+
+    progress?.let { current ->
+        SetupProgressDialog(current) {
+            setupJob?.cancel()
+            setupJob = null
         }
     }
 
@@ -429,13 +454,20 @@ fun SetupScreen(
                             onClick = {
                                 val manifest = manifestSource() ?: return@Button
                                 busy = true
-                                scope.launch {
+                                progress = SetupProgress("preparing")
+                                setupJob = scope.launch {
                                     status = runCatching {
-                                        withContext(Dispatchers.IO) {
-                                            runtime.install(manifest) { status = "runtime: $it" }
+                                        runInterruptible(Dispatchers.IO) {
+                                            runtime.install(manifest) { phase, fraction ->
+                                                progress = SetupProgress(phase, fraction)
+                                            }
                                         }
                                         null
-                                    }.getOrElse { "failed: ${it.message}" }
+                                    }.getOrElse { failure ->
+                                        if (failure is kotlinx.coroutines.CancellationException) "update cancelled"
+                                        else "failed: ${failure.message}"
+                                    }
+                                    progress = null
                                     busy = false
                                 }
                             },
