@@ -272,7 +272,7 @@ fun SetupScreen(
                         context, runtime.runtimeDir, config,
                         ephemeral = RunnerRegistration.ephemeralEnabled(context),
                     ) { line ->
-                        RunnerStatus.onLogLine(line)
+                        RunnerStatus.onRunnerLine(line)
                         progress = SetupProgress("registering ${target.displayName}", detail = line)
                     }
                 }
