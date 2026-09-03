@@ -1,32 +1,41 @@
 # Icon artwork
 
-The mascot is the Android robot mid-sprint, wearing a `GH` sash: the thing this
-project does, in one picture.
+The Android robot running with a box under its arm — a git graph and a green
+check on the side. What the project does, in one picture.
 
 | File | What it is |
 | --- | --- |
-| `icon.svg` | Full artwork on the `#1B4B7C` background. 1024×1024 viewBox. |
-| `icon-fg.svg` | The same figure with no background — the adaptive-icon foreground layer. |
+| `icon-fg.svg` | The figure alone, transparent. **This is the source.** |
+| `icon.svg` | The same figure on the launcher background, for anything wanting one self-contained file. |
 | `github-app-avatar.png` | 1024×1024 avatar for the [GitHub App](https://github.com/settings/apps/droidgithubrunner). |
+| `build-icons.py` | Renders every icon the project ships, from `icon-fg.svg`. |
 
-These SVGs are the design source. Everything else is generated from them, so
-edit the SVG and re-render — never touch a PNG by hand.
-
-## Re-rendering
+Edit the SVG and re-run the script. Never touch a generated PNG by hand:
 
 ```bash
-# GitHub App avatar: centre the artwork and let it fill ~80% of the frame, so it
-# survives being masked into a circle (GitHub does that in some places).
-rsvg-convert -w 2048 -h 2048 art/icon-fg.svg -o /tmp/fg.png
-# then crop to the alpha bounding box, scale to 0.80 of 1024, centre on #1B4B7C
+python3 art/build-icons.py        # needs rsvg-convert and Pillow
 ```
 
-The launcher icons under `app/src/main/res/mipmap-*/` are this same artwork, but
-they are **not** a plain render of `icon-fg.svg`: an adaptive icon's foreground
-is zoomed by the launcher's mask, so the figure sits inset inside the 108dp
-canvas (measured at roughly 0.83 of a straight render). Regenerate those through
-Android Studio's Image Asset tool, or by rendering `icon-fg.svg` scaled down and
-centred — and check the result on a device, since every vendor masks differently.
+It writes the launcher icons for all five densities, the GitHub App avatar and
+the site favicons. The GitHub App logo itself has no REST endpoint — upload
+`github-app-avatar.png` through the app's settings page by hand.
 
-Colours match the app: background `#1B4B7C`, robot `#7ED388`, sash `#5CBF6E`,
-sash text and eyes in the background blue.
+## Two things the script encodes
+
+**An adaptive icon's foreground is masked to the centre 72 of its 108dp
+canvas**, so the artwork cannot fill the frame: it is scaled to 0.57 of the
+canvas, which is what the icon shipped with before this script existed
+(measured off the old assets, not guessed). Every vendor masks to a slightly
+different shape, so check a real device after changing it.
+
+**The background is `#0B0E14`** — the dashboard's background, so the icon and
+the app agree. It is duplicated in `app/src/main/res/values/colors.xml` as
+`ic_launcher_background`; change both.
+
+## Provenance
+
+The figure was traced from reference artwork with `potrace`, one pass per flat
+colour, then reassembled. The trace deliberately drops the reference's
+hairline outlines: they were invisible against white and read as dirt against a
+dark background. Colours are flat — robot `#91BA26`, strap `#3F4145`, details
+white — which is why it stays crisp down to 48px.
