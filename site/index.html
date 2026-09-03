@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DroidRunner — GitHub Actions runners on real Android hardware</title>
+<meta name="description" content="DroidRunner turns a spare Android phone into a GitHub Actions self-hosted runner. No root, no Termux, no PC attached.">
+<meta property="og:title" content="DroidRunner">
+<meta property="og:description" content="Turn your sleeping Android devices into real-hardware GitHub Actions runners. No root, no Termux, no PC attached.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://droidrunner.m96-chan.dev/assets/dashboard.png">
+<meta name="theme-color" content="#0b0e14">
+<link rel="canonical" href="https://droidrunner.m96-chan.dev/">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="wrap">
+
+<header class="topbar">
+  <div class="brand">DroidRunner</div>
+  <div class="status"><span class="dot"></span>listening for jobs</div>
+  <div class="spacer"></div>
+  <nav class="navlinks">
+    <span class="here">English</span>
+    <a href="ja/">日本語</a>
+    <a href="tutorial.html">Tutorial</a>
+    <a href="https://github.com/m96-chan/DroidRunner">GitHub</a>
+  </nav>
+</header>
+<p class="labels">
+  <span>android</span> <span>arm64</span> <span>android-api-36</span>
+  <span>soc-mediatek-mt6899</span> <span>android-npu</span> <span>npu-neuron</span>
+</p>
+
+<p class="tagline">
+  Your old phone is an <b>ARM64 Linux machine with an NPU</b> that happens to be
+  sitting in a drawer. DroidRunner makes GitHub Actions treat it as one.
+</p>
+<p class="sub">
+  A single APK runs the official GitHub Actions runner on an Android device.
+  No root. No Termux. No PC attached.
+</p>
+
+<div class="cta">
+  <a class="btn primary" href="tutorial.html">Get started &rarr;</a>
+  <a class="btn" href="https://github.com/m96-chan/DroidRunner/releases/latest">Download APK</a>
+  <a class="btn ghost" href="https://github.com/m96-chan/DroidRunner">Source</a>
+</div>
+
+<div class="bootlog">
+<span class="t">$</span> uname -m<br>
+aarch64<br>
+<span class="t">$</span> droidrunner-device capabilities<br>
+device   <span class="v">Xiaomi 2511FPC34G</span> &middot; android <span class="v">16</span> (api 36)<br>
+soc      <span class="v">mediatek mt6899</span><br>
+nnapi    <span class="v">mtk-neuron_shim</span>, <span class="v">mtk-dsp_shim</span>, <span class="v">mtk-mdla_shim</span>, <span class="v">nnapi-reference</span><br>
+thermal  <span class="ok">none</span> &middot; battery <span class="ok">93%</span> charging<br>
+<span class="ok">&radic;</span> Connected to GitHub &middot; Listening for Jobs
+</div>
+
+<div class="note danger">
+  <b>Early proof of concept.</b> Runner management works on real hardware, but the
+  NPU Device Agent runs built-in benchmarks only, and arbitrary model execution is
+  still in development. A self-hosted runner executes whatever a workflow contains,
+  on your device — do not point it at repositories you do not trust.
+</div>
+
+<section class="panel">
+  <h2>why</h2>
+  <p>
+    GitHub's hosted ARM64 runners are virtual machines. They cannot tell you whether
+    your model actually runs on a Qualcomm Hexagon, a Google Tensor TPU, or a MediaTek
+    APU — because there is no NPU behind them, and no vendor driver stack either.
+  </p>
+  <p>
+    The devices that <em>can</em> answer that are the ones already in the drawer.
+    DroidRunner's goal is a pool of real phones that CI can dispatch to by label, so
+    "does this build work on ARM64" and "does this model run on that vendor's NPU"
+    become the same kind of question: a job that runs on a push.
+  </p>
+</section>
+
+<section class="panel">
+  <h2>dashboard</h2>
+  <div class="shot">
+    <img src="assets/dashboard.png" alt="DroidRunner's btop-style dashboard showing CPU, memory, disk, power and runner panels">
+    <dl class="legend">
+      <dt>cpu</dt>
+      <dd>Load history and per-core meters with live frequency.</dd>
+      <dt>mem / disk</dt>
+      <dd>RAM and app-private storage, with history.</dd>
+      <dt>pwr/net</dt>
+      <dd>Battery level and charging state, battery temperature, Android thermal
+          status, network throughput.</dd>
+      <dt>runner</dt>
+      <dd>State, registered target, uptime, job counters and a live tail of the
+          runner log — parsed straight from the official listener's output.</dd>
+      <dt>setup <span style="color:var(--dim)">(&#9881;)</span></dt>
+      <dd>A separate screen: sign-in, target picker, registration, job policy.
+          Once a device is registered, the runner starts on its own at launch.</dd>
+    </dl>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>how it works</h2>
+  <pre><span class="c">GitHub Actions</span>
+      &darr;  job dispatched by label
+<span class="c">┌─ DroidRunner APK ────────────────────────────────┐</span>
+   Android controller  <span class="c">→ Keystore (user token)</span>
+      &darr;
+   PRoot + Ubuntu ARM64 rootfs
+      &darr;
+   Official Linux ARM64 Actions Runner
+      &darr;  <span class="c">loopback + per-job capability token</span>
+   Device Agent  <span class="c">→ NNAPI / QNN / Neuron / ENN</span>
+<span class="c">└──────────────────────────────────────────────────┘</span></pre>
+  <p>
+    Shells, Git, Node, Python, Rust, Go and Gradle run inside PRoot like on any Linux
+    box. Anything that needs an Android API or the NPU cannot be reached from inside
+    that namespace, so it is delegated back to the app over a loopback API that only
+    accepts a token minted for the running job.
+  </p>
+  <p>
+    proot itself ships <em>inside</em> the APK as a native library, because Android 10
+    and later refuse to <code>exec()</code> a binary out of app data storage. The
+    downloaded runtime bundle is therefore data only — and its manifest is signed,
+    so a device will not fetch a rootfs nobody vouched for.
+  </p>
+</section>
+
+<section class="panel">
+  <h2>features</h2>
+  <div class="grid">
+    <div><h4>Single APK</h4><p>No companion app, no Termux, no scripts to paste.</p></div>
+    <div><h4>No root</h4><p>A Linux ARM64 environment on top of PRoot.</p></div>
+    <div><h4>Official runner</h4><p>GitHub's own linux-arm64 Actions runner, unmodified.</p></div>
+    <div><h4>GitHub App login</h4><p>Device-flow sign-in with a target picker. No PAT to create, no client secret in the APK.</p></div>
+    <div><h4>Repo or org scope</h4><p>Serve one repository, or every repository in an organization.</p></div>
+    <div><h4>Automatic labels</h4><p>Android API level, SoC and NPU hints become runner labels.</p></div>
+    <div><h4>Self-protecting</h4><p>Holds jobs while the device is unplugged, low, hot or short on space.</p></div>
+    <div><h4>Crash recovery</h4><p>Restarts the listener on its own, with backoff.</p></div>
+    <div><h4>Ephemeral mode</h4><p>Re-registers and wipes the work directory after every job.</p></div>
+    <div><h4>Signed runtime</h4><p>ECDSA-signed manifest, verified against keys compiled into the APK.</p></div>
+    <div><h4>Keystore credentials</h4><p>The GitHub token is encrypted by Android and never enters the Linux side.</p></div>
+    <div><h4>Background standby</h4><p>Foreground service and wake lock keep the runner alive.</p></div>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>a job on your phone</h2>
+  <pre><span class="k">jobs</span>:
+  <span class="k">test</span>:
+    <span class="k">runs-on</span>: [<span class="s">self-hosted</span>, <span class="s">android</span>, <span class="s">arm64</span>]
+    <span class="k">steps</span>:
+      - <span class="k">uses</span>: <span class="s">actions/checkout@v4</span>
+      - <span class="k">run</span>: <span class="s">uname -a</span>
+      - <span class="k">run</span>: <span class="s">./ci/test-arm64.sh</span></pre>
+  <p>Or ask the silicon a question:</p>
+  <pre><span class="k">runs-on</span>: [<span class="s">self-hosted</span>, <span class="s">android</span>, <span class="s">android-npu</span>]
+<span class="k">steps</span>:
+  - <span class="k">run</span>: <span class="s">droidrunner-device capabilities</span>   <span class="c"># device info, thermal, drivers</span>
+  - <span class="k">run</span>: <span class="s">droidrunner-device bench-all</span>      <span class="c"># CONV_2D on every driver</span></pre>
+  <pre>DEVICE                       AVG_US     GFLOPS
+mtk-dsp_shim                      <span class="c">- compilation_finish</span>
+mtk-mdla_shim                     <span class="c">- compilation_finish</span>
+<span class="s">mtk-neuron_shim              4148.9       4.55</span>
+nnapi-reference              1107.7      17.04</pre>
+  <p>
+    The two drivers that refused the job wanted a quantized model, not float32.
+    That is precisely why labels are meant to come from probes rather than from
+    parsing an SoC name.
+  </p>
+</section>
+
+<section class="panel">
+  <h2>labels</h2>
+  <div class="scroll">
+  <table>
+    <tr><th>Label</th><th>Meaning</th></tr>
+    <tr><td><code>android</code></td><td>A physical Android device running DroidRunner</td></tr>
+    <tr><td><code>arm64</code></td><td>ARM64 device</td></tr>
+    <tr><td><code>android-api-N</code></td><td>Android API level</td></tr>
+    <tr><td><code>soc-*</code></td><td>Detected SoC</td></tr>
+    <tr><td><code>android-npu</code> / <code>android-no-npu</code></td><td>Whether an NPU was detected</td></tr>
+    <tr><td><code>npu-qnn</code> / <code>npu-tflite</code> / <code>npu-neuron</code> / <code>npu-enn</code></td>
+        <td>Qualcomm QNN / LiteRT / MediaTek Neuron / Samsung ENN candidate</td></tr>
+  </table>
+  </div>
+  <div class="note">
+    Vendor labels are still <b>candidates</b> derived from the SoC name. Only the
+    NNAPI probe results are verified today; the adapters that would make
+    <code>npu-qnn</code> a promise rather than a guess are tracked in
+    <a href="https://github.com/m96-chan/DroidRunner/issues/4">issue #4</a>.
+  </div>
+</section>
+
+<section class="panel">
+  <h2>status</h2>
+  <div class="meter"><span class="name">runner lifecycle</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
+  <div class="meter"><span class="name">dashboard UI</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
+  <div class="meter"><span class="name">GitHub App login</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
+  <div class="meter"><span class="name">admission control</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
+  <div class="meter"><span class="name">ephemeral + recovery</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
+  <div class="meter"><span class="name">signed runtime</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
+  <div class="meter"><span class="name">NNAPI probes + benchmarks</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
+  <div class="meter"><span class="name">your own .tflite model</span><span class="bar part"><i style="width:45%"></i></span><span class="val">in progress</span></div>
+  <div class="meter"><span class="name">vendor SDK adapters</span><span class="bar none"><i style="width:8%"></i></span><span class="val">designed</span></div>
+  <div class="meter"><span class="name">fleet dashboard</span><span class="bar none"><i style="width:8%"></i></span><span class="val">planned</span></div>
+  <p style="color:var(--dim);font-size:.85rem;margin-bottom:0">
+    Everything marked <span style="color:var(--green)">working</span> has run on a real
+    device, not just in CI. The
+    <a href="https://github.com/m96-chan/DroidRunner#implementation-status">README</a>
+    carries the detailed table.
+  </p>
+</section>
+
+<section class="panel">
+  <h2>before you start</h2>
+  <ul>
+    <li>A self-hosted runner runs <b>arbitrary workflow code on your phone</b>. Never let
+        it pick up pull requests from forks of a public repository.</li>
+    <li>An <b>organization runner accepts jobs from every repository in the org</b> unless
+        you put it in a runner group with an allow-list. Repository scope is the
+        default for a reason.</li>
+    <li>Use a device that is dedicated to CI and wiped, not the phone you carry.</li>
+    <li>PRoot is a compatibility layer, <b>not</b> a security boundary like a container
+        or a VM.</li>
+    <li>Docker actions, service containers, KVM and nested virtualization are not
+        available.</li>
+  </ul>
+</section>
+
+<div class="cta">
+  <a class="btn primary" href="tutorial.html">Set up a device &rarr;</a>
+  <a class="btn" href="https://github.com/m96-chan/DroidRunner/releases/latest">Releases</a>
+</div>
+
+<footer>
+  DroidRunner is free software under
+  <a href="https://github.com/m96-chan/DroidRunner/blob/main/LICENSE">GPL-2.0-only</a>,
+  heavily inspired by
+  <a href="https://github.com/godotengine/android-editor-buildenv-app">GABE</a>.
+  Not affiliated with GitHub. &middot;
+  <a href="https://github.com/m96-chan/DroidRunner">Source</a> &middot;
+  <a href="ja/">日本語</a>
+</footer>
+
+</div>
+</body>
+</html>

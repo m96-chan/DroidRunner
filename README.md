@@ -4,6 +4,8 @@
 
 [日本語版 README はこちら](README.ja.md)
 
+**[Site and tutorial](https://droidrunner.m96-chan.dev/)** — what it is, what it looks like, and a step-by-step device setup.
+
 DroidRunner is an Android app that runs an ARM64 Android device as a repository-scoped
 GitHub Actions self-hosted runner.
 

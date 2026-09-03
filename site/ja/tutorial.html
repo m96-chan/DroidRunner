@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>チュートリアル — DroidRunner</title>
+<meta name="description" content="DroidRunnerでAndroid端末をGitHub Actionsのself-hosted runnerにする手順。インストール、サインイン、登録、最初のジョブまで。">
+<meta name="theme-color" content="#0b0e14">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="wrap">
+
+<header class="topbar">
+  <div class="brand"><a href="./">DroidRunner</a></div>
+  <div class="status"><span class="dot"></span>tutorial</div>
+  <div class="spacer"></div>
+  <nav class="navlinks">
+    <a href="../tutorial.html">English</a>
+    <span class="here">日本語</span>
+    <a href="./">ホーム</a>
+    <a href="https://github.com/m96-chan/DroidRunner">GitHub</a>
+  </nav>
+</header>
+
+<p class="tagline">引き出しの中の端末から、Pull Requestの緑のチェックまで。</p>
+<p class="sub">所要時間はおよそ15分。そのほとんどはruntime bundleのダウンロードです。</p>
+
+<section class="panel">
+  <h2>必要なもの</h2>
+  <ul>
+    <li><b>ARM64のAndroid端末</b>(<code>arm64-v8a</code>)、<b>Android 9 / API 28</b>以降</li>
+    <li>数GBの空きストレージ — Linux rootfsとRunnerでダウンロード約200MB、
+        ビルドキャッシュはそこからさらに増えます</li>
+    <li>充電器。放電していくRunnerは、いずれ止まるRunnerです</li>
+    <li>担当させるRepository(またはOrganization)の管理権限を持つGitHubアカウント</li>
+  </ul>
+  <p style="color:var(--dim)">
+    非対応: 32bit ARM、x86 Android、Docker、KVM、ネスト仮想化。
+  </p>
+  <div class="note warn">
+    <b>端末選びは慎重に。</b> この端末はWorkflowに書かれたコードをそのまま実行し、
+    長時間にわたって発熱します。写真の入った普段使いの端末ではなく、
+    初期化してCI専用にした端末を使ってください。
+  </div>
+</section>
+
+<section class="panel">
+  <h2>セットアップ</h2>
+  <ol class="steps">
+
+    <li>
+      <b>アプリをインストールする</b>
+      <p class="lead">
+        DroidRunnerはGoogle Playにはありません。ストア外から取得したコードを実行する
+        という性質上、Device &amp; Network Abuseポリシーに抵触するためです。
+        APKを直接インストールしてください。
+      </p>
+      <p>
+        <b style="display:inline">推奨:</b>
+        <a href="https://github.com/ImranR98/Obtainium">Obtainium</a>。
+        無人で動くRunnerの更新を、人がリリースに気づくまで待たせるべきではないからです。
+        Add app からリポジトリURLを貼り付けます:
+      </p>
+      <pre>https://github.com/m96-chan/DroidRunner</pre>
+      <p>
+        リリースに複数のアセットが含まれる場合は、APKフィルタに
+        <code>droidrunner-v.*\.apk</code> を設定します。以降、新しいタグが公開されるたびに
+        Obtainiumがアプリを上書き更新します。
+      </p>
+      <p>
+        <b style="display:inline">手動:</b>
+        <a href="https://github.com/m96-chan/DroidRunner/releases/latest">最新リリース</a>
+        から <code>droidrunner-v&lt;version&gt;.apk</code> をダウンロードして開きます。
+        ブラウザやファイルマネージャに対して「提供元不明のアプリ」の許可を一度求められます。
+      </p>
+      <div class="note">
+        上書き更新できるのは署名鍵が同じあいだだけです。別の署名のビルド(自前ビルドや
+        将来のF-Droid版)へ移るにはアンインストールが必要で、その際
+        <b>Runnerの登録情報と保存済みGitHub資格情報は失われます</b>。
+        端末の再登録が必要になります。
+      </div>
+    </li>
+
+    <li>
+      <b>GitHub Appをインストールする</b>
+      <p class="lead">
+        DroidRunnerはトークンを貼り付けさせるのではなくGitHub Appとしてサインインします。
+        そのため、担当させるRepositoryまたはOrganizationにAppを入れておく必要があります。
+      </p>
+      <p>
+        <a href="https://github.com/apps/droidgithubrunner">github.com/apps/droidgithubrunner</a>
+        を開き、Runnerに担当させるリポジトリへインストールします。
+        要求する権限は <b>Administration: read and write</b> で、
+        これはself-hosted runnerの登録に必要な権限です。
+        同時にリポジトリ設定を変更できる権限でもあるので、
+        所有する全リポジトリにではなく、対象を選んで付与してください。
+      </p>
+      <p>
+        入れ忘れていても、サインイン時にアプリが検出して案内します。
+      </p>
+    </li>
+
+    <li>
+      <b>端末からサインインする</b>
+      <p class="lead">
+        DroidRunnerを起動し、ヘッダの&#9881;からsetup画面を開いて
+        <b>Connect GitHub</b>をタップします。
+      </p>
+      <p>
+        8文字のコードが表示され、同時にクリップボードにコピーされます。
+        <a href="https://github.com/login/device">github.com/login/device</a>
+        で入力して承認してください。端末上でも、別のPCからでも構いません。
+      </p>
+      <p>
+        これはOAuth Device Flowなので、APKの中にclient secretは入っておらず、
+        あなたがPATを発行したり更新したりする必要もありません。
+        得られたユーザートークンはAndroid Keystoreで暗号化されてAndroid側に留まり、
+        必要なときに短命のregistration tokenと交換されます。
+        ジョブが動くLinux環境にトークンが渡ることはありません。
+      </p>
+    </li>
+
+    <li>
+      <b>登録先を選んで登録する</b>
+      <p class="lead">
+        <b>Repository</b>、またはAppをインストール済みの<b>Organization</b>を選び、
+        <b>Register</b>をタップします。
+      </p>
+      <div class="note warn">
+        <b>Organizationスコープは見た目より広いです。</b>
+        Organization Runnerは、許可リスト付きの
+        <a href="https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/managing-access-to-self-hosted-runners-using-groups">runner group</a>
+        に入れない限り<b>組織内の全リポジトリ</b>からジョブを受け付けます。
+        Workflowのコードを実行する端末にとって、これは明確に広い信頼境界です。
+        まずは単一リポジトリから始めてください。
+      </div>
+      <p>
+        登録はプログレスダイアログの中で進みます。registration tokenの取得、
+        最新の<code>runtime-*</code>リリースの探索、manifest署名の検証、
+        約200MBのbundleのダウンロード、SHA-256の照合、展開、
+        そして公式<code>config.sh</code>の実行まで。
+        回線が細いと、ここがセットアップで一番長い工程になります。
+      </p>
+      <p>
+        あとから登録先を変えることもできます。Runnerを停止して新しい対象を選ぶと、
+        ボタンが<b>Re-register</b>に変わります。
+      </p>
+    </li>
+
+    <li>
+      <b>ジョブポリシーを決める</b>
+      <p class="lead">
+        引き続きsetup画面で、この端末がいつ仕事を受けてよいかを決めます。
+      </p>
+      <p>
+        <b>充電状態</b>、<b>バッテリー残量</b>、<b>thermal status</b>、<b>空き容量</b>の
+        しきい値が、ジョブを保留する条件になります。非充電・残量低下・高温・容量不足の
+        あいだは新しいジョブを受け取らず、条件が解消すれば自動で再開します。
+        例外はcritical thermalで、これは実行中のジョブも中断します。
+        サーマルスロットリング中の端末が出す数値は、そもそも信用に値しないからです。
+      </p>
+      <p>
+        <b style="display:inline">ephemeralモード</b>は、ジョブごとにRunnerを再登録し
+        work directoryを消去します。ジョブの起動は遅くなりますが、
+        複数のWorkflow — あるいは複数の人 — がこの端末に届きうるなら、
+        こちらを既定にすべきです。
+      </p>
+      <p>
+        <b style="display:inline">起動時に開始</b>を有効にすると、再起動後もRunnerが戻ります。
+        アプリが求めるバッテリー最適化の除外も許可しておいてください。
+        Runnerが夜のあいだに静かにオフラインになる原因は、
+        たいていベンダー製のタスクキラーです。
+      </p>
+    </li>
+
+    <li>
+      <b>完了 — あとは自動で立ち上がります</b>
+      <p class="lead">
+        ダッシュボードに戻ります。数秒でRunnerパネルが
+        <span style="color:var(--green)">listening for jobs</span>
+        になり、ヘッダにも同じ状態が出ます。
+      </p>
+      <p>
+        登録済みの端末は、アプリを起動するたびにRunnerを自動で開始します。
+        手動のStart/StopはRunnerパネルにあります。GitHub側では
+        <b>Settings &rarr; Actions &rarr; Runners</b> に、ラベル付きで端末が現れます。
+      </p>
+    </li>
+
+  </ol>
+</section>
+
+<section class="panel">
+  <h2>最初のジョブ</h2>
+  <p><code>.github/workflows/device.yml</code> としてコミットします:</p>
+  <pre><span class="k">name</span>: <span class="s">Device smoke</span>
+
+<span class="k">on</span>:
+  <span class="k">workflow_dispatch</span>:
+
+<span class="k">permissions</span>:
+  <span class="k">contents</span>: <span class="s">read</span>
+
+<span class="k">jobs</span>:
+  <span class="k">smoke</span>:
+    <span class="k">runs-on</span>: [<span class="s">self-hosted</span>, <span class="s">android</span>, <span class="s">arm64</span>]
+    <span class="k">steps</span>:
+      - <span class="k">uses</span>: <span class="s">actions/checkout@v4</span>
+      - <span class="k">run</span>: <span class="s">uname -a &amp;&amp; nproc &amp;&amp; free -h</span></pre>
+  <p>
+    Actionsタブから実行します。端末側のRunnerパネルが
+    <span style="color:var(--yellow)">running job</span>に切り替わってログが流れ、
+    完了するとジョブカウンタが増えます。
+  </p>
+  <div class="note">
+    <b>ジョブを誰も拾わないときは。</b> <code>runs-on</code>のラベルが、
+    端末が実際に登録したラベルと一致しているか確認してください。
+    ラベルはアプリのタイトル下と、GitHubのRunner一覧に出ています。
+    <code>runs-on</code>のラベルは全て揃っている必要があり、
+    タイプミスがあるとジョブは失敗せずに待ち続けます。
+  </div>
+
+  <h3>NPUに聞いてみる</h3>
+  <p>
+    <code>droidrunner-device</code>はruntime bundleに同梱されていて、
+    実行中のジョブ向けに発行されたトークンで認証しながら、
+    loopback経由でアプリ内のDevice Agentと通信します。
+  </p>
+  <pre><span class="k">runs-on</span>: [<span class="s">self-hosted</span>, <span class="s">android</span>, <span class="s">android-npu</span>]
+<span class="k">steps</span>:
+  - <span class="k">run</span>: <span class="s">droidrunner-device capabilities</span>
+  - <span class="k">run</span>: <span class="s">droidrunner-device bench-all</span>
+  - <span class="k">run</span>: <span class="s">droidrunner-device test conv --device mtk-neuron_shim --iterations 50</span></pre>
+  <p style="color:var(--dim)">
+    現時点でAgentが実行できるのは組み込みのADDとCONV_2Dベンチマークのみです。
+    任意のモデルの実行が次のマイルストーンです —
+    <a href="https://github.com/m96-chan/DroidRunner/issues/4">issue #4</a>。
+  </p>
+</section>
+
+<section class="panel">
+  <h2>うまくいかないとき</h2>
+
+  <h3>画面を消すとRunnerがオフラインになる</h3>
+  <p>
+    ほぼ確実にベンダーの電池管理です。アプリが要求するバッテリー最適化の除外を許可し、
+    Xiaomi/MIUI、Samsung、Huawei、OPPOではさらに、最近のアプリ一覧でロックし、
+    自動起動を許可してください。Foreground ServiceとWakeLockは素のAndroidには有効ですが、
+    ベンダー製タスクキラーには勝てません。
+  </p>
+
+  <h3>「A session for this runner already exists」</h3>
+  <p>
+    アプリの再インストールや強制停止のあとに出ます。GitHub側に古いリスナーセッションが
+    残っている状態です。リスナーが再試行して<em>Runner reconnected</em>を出せば解消します。
+    それまでキュー中のジョブは割り当てられないので、数分待つか、
+    ダッシュボードからRunnerを再起動してください。
+  </p>
+
+  <h3>登録に失敗する / すでに設定済みと言われる</h3>
+  <p>
+    再インストールではなく、setup画面から再登録してください。古いRunner状態は
+    アプリ側で消します。トークンが期限切れの場合は、サインインし直してください。
+    ユーザートークンには有効期限を設定でき、期限切れはログイン要求ではなく
+    登録の失敗として現れます。
+  </p>
+
+  <h3>ジョブが保留のまま始まらない</h3>
+  <p>
+    理由はダッシュボードに出ています。非充電、しきい値以下のバッテリー、
+    上がったthermal status、下限を割った空き容量のいずれかです。
+    充電する、冷ます、あるいはsetup画面でしきい値を下げてください。
+    これはバグではなく、ジョブ受付制御が仕事をしている状態です。
+  </p>
+
+  <h3>インストールがブロックされる</h3>
+  <p>
+    APKを開いたアプリに対して「不明なアプリのインストール」を許可してください。
+    MIUIで<code>adb</code>からサイドロードする場合は、開発者オプションの
+    <em>USBデバッグ(インストール)</em>も必要です。
+  </p>
+</section>
+
+<section class="panel">
+  <h2>自分でビルドする</h2>
+  <p>
+    自前ビルドの場合、Device Flow用のGitHub App(無料・サーバ不要)、
+    APK署名鍵、そしてruntime bundleを配布するならmanifest署名鍵が必要です。
+    いずれも
+    <a href="https://github.com/m96-chan/DroidRunner/blob/main/README.ja.md#ビルド">README</a>
+    に手順があります。最初のGradleビルドの前に一度だけ必要な
+    prootのクロスコンパイルも同様です:
+  </p>
+  <pre>git clone https://github.com/m96-chan/DroidRunner
+cd DroidRunner
+ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/&lt;version&gt; runtime/build-proot.sh
+gradle assembleDebug</pre>
+  <p style="color:var(--dim)">
+    信頼する署名鍵を設定していないビルドはruntime bundleを検証できません。
+    その場合は、検証したふりをするのではなく、インストール時にその旨を表示します。
+  </p>
+</section>
+
+<footer>
+  この手順に誤りや不足があれば
+  <a href="https://github.com/m96-chan/DroidRunner/issues">issueを立ててください</a>。 &middot;
+  <a href="./">ホーム</a> &middot;
+  <a href="../tutorial.html">English</a>
+</footer>
+
+</div>
+</body>
+</html>

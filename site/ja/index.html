@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DroidRunner — 眠っているAndroid端末を実機GitHub Actions Runnerへ</title>
+<meta name="description" content="DroidRunnerは、余っているAndroid端末をGitHub Actionsのself-hosted runnerにするAndroidアプリです。root不要、Termux不要、PC接続不要。">
+<meta property="og:title" content="DroidRunner">
+<meta property="og:description" content="眠っているAndroid端末を、GitHub Actionsの実機Runnerへ。root不要、Termux不要、PC接続不要。">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://droidrunner.m96-chan.dev/assets/dashboard.png">
+<meta name="theme-color" content="#0b0e14">
+<link rel="canonical" href="https://droidrunner.m96-chan.dev/ja/">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="wrap">
+
+<header class="topbar">
+  <div class="brand">DroidRunner</div>
+  <div class="status"><span class="dot"></span>listening for jobs</div>
+  <div class="spacer"></div>
+  <nav class="navlinks">
+    <a href="../">English</a>
+    <span class="here">日本語</span>
+    <a href="tutorial.html">チュートリアル</a>
+    <a href="https://github.com/m96-chan/DroidRunner">GitHub</a>
+  </nav>
+</header>
+<p class="labels">
+  <span>android</span> <span>arm64</span> <span>android-api-36</span>
+  <span>soc-mediatek-mt6899</span> <span>android-npu</span> <span>npu-neuron</span>
+</p>
+
+<p class="tagline">
+  引き出しで眠っているその端末は、<b>NPU付きのARM64 Linuxマシン</b>です。
+  DroidRunnerは、それをGitHub Actionsにそう認識させます。
+</p>
+<p class="sub">
+  APK単体で、公式のGitHub Actions RunnerをAndroid端末上で動かします。
+  root不要、Termux不要、PCへの接続も不要。
+</p>
+
+<div class="cta">
+  <a class="btn primary" href="tutorial.html">はじめる &rarr;</a>
+  <a class="btn" href="https://github.com/m96-chan/DroidRunner/releases/latest">APKをダウンロード</a>
+  <a class="btn ghost" href="https://github.com/m96-chan/DroidRunner">ソース</a>
+</div>
+
+<div class="bootlog">
+<span class="t">$</span> uname -m<br>
+aarch64<br>
+<span class="t">$</span> droidrunner-device capabilities<br>
+device   <span class="v">Xiaomi 2511FPC34G</span> &middot; android <span class="v">16</span> (api 36)<br>
+soc      <span class="v">mediatek mt6899</span><br>
+nnapi    <span class="v">mtk-neuron_shim</span>, <span class="v">mtk-dsp_shim</span>, <span class="v">mtk-mdla_shim</span>, <span class="v">nnapi-reference</span><br>
+thermal  <span class="ok">none</span> &middot; battery <span class="ok">93%</span> charging<br>
+<span class="ok">&radic;</span> Connected to GitHub &middot; Listening for Jobs
+</div>
+
+<div class="note danger">
+  <b>現在は初期PoCです。</b> Runner管理は実機で動作していますが、NPU Device Agentは
+  組み込みベンチマークのみ対応で、任意モデルの実行は開発中です。self-hosted runnerは
+  Workflowに書かれたコードをそのまま端末上で実行します。信頼できないRepositoryには
+  接続しないでください。
+</div>
+
+<section class="panel">
+  <h2>なぜ作ったか</h2>
+  <p>
+    GitHubがホストするARM64 Runnerは仮想マシンです。そのため、あなたのモデルが
+    Qualcomm HexagonやGoogle Tensor TPU、MediaTek APUで実際に動くのかには答えられません。
+    背後にNPUが無く、ベンダーのドライバスタックも無いからです。
+  </p>
+  <p>
+    それに答えられる端末は、すでに引き出しの中にあります。DroidRunnerが目指すのは、
+    CIがラベルでジョブを振り分けられる実機のプールです。
+    「このビルドはARM64で通るか」と「このモデルはそのベンダーのNPUで動くか」を、
+    どちらもpushで走る同じ種類の質問にすることが目的です。
+  </p>
+</section>
+
+<section class="panel">
+  <h2>ダッシュボード</h2>
+  <div class="shot">
+    <img src="../assets/dashboard.png" alt="CPU・メモリ・ディスク・電源・Runnerの各パネルを表示したbtop風ダッシュボード">
+    <dl class="legend">
+      <dt>cpu</dt>
+      <dd>負荷履歴グラフと、現在の周波数付きのコア別メーター。</dd>
+      <dt>mem / disk</dt>
+      <dd>RAMとアプリ専用ストレージの使用率と履歴。</dd>
+      <dt>pwr/net</dt>
+      <dd>バッテリー残量と充電状態、電池温度、Androidのthermal status、
+          ネットワーク転送量。</dd>
+      <dt>runner</dt>
+      <dd>Runnerの状態、登録先、稼働時間、ジョブ成功/失敗数、ログのライブtail。
+          公式リスナーの出力をそのまま解析しています。</dd>
+      <dt>setup <span style="color:var(--dim)">(&#9881;)</span></dt>
+      <dd>別画面。サインイン、登録先の選択、登録、ジョブポリシー。
+          登録済みの端末では、アプリ起動時にRunnerが自動で立ち上がります。</dd>
+    </dl>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>しくみ</h2>
+  <pre><span class="c">GitHub Actions</span>
+      &darr;  ラベルでジョブが割り当てられる
+<span class="c">┌─ DroidRunner APK ────────────────────────────────┐</span>
+   Androidコントローラ  <span class="c">→ Keystore (ユーザートークン)</span>
+      &darr;
+   PRoot + Ubuntu ARM64 rootfs
+      &darr;
+   公式 Linux ARM64 Actions Runner
+      &darr;  <span class="c">loopback + ジョブ単位のcapability token</span>
+   Device Agent  <span class="c">→ NNAPI / QNN / Neuron / ENN</span>
+<span class="c">└──────────────────────────────────────────────────┘</span></pre>
+  <p>
+    シェル、Git、Node、Python、Rust、Go、GradleはPRootの中で通常のLinuxと同じように動きます。
+    Android APIやNPUが必要なものはそのnamespaceからは触れないため、
+    実行中のジョブ向けに発行されたトークンだけを受け付けるloopback API経由で、
+    アプリ側に委譲します。
+  </p>
+  <p>
+    proot自体はネイティブライブラリとしてAPKの<em>中</em>に同梱しています。
+    Android 10以降はアプリのデータ領域に置いたバイナリの<code>exec()</code>を拒否するためです。
+    したがってダウンロードするruntime bundleはデータのみで、そのmanifestには署名があり、
+    誰も保証していないrootfsを端末が取りに行くことはありません。
+  </p>
+</section>
+
+<section class="panel">
+  <h2>特徴</h2>
+  <div class="grid">
+    <div><h4>APK単体</h4><p>コンパニオンアプリもTermuxも、貼り付けるスクリプトも不要。</p></div>
+    <div><h4>root不要</h4><p>PRoot上のLinux ARM64環境で動作。</p></div>
+    <div><h4>公式Runner</h4><p>GitHub公式のlinux-arm64 Actions Runnerを無改造で使用。</p></div>
+    <div><h4>GitHub Appログイン</h4><p>Device Flowでサインインして登録先を選ぶだけ。PAT発行もclient secret同梱も不要。</p></div>
+    <div><h4>Repo / Orgスコープ</h4><p>1リポジトリ、または組織内の全リポジトリを担当。</p></div>
+    <div><h4>ラベル自動生成</h4><p>Android APIレベル、SoC、NPU候補からRunnerラベルを生成。</p></div>
+    <div><h4>自己防衛</h4><p>非充電・残量低下・高温・容量不足のあいだはジョブを保留。</p></div>
+    <div><h4>クラッシュ復帰</h4><p>異常終了してもバックオフ付きで自動再起動。</p></div>
+    <div><h4>ephemeralモード</h4><p>ジョブごとに再登録し、work directoryを消去。</p></div>
+    <div><h4>署名付きruntime</h4><p>ECDSA署名のmanifestを、APKに埋め込んだ鍵で検証。</p></div>
+    <div><h4>Keystore保管</h4><p>GitHubトークンはAndroidが暗号化し、Linux側には渡しません。</p></div>
+    <div><h4>バックグラウンド待機</h4><p>Foreground ServiceとWakeLockでRunnerを維持。</p></div>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>スマホで動くジョブ</h2>
+  <pre><span class="k">jobs</span>:
+  <span class="k">test</span>:
+    <span class="k">runs-on</span>: [<span class="s">self-hosted</span>, <span class="s">android</span>, <span class="s">arm64</span>]
+    <span class="k">steps</span>:
+      - <span class="k">uses</span>: <span class="s">actions/checkout@v4</span>
+      - <span class="k">run</span>: <span class="s">uname -a</span>
+      - <span class="k">run</span>: <span class="s">./ci/test-arm64.sh</span></pre>
+  <p>シリコンに直接聞くこともできます:</p>
+  <pre><span class="k">runs-on</span>: [<span class="s">self-hosted</span>, <span class="s">android</span>, <span class="s">android-npu</span>]
+<span class="k">steps</span>:
+  - <span class="k">run</span>: <span class="s">droidrunner-device capabilities</span>   <span class="c"># 端末情報・温度・ドライバ一覧</span>
+  - <span class="k">run</span>: <span class="s">droidrunner-device bench-all</span>      <span class="c"># 全ドライバでCONV_2D</span></pre>
+  <pre>DEVICE                       AVG_US     GFLOPS
+mtk-dsp_shim                      <span class="c">- compilation_finish</span>
+mtk-mdla_shim                     <span class="c">- compilation_finish</span>
+<span class="s">mtk-neuron_shim              4148.9       4.55</span>
+nnapi-reference              1107.7      17.04</pre>
+  <p>
+    拒否した2つのドライバはfloat32ではなく量子化モデルを要求しています。
+    ラベルをSoC名の解析ではなくプローブ結果から作るべき理由が、まさにこれです。
+  </p>
+</section>
+
+<section class="panel">
+  <h2>ラベル</h2>
+  <div class="scroll">
+  <table>
+    <tr><th>ラベル</th><th>意味</th></tr>
+    <tr><td><code>android</code></td><td>DroidRunnerが動作している実機Android端末</td></tr>
+    <tr><td><code>arm64</code></td><td>ARM64端末</td></tr>
+    <tr><td><code>android-api-N</code></td><td>Android APIレベル</td></tr>
+    <tr><td><code>soc-*</code></td><td>検出したSoC情報</td></tr>
+    <tr><td><code>android-npu</code> / <code>android-no-npu</code></td><td>NPUを検出したかどうか</td></tr>
+    <tr><td><code>npu-qnn</code> / <code>npu-tflite</code> / <code>npu-neuron</code> / <code>npu-enn</code></td>
+        <td>Qualcomm QNN / LiteRT / MediaTek Neuron / Samsung ENN の候補</td></tr>
+  </table>
+  </div>
+  <div class="note">
+    ベンダー系ラベルはSoC名から推定した<b>候補</b>です。現時点で検証済みなのは
+    NNAPIプローブの結果のみで、<code>npu-qnn</code>を推測ではなく約束にするための
+    アダプタは
+    <a href="https://github.com/m96-chan/DroidRunner/issues/4">issue #4</a>
+    で追跡しています。
+  </div>
+</section>
+
+<section class="panel">
+  <h2>実装状況</h2>
+  <div class="meter"><span class="name">Runnerライフサイクル</span><span class="bar"><i style="width:100%"></i></span><span class="val">動作</span></div>
+  <div class="meter"><span class="name">ダッシュボードUI</span><span class="bar"><i style="width:100%"></i></span><span class="val">動作</span></div>
+  <div class="meter"><span class="name">GitHub Appログイン</span><span class="bar"><i style="width:100%"></i></span><span class="val">動作</span></div>
+  <div class="meter"><span class="name">ジョブ受付制御</span><span class="bar"><i style="width:100%"></i></span><span class="val">動作</span></div>
+  <div class="meter"><span class="name">ephemeral / 自動復帰</span><span class="bar"><i style="width:100%"></i></span><span class="val">動作</span></div>
+  <div class="meter"><span class="name">署名付きruntime</span><span class="bar"><i style="width:100%"></i></span><span class="val">動作</span></div>
+  <div class="meter"><span class="name">NNAPIプローブ / ベンチ</span><span class="bar"><i style="width:100%"></i></span><span class="val">動作</span></div>
+  <div class="meter"><span class="name">任意の.tfliteモデル実行</span><span class="bar part"><i style="width:45%"></i></span><span class="val">作業中</span></div>
+  <div class="meter"><span class="name">ベンダーSDKアダプタ</span><span class="bar none"><i style="width:8%"></i></span><span class="val">設計のみ</span></div>
+  <div class="meter"><span class="name">フリート ダッシュボード</span><span class="bar none"><i style="width:8%"></i></span><span class="val">計画</span></div>
+  <p style="color:var(--dim);font-size:.85rem;margin-bottom:0">
+    <span style="color:var(--green)">動作</span>としたものは、CIだけでなく実機で確認済みです。
+    詳細な表は
+    <a href="https://github.com/m96-chan/DroidRunner/blob/main/README.ja.md#現在の実装状況">README</a>
+    にあります。
+  </p>
+</section>
+
+<section class="panel">
+  <h2>使う前に</h2>
+  <ul>
+    <li>self-hosted runnerは<b>Workflowの任意のコードをあなたの端末で実行</b>します。
+        publicリポジトリのforkからのpull requestを拾わせては絶対にいけません。</li>
+    <li><b>Organization Runnerは組織内の全リポジトリからジョブを受け付けます</b>。
+        許可リスト付きのrunner groupに入れない限りは、です。
+        Repositoryスコープが既定なのには理由があります。</li>
+    <li>普段持ち歩く端末ではなく、初期化してCI専用にした端末を使ってください。</li>
+    <li>PRootは互換レイヤであり、コンテナやVMのような<b>セキュリティ境界ではありません</b>。</li>
+    <li>Dockerアクション、service container、KVM、ネスト仮想化は利用できません。</li>
+  </ul>
+</section>
+
+<div class="cta">
+  <a class="btn primary" href="tutorial.html">端末をセットアップする &rarr;</a>
+  <a class="btn" href="https://github.com/m96-chan/DroidRunner/releases/latest">リリース</a>
+</div>
+
+<footer>
+  DroidRunnerは
+  <a href="https://github.com/m96-chan/DroidRunner/blob/main/LICENSE">GPL-2.0-only</a>
+  のフリーソフトウェアです。
+  <a href="https://github.com/godotengine/android-editor-buildenv-app">GABE</a>
+  に強く影響を受けています。GitHubとは無関係です。 &middot;
+  <a href="https://github.com/m96-chan/DroidRunner">ソース</a> &middot;
+  <a href="../">English</a>
+</footer>
+
+</div>
+</body>
+</html>

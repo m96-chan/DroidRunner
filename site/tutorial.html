@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tutorial — DroidRunner</title>
+<meta name="description" content="Set up an Android phone as a GitHub Actions self-hosted runner with DroidRunner: install, sign in, register, run your first job.">
+<meta name="theme-color" content="#0b0e14">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="wrap">
+
+<header class="topbar">
+  <div class="brand"><a href="./">DroidRunner</a></div>
+  <div class="status"><span class="dot"></span>tutorial</div>
+  <div class="spacer"></div>
+  <nav class="navlinks">
+    <span class="here">English</span>
+    <a href="ja/tutorial.html">日本語</a>
+    <a href="./">Home</a>
+    <a href="https://github.com/m96-chan/DroidRunner">GitHub</a>
+  </nav>
+</header>
+
+<p class="tagline">From a phone in a drawer to a green check on a pull request.</p>
+<p class="sub">About 15 minutes, most of it spent downloading the runtime bundle.</p>
+
+<section class="panel">
+  <h2>what you need</h2>
+  <ul>
+    <li>An <b>ARM64 Android device</b> (<code>arm64-v8a</code>), <b>Android 9 / API 28</b> or later</li>
+    <li>A few GB of free storage — the Linux rootfs and the runner are ~200 MB
+        downloaded, and build caches grow from there</li>
+    <li>A charger. A runner that discharges is a runner that stops</li>
+    <li>A GitHub account with admin rights on the repository (or organization) the
+        device will serve</li>
+  </ul>
+  <p style="color:var(--dim)">
+    Not supported: 32-bit ARM, x86 Android, Docker, KVM, nested virtualization.
+  </p>
+  <div class="note warn">
+    <b>Pick the right phone.</b> It will execute whatever code your workflows contain,
+    and it will run hot for long stretches. Use a device you have wiped and dedicated
+    to CI — not the one with your photos on it.
+  </div>
+</section>
+
+<section class="panel">
+  <h2>setup</h2>
+  <ol class="steps">
+
+    <li>
+      <b>Install the app</b>
+      <p class="lead">
+        DroidRunner is not on Google Play — the app exists to execute code fetched
+        from outside the store, which the Device &amp; Network Abuse policy does not
+        allow. Install the APK directly.
+      </p>
+      <p>
+        <b style="display:inline">Recommended:</b>
+        <a href="https://github.com/ImranR98/Obtainium">Obtainium</a>, because an
+        unattended runner should not wait for someone to notice a release.
+        Add app &rarr; paste the repository URL:
+      </p>
+      <pre>https://github.com/m96-chan/DroidRunner</pre>
+      <p>
+        If a release ever carries several assets, set the APK filter
+        <code>droidrunner-v.*\.apk</code>. Obtainium then updates the app in place as
+        new tags are published.
+      </p>
+      <p>
+        <b style="display:inline">By hand:</b> download
+        <code>droidrunner-v&lt;version&gt;.apk</code> from the
+        <a href="https://github.com/m96-chan/DroidRunner/releases/latest">latest release</a>
+        and open it. You may have to allow installation from your browser or file
+        manager once.
+      </p>
+      <div class="note">
+        Updates install over the existing app only while the signing key stays the
+        same. Moving to a differently signed build (your own, or a future F-Droid
+        one) means uninstalling first, and that <b>discards the runner registration
+        and the stored GitHub credentials</b> — you would register the device again.
+      </div>
+    </li>
+
+    <li>
+      <b>Install the GitHub App</b>
+      <p class="lead">
+        DroidRunner signs in as a GitHub App rather than asking you to paste a token,
+        so it needs to be installed on the repository or organization it will serve.
+      </p>
+      <p>
+        Open <a href="https://github.com/apps/droidgithubrunner">github.com/apps/droidgithubrunner</a>
+        and install it on the repositories the runner should serve. The app asks for
+        <b>Administration: read and write</b>, which is what registering a
+        self-hosted runner requires — that permission is also what lets someone
+        change repository settings, so grant it per-repository rather than to
+        everything you own.
+      </p>
+      <p>
+        If you skip this, the app will detect it during sign-in and prompt you.
+      </p>
+    </li>
+
+    <li>
+      <b>Sign in from the device</b>
+      <p class="lead">
+        Launch DroidRunner, open the setup screen (&#9881; in the header) and tap
+        <b>Connect GitHub</b>.
+      </p>
+      <p>
+        An 8-character code appears and is copied to your clipboard. Enter it at
+        <a href="https://github.com/login/device">github.com/login/device</a> — on
+        the phone or on any other machine — and approve.
+      </p>
+      <p>
+        This is the OAuth device flow, so there is no client secret inside the APK
+        and no personal access token for you to create or rotate. The resulting user
+        token is encrypted with the Android Keystore, stays on the Android side, and
+        is exchanged for a short-lived registration token when needed. It never
+        enters the Linux environment where jobs run.
+      </p>
+    </li>
+
+    <li>
+      <b>Choose a target and register</b>
+      <p class="lead">
+        Pick a <b>repository</b>, or an <b>organization</b> the app is installed on,
+        then tap <b>Register</b>.
+      </p>
+      <div class="note warn">
+        <b>Organization scope is wider than it looks.</b> An organization runner
+        accepts jobs from <b>every repository in the organization</b> unless you place
+        it in a
+        <a href="https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/managing-access-to-self-hosted-runners-using-groups">runner group</a>
+        with an allow-list. On a device that executes workflow code, that is a
+        materially larger trust boundary. Start with a single repository.
+      </div>
+      <p>
+        Registration runs behind a progress dialog: the app fetches a registration
+        token, discovers the newest <code>runtime-*</code> release, verifies the
+        manifest signature, downloads the ~200 MB bundle, checks its SHA-256,
+        extracts it and runs the official <code>config.sh</code>. On a slow
+        connection this is the long part of the setup.
+      </p>
+      <p>
+        Changing the target later is fine: stop the runner, pick a new one, and the
+        button offers <b>Re-register</b>.
+      </p>
+    </li>
+
+    <li>
+      <b>Set the job policy</b>
+      <p class="lead">
+        Still on the setup screen: decide when this device is allowed to accept work.
+      </p>
+      <p>
+        Thresholds for <b>charging</b>, <b>battery level</b>, <b>thermal status</b> and
+        <b>free storage</b> decide when jobs are held. A device that is unplugged,
+        low, hot or full stops taking new jobs and resumes on its own once the
+        condition clears — except critical thermal, which can interrupt a running job,
+        because a phone that is throttling itself produces numbers nobody should
+        trust anyway.
+      </p>
+      <p>
+        <b style="display:inline">Ephemeral mode</b> re-registers the runner and wipes
+        the work directory after every job. Slower to start each job, and the right
+        default if more than one workflow — or more than one person — can reach this
+        device.
+      </p>
+      <p>
+        <b style="display:inline">Start on boot</b> brings the runner back after a
+        reboot. Also worth granting the battery-optimization exemption the app asks
+        for; vendor task killers are the most common reason a runner quietly goes
+        offline overnight.
+      </p>
+    </li>
+
+    <li>
+      <b>Done — it starts by itself</b>
+      <p class="lead">
+        Go back to the dashboard. The runner panel should reach
+        <span style="color:var(--green)">listening for jobs</span> within a few
+        seconds, and the header shows the same state.
+      </p>
+      <p>
+        A registered device starts its runner automatically whenever the app launches;
+        manual Start/Stop controls live in the runner panel. The device now also
+        appears under <b>Settings &rarr; Actions &rarr; Runners</b> on GitHub, with its
+        labels.
+      </p>
+    </li>
+
+  </ol>
+</section>
+
+<section class="panel">
+  <h2>your first job</h2>
+  <p>Commit this as <code>.github/workflows/device.yml</code>:</p>
+  <pre><span class="k">name</span>: <span class="s">Device smoke</span>
+
+<span class="k">on</span>:
+  <span class="k">workflow_dispatch</span>:
+
+<span class="k">permissions</span>:
+  <span class="k">contents</span>: <span class="s">read</span>
+
+<span class="k">jobs</span>:
+  <span class="k">smoke</span>:
+    <span class="k">runs-on</span>: [<span class="s">self-hosted</span>, <span class="s">android</span>, <span class="s">arm64</span>]
+    <span class="k">steps</span>:
+      - <span class="k">uses</span>: <span class="s">actions/checkout@v4</span>
+      - <span class="k">run</span>: <span class="s">uname -a &amp;&amp; nproc &amp;&amp; free -h</span></pre>
+  <p>
+    Run it from the Actions tab. The runner panel on the phone switches to
+    <span style="color:var(--yellow)">running job</span> and the log tail scrolls;
+    the job counter increments when it finishes.
+  </p>
+  <div class="note">
+    <b>Nothing picked the job up?</b> Check that the labels in <code>runs-on</code>
+    match what the device actually registered — they are listed under the app title
+    and on GitHub's runner page. Every label in <code>runs-on</code> must be present;
+    a typo means the job waits forever rather than failing.
+  </div>
+
+  <h3>Asking the NPU something</h3>
+  <p>
+    <code>droidrunner-device</code> ships inside the runtime bundle and talks to the
+    Device Agent in the app over loopback, authenticated with a token minted for the
+    running job.
+  </p>
+  <pre><span class="k">runs-on</span>: [<span class="s">self-hosted</span>, <span class="s">android</span>, <span class="s">android-npu</span>]
+<span class="k">steps</span>:
+  - <span class="k">run</span>: <span class="s">droidrunner-device capabilities</span>
+  - <span class="k">run</span>: <span class="s">droidrunner-device bench-all</span>
+  - <span class="k">run</span>: <span class="s">droidrunner-device test conv --device mtk-neuron_shim --iterations 50</span></pre>
+  <p style="color:var(--dim)">
+    Today the agent runs built-in ADD and CONV_2D benchmarks. Running a model you
+    supply is the next milestone —
+    <a href="https://github.com/m96-chan/DroidRunner/issues/4">issue #4</a>.
+  </p>
+</section>
+
+<section class="panel">
+  <h2>when something goes wrong</h2>
+
+  <h3>The runner goes offline while the screen is off</h3>
+  <p>
+    Almost always the vendor's battery management. Grant the battery-optimization
+    exemption the app requests, and on Xiaomi/MIUI, Samsung, Huawei and OPPO also
+    lock the app in the recent-apps list and allow autostart. The foreground service
+    and wake lock keep it alive against stock Android; they do not out-argue a
+    vendor task killer.
+  </p>
+
+  <h3>"A session for this runner already exists"</h3>
+  <p>
+    Seen after reinstalling the app or force-stopping it: GitHub still holds the old
+    listener session. It resolves itself — the listener retries and logs
+    <em>Runner reconnected</em>. Queued jobs sit unassigned until then, so give it a
+    few minutes or restart the runner from the dashboard.
+  </p>
+
+  <h3>Registration fails, or the app says it is already configured</h3>
+  <p>
+    Re-register from the setup screen rather than reinstalling; the app clears the
+    stale runner state itself. If a token expired, sign in again — user tokens can
+    be configured to expire, and an expired one surfaces as a registration failure
+    rather than a login prompt.
+  </p>
+
+  <h3>Jobs are held and never start</h3>
+  <p>
+    The dashboard says why: unplugged, battery below your threshold, thermal status
+    raised, or free space below the floor. Plug it in, cool it down, or lower the
+    threshold on the setup screen. This is admission control doing its job, not a
+    bug.
+  </p>
+
+  <h3>Installation is blocked</h3>
+  <p>
+    Allow "install unknown apps" for whatever opened the APK. On MIUI, sideloading
+    over <code>adb</code> additionally needs <em>Install via USB</em> in developer
+    options.
+  </p>
+</section>
+
+<section class="panel">
+  <h2>building it yourself</h2>
+  <p>
+    Self-builders need their own GitHub App identity for the device flow (free, no
+    server), their own APK signing key, and — if they publish runtime bundles — a
+    manifest signing key. The
+    <a href="https://github.com/m96-chan/DroidRunner#build">README</a> covers all
+    three, plus the proot cross-compile that has to happen once before the first
+    Gradle build:
+  </p>
+  <pre>git clone https://github.com/m96-chan/DroidRunner
+cd DroidRunner
+ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/&lt;version&gt; runtime/build-proot.sh
+gradle assembleDebug</pre>
+  <p style="color:var(--dim)">
+    A build with no trusted manifest key configured cannot verify a runtime bundle
+    and says so during install rather than pretending otherwise.
+  </p>
+</section>
+
+<footer>
+  Something in this tutorial wrong or missing?
+  <a href="https://github.com/m96-chan/DroidRunner/issues">Open an issue</a>. &middot;
+  <a href="./">Home</a> &middot;
+  <a href="ja/tutorial.html">日本語</a>
+</footer>
+
+</div>
+</body>
+</html>
