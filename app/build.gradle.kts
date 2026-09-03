@@ -122,6 +122,10 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("org.apache.commons:commons-compress:1.27.1")
 
+    // Runs caller-supplied models; the NNAPI delegate is how a job reaches an
+    // accelerator the device actually exposes.
+    implementation("org.tensorflow:tensorflow-lite:2.16.1")
+
     testImplementation("junit:junit:4.13.2")
     // Android's org.json is a stub in unit tests; use the real implementation.
     testImplementation("org.json:json:20240303")
