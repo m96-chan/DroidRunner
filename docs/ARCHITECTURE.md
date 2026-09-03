@@ -58,3 +58,10 @@ The runtime bundle is large and should be a separate GitHub Release asset rather
 APK asset. HTTPS plus SHA-256 detects corruption, but the manifest and archive must share
 an independently trusted distribution channel to resist replacement. Production releases
 should add a signature verified by a public key embedded in the APK.
+
+Installing replaces the whole runtime directory, so the stored registration details are
+carried into the new tree while the runner's own identity files are not: the details say
+what this device registered as, the identity belongs to the runtime being replaced. That
+keeps installing a runtime and registering a runner separate — a device that lost its
+runtime can be repaired without re-registering, and the service registers again from the
+carried details the first time it finds no identity.

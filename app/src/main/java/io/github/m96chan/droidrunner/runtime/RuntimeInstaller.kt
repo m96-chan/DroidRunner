@@ -2,6 +2,7 @@ package io.github.m96chan.droidrunner.runtime
 
 import android.content.Context
 import io.github.m96chan.droidrunner.BuildConfig
+import io.github.m96chan.droidrunner.runner.RunnerRegistration
 import org.json.JSONObject
 import java.io.File
 import java.net.URL
@@ -70,6 +71,11 @@ class RuntimeInstaller(private val context: Context) {
         File(staging, "home/runner/run.sh").setExecutable(true)
         File(staging, "home/runner/config.sh").setExecutable(true)
         File(staging, ".installed").writeText(manifest.version)
+        // Activating replaces the whole directory, and what this device
+        // registered as is stored inside it. Carrying it over is what lets a
+        // registered device reinstall a missing runtime and still be the same
+        // runner afterwards (issue #46).
+        RunnerRegistration.copyDetails(runtimeDir, staging)
         runtimeDir.deleteRecursively()
         check(staging.renameTo(runtimeDir)) { "Cannot activate runtime" }
         archive.delete()

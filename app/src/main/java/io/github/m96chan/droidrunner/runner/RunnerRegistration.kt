@@ -61,6 +61,23 @@ object RunnerRegistration {
         File(runtimeDir, LEGACY_MARKER).writeText(config.repositoryUrl)
     }
 
+    /**
+     * Copies the stored registration details from one runtime tree into
+     * another, so replacing the runtime does not forget what this device
+     * registered as (issue #46).
+     *
+     * Only the details are carried, never the runner's own identity files:
+     * those belong to the runtime being replaced. RunnerService registers
+     * again from these details when it finds no identity, which is the path
+     * ephemeral runners already take after every job.
+     */
+    fun copyDetails(from: File, to: File) {
+        listOf(CONFIG_FILE, LEGACY_MARKER).forEach { name ->
+            val file = File(from, name)
+            if (file.isFile) file.copyTo(File(to, name), overwrite = true)
+        }
+    }
+
     fun load(runtimeDir: File): RunnerConfig? {
         val file = File(runtimeDir, CONFIG_FILE)
         if (!file.isFile) return null
