@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <clipPath id="headclip">
+      <rect x="-160" y="-190" width="320" height="150"/>
+    </clipPath>
+  </defs>
+  
+
+  <!-- speed lines -->
+  <g stroke="#FFFFFF" stroke-width="22" stroke-linecap="round">
+    <line x1="150" y1="330" x2="420" y2="272"/>
+    <line x1="205" y1="392" x2="410" y2="350"/>
+    <line x1="185" y1="700" x2="330" y2="672"/>
+  </g>
+
+  <!-- sash tail (behind figure) -->
+  <g fill="#5CBF6E">
+    <path d="M175 505 L340 470 L320 540 L350 600 L185 640 L215 570 Z"/>
+    <path d="M300 480 C420 445 520 445 620 470 L600 570 C500 545 420 548 320 580 Z"/>
+  </g>
+
+  <!-- figure -->
+  <g transform="rotate(12 570 500)">
+    <!-- rear arm (up, behind) -->
+    <path d="M700 430 q60 -30 70 -95" stroke="#7ED388" stroke-width="72" stroke-linecap="round" fill="none"/>
+    <!-- rear leg -->
+    <path d="M600 640 q40 100 130 130" stroke="#7ED388" stroke-width="76" stroke-linecap="round" fill="none"/>
+    <!-- torso -->
+    <rect x="465" y="345" width="215" height="300" rx="72" fill="#7ED388"/>
+    <!-- front leg (folded back) -->
+    <path d="M505 640 q-30 90 -120 105" stroke="#7ED388" stroke-width="76" stroke-linecap="round" fill="none"/>
+    <!-- front arm (punching forward-up) -->
+    <path d="M470 430 q-75 -15 -95 -85" stroke="#7ED388" stroke-width="72" stroke-linecap="round" fill="none"/>
+
+    <!-- head -->
+    <g transform="translate(585 315) rotate(10)">
+      <g clip-path="url(#headclip)">
+        <circle cx="0" cy="-40" r="128" fill="#7ED388"/>
+      </g>
+      <!-- antennae -->
+      <line x1="-58" y1="-138" x2="-92" y2="-210" stroke="#7ED388" stroke-width="22" stroke-linecap="round"/>
+      <line x1="58" y1="-138" x2="92" y2="-210" stroke="#7ED388" stroke-width="22" stroke-linecap="round"/>
+      <!-- angry eyes -->
+      <g>
+        <path d="M-88 -92 L-16 -74 L-20 -46 Q-58 -38 -88 -60 Z" fill="#FFFFFF"/>
+        <path d="M16 -72 L88 -88 L88 -58 Q52 -38 20 -46 Z" fill="#FFFFFF"/>
+        <circle cx="-40" cy="-64" r="15" fill="#1B4B7C"/>
+        <circle cx="54" cy="-68" r="15" fill="#1B4B7C"/>
+        <!-- brows -->
+        <path d="M-96 -104 L-10 -80" stroke="#1B4B7C" stroke-width="16" stroke-linecap="round"/>
+        <path d="M10 -78 L96 -100" stroke="#1B4B7C" stroke-width="16" stroke-linecap="round"/>
+      </g>
+      <!-- neck slit -->
+      <rect x="-128" y="-16" width="256" height="14" fill="#1B4B7C"/>
+    </g>
+
+    <!-- sash across torso -->
+    <g>
+      <path d="M430 470 L720 430 L720 540 L430 585 Z" fill="#5CBF6E"/>
+      <text x="575" y="522" font-family="Arial Black, Arial, sans-serif" font-size="86" font-weight="900"
+            fill="#1B4B7C" text-anchor="middle" transform="rotate(-8 575 505)">GH</text>
+    </g>
+  </g>
+</svg>
