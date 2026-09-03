@@ -68,6 +68,9 @@ sealed interface Admission {
     /** The device may accept new jobs. */
     data object Allowed : Admission
 
+    /** A problem is visible, but has not lasted long enough to stop the listener. */
+    data class Pending(val reason: String) : Admission
+
     /**
      * The device must not accept new jobs. [urgent] additionally means an
      * in-flight job should be abandoned: the phone is too hot to keep going.
@@ -85,7 +88,31 @@ sealed interface Admission {
  */
 object AdmissionPolicy {
 
-    fun evaluate(conditions: DeviceConditions, thresholds: AdmissionThresholds): Admission {
+    const val SAMPLES_BEFORE_HOLD = 3
+
+    data class State(val reason: String? = null, val consecutiveSamples: Int = 0)
+
+    data class Result(val admission: Admission, val state: State)
+
+    fun evaluate(
+        conditions: DeviceConditions,
+        thresholds: AdmissionThresholds,
+        previous: State = State(),
+    ): Result {
+        val observed = observe(conditions, thresholds)
+        if (observed == Admission.Allowed) return Result(Admission.Allowed, State())
+        observed as Admission.Blocked
+        if (observed.urgent) return Result(observed, State(observed.reason, SAMPLES_BEFORE_HOLD))
+
+        val count = if (previous.reason == observed.reason) previous.consecutiveSamples + 1 else 1
+        val state = State(observed.reason, count)
+        return Result(
+            if (count >= SAMPLES_BEFORE_HOLD) observed else Admission.Pending(observed.reason),
+            state,
+        )
+    }
+
+    private fun observe(conditions: DeviceConditions, thresholds: AdmissionThresholds): Admission {
         val thermal = conditions.thermalStatus
         if (thermal != null && thermal >= ThermalStatus.CRITICAL) {
             return Admission.Blocked("thermal ${ThermalStatus.label(thermal)}", urgent = true)

@@ -26,6 +26,11 @@ class RunnerNotificationsTest {
         assertEquals("Holding jobs: device is not ready", text(held))
     }
 
+    @Test fun aPendingConditionSaysTheRunnerIsStillActive() {
+        val pending = RunnerSnapshot(state = RunnerState.LISTENING, pausedReason = "not charging")
+        assertEquals("Condition: not charging — still running", text(pending))
+    }
+
     @Test fun aRunningJobIsNamedWhenTheListenerReportedOne() {
         val running = RunnerSnapshot(state = RunnerState.JOB_RUNNING, currentJob = "build (arm64)")
         assertEquals("Running build (arm64)", text(running))

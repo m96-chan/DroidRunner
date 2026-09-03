@@ -10,7 +10,9 @@ package io.github.m96chan.droidrunner.runner
 object SupervisorStep {
     sealed interface Action {
         data class Stop(val reason: String, val stopsActiveJob: Boolean) : Action
+        data class ReportCondition(val reason: String) : Action
         data class AnnounceHold(val reason: String) : Action
+        data object ClearCondition : Action
         data object Resume : Action
         data object SweepStrays : Action
         data object Start : Action
@@ -18,7 +20,8 @@ object SupervisorStep {
 
     data class Result(
         val actions: List<Action>,
-        val pausedFor: String?,
+        val reportedFor: String?,
+        val held: Boolean,
     )
 
     fun decide(
@@ -27,16 +30,19 @@ object SupervisorStep {
         jobRunning: Boolean,
         nowMillis: Long,
         nextStartAtMillis: Long,
-        pausedFor: String?,
+        reportedFor: String?,
+        held: Boolean,
     ): Result {
         val actions = mutableListOf<Action>()
-        var nextPausedFor = pausedFor
+        var nextReportedFor = reportedFor
+        var nextHeld = held
 
         when (decision) {
             Admission.Allowed -> {
-                if (pausedFor != null) {
-                    actions += Action.Resume
-                    nextPausedFor = null
+                if (reportedFor != null) {
+                    actions += if (held) Action.Resume else Action.ClearCondition
+                    nextReportedFor = null
+                    nextHeld = false
                 }
                 if (!hasProcess && nowMillis >= nextStartAtMillis) {
                     actions += Action.SweepStrays
@@ -44,7 +50,14 @@ object SupervisorStep {
                 }
             }
 
+            is Admission.Pending -> {
+                if (reportedFor != decision.reason) actions += Action.ReportCondition(decision.reason)
+                nextReportedFor = decision.reason
+            }
+
             is Admission.Blocked -> {
+                if (reportedFor != decision.reason) actions += Action.ReportCondition(decision.reason)
+                nextReportedFor = decision.reason
                 // A normal hold waits for the current job; critical heat does not.
                 val mayStop = !jobRunning || decision.urgent
                 if (hasProcess && mayStop) {
@@ -52,13 +65,13 @@ object SupervisorStep {
                 }
                 // Stop is synchronous and clears the process before this action runs.
                 val willHaveProcess = hasProcess && !mayStop
-                if (!willHaveProcess && pausedFor != decision.reason) {
+                if (!willHaveProcess && !held) {
                     actions += Action.AnnounceHold(decision.reason)
-                    nextPausedFor = decision.reason
+                    nextHeld = true
                 }
             }
         }
 
-        return Result(actions, nextPausedFor)
+        return Result(actions, nextReportedFor, nextHeld)
     }
 }

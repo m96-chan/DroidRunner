@@ -206,7 +206,11 @@ private fun RunnerPanel(
         }
         runner.pausedReason?.let { reason ->
             Text(
-                "holding jobs: $reason",
+                if (runner.state == RunnerState.PAUSED) {
+                    "holding jobs: $reason"
+                } else {
+                    "condition: $reason — listener still active"
+                },
                 color = BtopColors.Yellow,
                 style = MaterialTheme.typography.labelMedium,
                 maxLines = 2,

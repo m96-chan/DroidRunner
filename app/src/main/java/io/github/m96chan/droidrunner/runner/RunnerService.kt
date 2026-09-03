@@ -109,20 +109,25 @@ class RunnerService : Service() {
     private fun supervise(runtimeDir: File) {
         runCatching {
             check(RunnerRegistration.isConfigured(runtimeDir)) { "Runner is not configured" }
-            var pausedFor: String? = null
+            var admissionState = AdmissionPolicy.State()
+            var reportedFor: String? = null
+            var held = false
 
             while (!stopRequested.get()) {
                 val thresholds = AdmissionThresholds.load(this)
-                val decision = AdmissionPolicy.evaluate(sampleConditions(), thresholds)
+                val evaluation = AdmissionPolicy.evaluate(sampleConditions(), thresholds, admissionState)
+                admissionState = evaluation.state
                 val step = SupervisorStep.decide(
-                    decision = decision,
+                    decision = evaluation.admission,
                     hasProcess = process != null,
                     jobRunning = jobRunning.get(),
                     nowMillis = System.currentTimeMillis(),
                     nextStartAtMillis = nextStartAtMillis,
-                    pausedFor = pausedFor,
+                    reportedFor = reportedFor,
+                    held = held,
                 )
-                pausedFor = step.pausedFor
+                reportedFor = step.reportedFor
+                held = step.held
 
                 step.actions.forEach { action ->
                     when (action) {
@@ -130,6 +135,10 @@ class RunnerService : Service() {
                             RunnerStatus.onResumed()
                             RunnerStatus.onAppLine("admission: conditions recovered, resuming")
                         }
+
+                        SupervisorStep.Action.ClearCondition -> RunnerStatus.onConditionRecovered()
+                        is SupervisorStep.Action.ReportCondition ->
+                            RunnerStatus.onConditionObserved(action.reason)
 
                         SupervisorStep.Action.SweepStrays -> stopStrayListeners()
                         SupervisorStep.Action.Start -> launchListener(runtimeDir)
