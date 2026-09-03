@@ -7,6 +7,17 @@ import org.json.JSONObject
 /** One page of repositories, plus whether GitHub still has more to hand out. */
 internal data class RepositoryPage(val repositories: List<RepositoryRef>, val hasMore: Boolean)
 
+/** The manifest selected from GitHub's newest-first release list. */
+internal data class RuntimeManifestRelease(
+    val url: String,
+    val tag: String,
+    val newestRuntimeTag: String,
+) {
+    val fallbackNotice: String?
+        get() = if (tag == newestRuntimeTag) null
+        else "using $tag because $newestRuntimeTag is not ready yet"
+}
+
 /**
  * Reads GitHub's JSON into the values [GitHubApi] returns.
  *
@@ -30,14 +41,16 @@ internal object GitHubResponses {
     /** Installations of the app, with the account each one belongs to. */
     fun installations(body: String): List<Installation> {
         val installations = JSONObject(body).getJSONArray("installations")
-        return (0 until installations.length()).map { index ->
-            val installation = installations.getJSONObject(index)
-            Installation(
-                id = installation.getLong("id"),
-                account = installation.optJSONObject("account")?.optString("login").orEmpty(),
-                appSlug = installation.optString("app_slug"),
-                accountType = installation.optJSONObject("account")?.optString("type").orEmpty(),
-            )
+        return (0 until installations.length()).mapNotNull { index ->
+            runCatching {
+                val installation = installations.getJSONObject(index)
+                Installation(
+                    id = installation.getLong("id"),
+                    account = installation.optJSONObject("account")?.optString("login").orEmpty(),
+                    appSlug = installation.getString("app_slug"),
+                    accountType = installation.optJSONObject("account")?.optString("type").orEmpty(),
+                )
+            }.getOrNull()
         }
     }
 
@@ -61,21 +74,25 @@ internal object GitHubResponses {
      * URL of runtime-manifest.json from the newest `runtime-*` release that
      * carries one, or null when no listed release does.
      */
-    fun runtimeManifestUrl(body: String): String? {
+    fun runtimeManifest(body: String): RuntimeManifestRelease? {
         val releases = JSONArray(body)
+        var newestRuntimeTag: String? = null
         for (index in 0 until releases.length()) {
-            val release = releases.getJSONObject(index)
-            if (!release.getString("tag_name").startsWith("runtime-")) continue
-            val assets = release.getJSONArray("assets")
+            val release = releases.optJSONObject(index) ?: continue
+            val tag = release.optString("tag_name").takeIf { it.startsWith("runtime-") } ?: continue
+            if (newestRuntimeTag == null) newestRuntimeTag = tag
+            val assets = release.optJSONArray("assets") ?: continue
             for (assetIndex in 0 until assets.length()) {
-                val asset = assets.getJSONObject(assetIndex)
-                if (asset.getString("name") == MANIFEST_ASSET) {
-                    return asset.getString("browser_download_url")
-                }
+                val asset = assets.optJSONObject(assetIndex) ?: continue
+                if (asset.optString("name") != MANIFEST_ASSET) continue
+                val url = asset.optString("browser_download_url").takeIf { it.isNotBlank() } ?: continue
+                return RuntimeManifestRelease(url, tag, newestRuntimeTag)
             }
         }
         return null
     }
+
+    fun runtimeManifestUrl(body: String): String? = runtimeManifest(body)?.url
 
     /**
      * What the user is told when GitHub refuses. GitHub explains itself in a
@@ -84,7 +101,10 @@ internal object GitHubResponses {
      * is the only clue left when the refusal did not come from GitHub itself.
      */
     fun errorMessage(status: Int, body: String): String {
-        val message = runCatching { JSONObject(body).optString("message") }.getOrNull() ?: body
+        val message = runCatching { JSONObject(body).optString("message") }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: body
         return "GitHub API $status: $message"
     }
 }

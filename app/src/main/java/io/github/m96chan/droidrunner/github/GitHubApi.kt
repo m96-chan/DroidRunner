@@ -85,7 +85,10 @@ class GitHubApi {
      * repos; a token avoids rate limits.
      */
     fun latestRuntimeManifestUrl(repo: String, token: String?): String? =
-        GitHubResponses.runtimeManifestUrl(
+        latestRuntimeManifest(repo, token)?.url
+
+    internal fun latestRuntimeManifest(repo: String, token: String?): RuntimeManifestRelease? =
+        GitHubResponses.runtimeManifest(
             request("GET", "https://api.github.com/repos/$repo/releases?per_page=20", token),
         )
 
