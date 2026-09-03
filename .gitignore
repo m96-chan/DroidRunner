@@ -8,4 +8,8 @@ runtime/out/
 app/src/main/jniLibs/
 *.jks
 *.keystore
+# Signing keys live next to the project; never let one reach a commit.
+*.pem
+*.p12
+*.key
 app/.cxx/
