@@ -1,0 +1,200 @@
+/* DroidRunner site — the palette is the app's BtopColors, kept in sync by hand.
+   Anything added here should look like it belongs on the dashboard screenshot. */
+:root {
+  --bg: #0b0e14;
+  --panel: #11151f;
+  --panel-inset: #161b28;
+  --border: #2b3245;
+  --text: #cdd3e0;
+  --dim: #6b7385;
+  --cyan: #52d0db;
+  --green: #9ece6a;
+  --yellow: #e0af68;
+  --red: #f7768e;
+  --magenta: #bb9af7;
+  --blue: #7aa2f7;
+  --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", "Cascadia Mono",
+          Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 15px;
+  line-height: 1.7;
+  -webkit-text-size-adjust: 100%;
+}
+
+.wrap { max-width: 900px; margin: 0 auto; padding: 0 20px 80px; }
+
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---- top bar ---------------------------------------------------------- */
+.topbar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 18px 0 6px;
+}
+.brand { font-size: 1.6rem; color: var(--text); letter-spacing: -0.5px; }
+.brand a { color: inherit; }
+.status {
+  display: inline-flex; align-items: center; gap: 8px;
+  color: var(--green); font-size: 0.95rem;
+}
+.dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--green); box-shadow: 0 0 10px var(--green);
+  animation: pulse 2.4s ease-in-out infinite;
+}
+@keyframes pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
+.topbar .spacer { flex: 1; }
+.navlinks { display: flex; gap: 16px; font-size: 0.9rem; flex-wrap: wrap; }
+.navlinks .here { color: var(--dim); }
+
+.labels { color: var(--dim); font-size: 0.82rem; margin: 0 0 26px; word-break: break-word; }
+.labels span { color: var(--magenta); }
+
+/* ---- panels ----------------------------------------------------------- */
+.panel {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 30px 22px 22px;
+  margin: 34px 0;
+}
+.panel > h2, .panel > h1 {
+  position: absolute; top: -0.85em; left: 18px;
+  margin: 0; padding: 0 10px;
+  background: var(--panel);
+  color: var(--cyan);
+  font-size: 1rem; font-weight: normal;
+}
+.panel > h2::before, .panel > h1::before { content: "\2524 "; color: var(--border); }
+.panel > h2::after,  .panel > h1::after  { content: " \251c"; color: var(--border); }
+.panel h3 { color: var(--yellow); font-size: 0.98rem; font-weight: normal; margin: 26px 0 8px; }
+.panel > :first-of-type + * { margin-top: 0; }
+.panel p:first-child, .panel h3:first-of-type { margin-top: 0; }
+
+/* ---- hero ------------------------------------------------------------- */
+.tagline { font-size: 1.25rem; line-height: 1.6; margin: 10px 0 4px; }
+.tagline b { color: var(--green); font-weight: normal; }
+.sub { color: var(--dim); margin: 0 0 24px; }
+
+.cta { display: flex; gap: 12px; flex-wrap: wrap; margin: 22px 0 4px; }
+.btn {
+  border: 1px solid var(--border); border-radius: 24px;
+  padding: 9px 22px; color: var(--cyan); background: transparent;
+}
+.btn:hover { background: var(--panel-inset); text-decoration: none; }
+.btn.primary { border-color: var(--cyan); }
+.btn.ghost { color: var(--dim); }
+
+/* ---- boot log --------------------------------------------------------- */
+.bootlog {
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--panel-inset); padding: 16px 18px;
+  font-size: 0.85rem; line-height: 1.9; overflow-x: auto; margin: 26px 0;
+}
+.bootlog .ok { color: var(--green); }
+.bootlog .t  { color: var(--dim); }
+.bootlog .v  { color: var(--yellow); }
+
+/* ---- shot ------------------------------------------------------------- */
+.shot { display: flex; gap: 26px; align-items: flex-start; flex-wrap: wrap; }
+.shot img {
+  width: 280px; max-width: 100%; border: 1px solid var(--border); border-radius: 12px;
+}
+.shot .legend { flex: 1; min-width: 250px; }
+.shot .legend dt { color: var(--cyan); margin-top: 14px; }
+.shot .legend dd { margin: 2px 0 0; color: var(--dim); }
+.shot .legend dt:first-child { margin-top: 0; }
+
+/* ---- grid of features -------------------------------------------------- */
+.grid { display: grid; gap: 18px 26px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.grid h4 { margin: 0 0 4px; font-size: 0.95rem; font-weight: normal; color: var(--green); }
+.grid p { margin: 0; color: var(--dim); font-size: 0.9rem; }
+
+/* ---- code -------------------------------------------------------------- */
+pre {
+  background: var(--panel-inset); border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px 16px; overflow-x: auto; font-size: 0.85rem; line-height: 1.65;
+  margin: 12px 0;
+}
+code { font-family: var(--mono); }
+p code, li code, td code, dd code {
+  background: var(--panel-inset); border: 1px solid var(--border); border-radius: 4px;
+  padding: 1px 5px; font-size: 0.85em; color: var(--yellow);
+}
+pre .k { color: var(--blue); }
+pre .s { color: var(--green); }
+pre .c { color: var(--dim); }
+pre .p { color: var(--magenta); }
+
+/* ---- steps -------------------------------------------------------------- */
+ol.steps { list-style: none; counter-reset: step; padding: 0; margin: 0; }
+ol.steps > li {
+  counter-increment: step; position: relative;
+  padding: 0 0 22px 44px; border-left: 1px solid var(--border);
+  margin-left: 13px;
+}
+ol.steps > li:last-child { border-left-color: transparent; padding-bottom: 0; }
+ol.steps > li::before {
+  content: counter(step);
+  position: absolute; left: -13px; top: 0;
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--panel);
+  color: var(--cyan); font-size: 0.8rem;
+  display: flex; align-items: center; justify-content: center;
+}
+ol.steps > li > b { color: var(--text); font-weight: normal; display: block; margin-bottom: 4px; }
+ol.steps p { margin: 6px 0; color: var(--dim); }
+ol.steps p.lead { color: var(--text); }
+
+/* ---- callouts ----------------------------------------------------------- */
+.note {
+  border-left: 3px solid var(--blue); background: var(--panel-inset);
+  padding: 12px 16px; margin: 18px 0; border-radius: 0 6px 6px 0; font-size: 0.9rem;
+}
+.note.warn { border-left-color: var(--yellow); }
+.note.danger { border-left-color: var(--red); }
+.note b { color: var(--text); }
+.note.warn b { color: var(--yellow); }
+.note.danger b { color: var(--red); }
+.note :first-child { margin-top: 0; }
+.note :last-child { margin-bottom: 0; }
+
+/* ---- tables -------------------------------------------------------------- */
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+th, td { text-align: left; padding: 7px 12px 7px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--dim); font-weight: normal; }
+td.ok { color: var(--green); }
+td.todo { color: var(--dim); }
+
+/* ---- meter (decorative status bars) -------------------------------------- */
+.meter { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: 0.85rem; }
+.meter .name { width: 190px; color: var(--dim); flex-shrink: 0; }
+.meter .bar { flex: 1; height: 10px; border-radius: 5px; background: var(--panel-inset); overflow: hidden; min-width: 60px; }
+.meter .bar i { display: block; height: 100%; background: var(--green); }
+.meter .bar.part i { background: var(--yellow); }
+.meter .bar.none i { background: var(--border); }
+.meter .val { width: 84px; text-align: right; color: var(--dim); flex-shrink: 0; }
+
+/* ---- footer -------------------------------------------------------------- */
+footer { color: var(--dim); font-size: 0.82rem; border-top: 1px solid var(--border); padding-top: 18px; margin-top: 40px; }
+footer a { color: var(--dim); text-decoration: underline; }
+
+ul { padding-left: 20px; }
+ul li { margin: 5px 0; }
+
+@media (max-width: 560px) {
+  body { font-size: 14px; }
+  .panel { padding: 28px 15px 18px; }
+  .meter .name { width: 120px; }
+}
