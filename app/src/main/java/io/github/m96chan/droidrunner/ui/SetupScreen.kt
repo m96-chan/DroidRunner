@@ -230,7 +230,7 @@ fun SetupScreen(
     fun manifestSource(): String? = manifestUrl.ifBlank { resolvedManifest.orEmpty() }.ifBlank { null }
 
     fun registerRunner(target: RunnerTarget, credential: String) {
-        if (File(runtime.runtimeDir, ".configured").isFile) {
+        if (RunnerRegistration.load(runtime.runtimeDir)?.target == target) {
             status = null
             return
         }
@@ -585,12 +585,37 @@ fun SetupScreen(
             else -> null
         }
         if (userToken != null && selectedTarget != null) {
+            val storedTarget = remember(configured, status, busy) {
+                RunnerRegistration.load(runtime.runtimeDir)?.target
+            }
+            val alreadyRegistered = storedTarget == selectedTarget
+            // Re-registering swaps the runner's identity, so the listener has
+            // to be down first — the same reason the runtime update waits.
+            val runnerStopped = runner.state == RunnerState.STOPPED
             Button(
-                enabled = !busy && !configured && (runtime.installed || manifestSource() != null),
+                enabled = !busy && !alreadyRegistered &&
+                    (runtime.installed || manifestSource() != null) &&
+                    (storedTarget == null || runnerStopped),
                 colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Green, contentColor = BtopColors.Background),
                 onClick = { registerRunner(selectedTarget, userToken!!) },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (configured) "Registered" else "Register ${selectedTarget.displayName}") }
+            ) {
+                Text(
+                    when {
+                        alreadyRegistered -> "Registered: ${selectedTarget.displayName}"
+                        storedTarget != null -> "Re-register as ${selectedTarget.displayName}"
+                        else -> "Register ${selectedTarget.displayName}"
+                    },
+                )
+            }
+            if (!alreadyRegistered && storedTarget != null && !runnerStopped) {
+                Text(
+                    "Stop the runner first — re-registering replaces its identity " +
+                        "(currently ${storedTarget.displayName}).",
+                    color = BtopColors.Dim,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
         }
 
         Row(
