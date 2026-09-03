@@ -60,56 +60,32 @@ class RuntimeInstaller(private val context: Context) {
     }
 
     /**
-     * Downloads the archive, resuming where it left off rather than starting
-     * a ~200MB transfer again because a phone changed networks. The SHA-256
-     * check that follows is what makes resuming safe.
+     * Wires [RuntimeDownload] to HTTP. Everything worth testing lives there;
+     * this is the part that only a real server can exercise.
      */
     private fun download(
         manifest: RuntimeManifest,
         archive: File,
         progress: (String, Float?) -> Unit,
     ) {
-        var attempt = 0
-        while (true) {
-            attempt++
-            val alreadyHave = if (archive.isFile) archive.length() else 0L
-            try {
+        progress("downloading runtime", 0f)
+        RuntimeDownload.fetch(
+            target = archive,
+            source = { offset ->
                 val connection = URL(manifest.url).openConnection()
-                if (alreadyHave > 0) connection.setRequestProperty("Range", "bytes=$alreadyHave-")
-                val resuming = alreadyHave > 0 &&
+                if (offset > 0) connection.setRequestProperty("Range", "bytes=$offset-")
+                val resumed = offset > 0 &&
                     (connection as? java.net.HttpURLConnection)?.responseCode == 206
-                val startAt = if (resuming) alreadyHave else 0L
-                val totalBytes = connection.contentLengthLong.takeIf { it > 0 }?.plus(startAt) ?: -1L
-
-                if (startAt == 0L) checkSpaceFor(totalBytes)
-                progress("downloading runtime", if (totalBytes > 0) startAt.toFloat() / totalBytes else 0f)
-
-                connection.getInputStream().use { input ->
-                    java.io.FileOutputStream(archive, resuming).use { out ->
-                        val buffer = ByteArray(128 * 1024)
-                        var copied = startAt
-                        var lastStep = -1
-                        while (true) {
-                            val count = input.read(buffer)
-                            if (count < 0) break
-                            out.write(buffer, 0, count)
-                            copied += count
-                            if (totalBytes > 0) {
-                                val step = (copied * 20 / totalBytes).toInt()
-                                if (step != lastStep) {
-                                    lastStep = step
-                                    progress("downloading runtime", copied.toFloat() / totalBytes)
-                                }
-                            }
-                        }
-                    }
-                }
-                return
-            } catch (failed: java.io.IOException) {
-                if (attempt >= DOWNLOAD_ATTEMPTS) throw failed
-                progress("download interrupted, retrying (${attempt + 1}/$DOWNLOAD_ATTEMPTS)", null)
-            }
-        }
+                val length = connection.contentLengthLong
+                RuntimeDownload.Chunk(
+                    stream = connection.getInputStream(),
+                    resumed = resumed,
+                    totalBytes = if (length > 0) length + (if (resumed) offset else 0L) else -1L,
+                )
+            },
+            beforeFirstByte = { checkSpaceFor(it) },
+            progress = { progress("downloading runtime", it) },
+        )
     }
 
     /**
