@@ -13,6 +13,12 @@ object AlertPolicy {
     /** Failures the device can see and GitHub cannot. */
     enum class Failure { LISTENER, REGISTRATION, SIGN_IN }
 
+    data class FailureRecord(
+        val consecutiveFailures: Int,
+        val alerted: Boolean,
+        val alertNow: Boolean,
+    )
+
     /**
      * A listener that exits gets the benefit of the doubt for a few restarts —
      * most of them recover on their own (issue #6), and recovery is not news.
@@ -47,5 +53,20 @@ object AlertPolicy {
             Failure.SIGN_IN -> SIGN_IN_FAILURES_BEFORE_ALERT
         }
         return consecutiveFailures >= threshold
+    }
+
+    /** Counts a failure and latches the first alert for the current streak. */
+    fun recordFailure(
+        failure: Failure,
+        consecutiveFailures: Int,
+        alreadyAlerted: Boolean,
+    ): FailureRecord {
+        val count = consecutiveFailures + 1
+        val alertNow = shouldAlert(failure, count, alreadyAlerted)
+        return FailureRecord(
+            consecutiveFailures = count,
+            alerted = alreadyAlerted || alertNow,
+            alertNow = alertNow,
+        )
     }
 }
