@@ -387,17 +387,20 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 
 ## ロードマップ
 
-- [ ] GABEを参考にruntime bootstrapを実機で安定化
-- [ ] GPL対応のruntime source archiveとSBOMを生成
+- [x] GABEを参考にruntime bootstrapを実機で安定化
 - [x] バッテリー・充電・温度・空き容量によるジョブ受付制御
-- [x] リスナー異常終了時の復旧(バックオフ付き再起動。runtime bundleの更新は #14)
-- [ ] per-job capability token付きDevice Agent
-- [ ] NNAPI capability probeとsmoke test
-- [ ] QNN / LiteRT / MediaTek Neuron / Samsung ENN adapter
+- [x] リスナー異常終了時の復旧(バックオフ付き再起動)
 - [x] ephemeral runnerとジョブ後クリーンアップ
 - [x] Organizationスコープのrunner(1台で組織全体を担当)
-- [ ] 複数端末の状態を表示する管理画面
-- [ ] runtime manifestの署名検証
+- [x] per-job capability token付きDevice Agent
+- [x] NNAPI capability probeとsmoke test — CIビルドごとに実機で実行
+- [ ] 組み込みベンチマークではなく任意のモデルを実行する([#4](https://github.com/m96-chan/DroidRunner/issues/4))
+- [ ] QNN / LiteRT / MediaTek Neuron / Samsung ENN adapter([#4](https://github.com/m96-chan/DroidRunner/issues/4))
+- [ ] runtime manifestの署名検証([#5](https://github.com/m96-chan/DroidRunner/issues/5))
+- [ ] runtime bundleの更新通知・自動導入([#14](https://github.com/m96-chan/DroidRunner/issues/14))
+- [ ] 複数端末の状態を表示する管理画面([#7](https://github.com/m96-chan/DroidRunner/issues/7))
+- [ ] F-Droidでの公開([#18](https://github.com/m96-chan/DroidRunner/issues/18))
+- [ ] GPL対応のruntime source archiveとSBOMを生成
 
 ## 参考プロジェクト
 
