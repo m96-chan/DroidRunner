@@ -57,6 +57,33 @@ class GitHubResponsesTest {
             "https://example.test/runtime-2024.04/runtime-manifest.json",
             GitHubResponses.runtimeManifestUrl(body),
         )
+        assertEquals(
+            "using runtime-2024.04 because runtime-2024.05 is not ready yet",
+            GitHubResponses.runtimeManifest(body)?.fallbackNotice,
+        )
+    }
+
+    @Test fun selectingTheNewestRuntimeNeedsNoFallbackNotice() {
+        val selected = GitHubResponses.runtimeManifest(
+            "[${release("runtime-2024.05", "runtime-manifest.json")}]",
+        )
+
+        assertNull(selected?.fallbackNotice)
+    }
+
+    @Test fun malformedReleasesAndAssetsDoNotHideALaterValidManifest() {
+        val body = """[
+            null,
+            {"assets": []},
+            {"tag_name": "runtime-broken"},
+            {"tag_name": "runtime-also-broken", "assets": [null, {"name": "runtime-manifest.json"}]},
+            ${release("runtime-2024.04", "runtime-manifest.json")}
+        ]""".trimIndent()
+
+        val selected = GitHubResponses.runtimeManifest(body)
+
+        assertEquals("runtime-2024.04", selected?.tag)
+        assertEquals("runtime-broken", selected?.newestRuntimeTag)
     }
 
     @Test fun aRuntimeReleaseCarryingEverythingButTheManifestYieldsNothing() {
@@ -115,6 +142,20 @@ class GitHubResponsesTest {
         assertEquals("", installations[0].accountType)
         assertEquals("", installations[1].account)
         assertEquals("acme-inc", installations[2].account)
+    }
+
+    @Test fun malformedInstallationsDoNotHideValidOnes() {
+        val body = """{"installations": [
+            null,
+            {"app_slug": "droidrunner"},
+            {"id": 2},
+            {"id": 3, "app_slug": "droidrunner", "account": {"login": "acme-inc"}}
+        ]}"""
+
+        val installations = GitHubResponses.installations(body)
+
+        assertEquals(listOf(3L), installations.map { it.id })
+        assertEquals("acme-inc", installations.single().account)
     }
 
     @Test fun onlyOrganizationAccountsBecomeOrganizationTargets() {
@@ -205,5 +246,11 @@ class GitHubResponsesTest {
         val html = "<html><body><h1>502 Bad Gateway</h1></body></html>"
 
         assertEquals("GitHub API 502: $html", GitHubResponses.errorMessage(502, html))
+    }
+
+    @Test fun validJsonWithoutAMessageIsShownAsIs() {
+        val body = """{"error": "rate limit exceeded"}"""
+
+        assertEquals("GitHub API 403: $body", GitHubResponses.errorMessage(403, body))
     }
 }

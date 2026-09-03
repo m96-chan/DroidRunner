@@ -104,13 +104,16 @@ fun SetupScreen(
     var resolvedManifest by remember { mutableStateOf<String?>(null) }
     var resolvingManifest by remember { mutableStateOf(BuildConfig.RUNTIME_REPO.isNotBlank()) }
     var latestRuntimeVersion by remember { mutableStateOf<String?>(null) }
+    var runtimeFallbackNotice by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         if (BuildConfig.RUNTIME_REPO.isNotBlank()) {
-            resolvedManifest = runCatching {
+            val selectedRelease = runCatching {
                 withContext(Dispatchers.IO) {
-                    api.latestRuntimeManifestUrl(BuildConfig.RUNTIME_REPO, secretStore.getUserToken())
+                    api.latestRuntimeManifest(BuildConfig.RUNTIME_REPO, secretStore.getUserToken())
                 }
             }.getOrNull()
+            resolvedManifest = selectedRelease?.url
+            runtimeFallbackNotice = selectedRelease?.fallbackNotice
             // The manifest names the bundle version, so an installed runtime
             // that has fallen behind the latest release can be reported.
             latestRuntimeVersion = resolvedManifest?.let { url ->
@@ -505,6 +508,14 @@ fun SetupScreen(
         }
 
         Panel("runtime", titleColor = BtopColors.Cyan) {
+            runtimeFallbackNotice?.let { notice ->
+                Text(
+                    notice,
+                    color = BtopColors.Yellow,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Spacer(Modifier.padding(top = 6.dp))
+            }
             when {
                 runtime.installed -> {
                     val installedVersion = runtime.installedVersion
