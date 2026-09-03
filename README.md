@@ -400,17 +400,20 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 
 ## Roadmap
 
-- [ ] Stabilize the runtime bootstrap on real devices, following GABE
-- [ ] Generate a GPL-compliant runtime source archive and SBOM
+- [x] Stabilize the runtime bootstrap on real devices, following GABE
 - [x] Job admission control based on battery, charging, thermal, and free storage
-- [x] Listener crash recovery with restart backoff (runtime bundle updates: #14)
-- [ ] Device Agent with per-job capability tokens
-- [ ] NNAPI capability probe and smoke test
-- [ ] QNN / LiteRT / MediaTek Neuron / Samsung ENN adapters
+- [x] Listener crash recovery with restart backoff
 - [x] Ephemeral runners with post-job cleanup
 - [x] Organization-scoped runners (one device serving a whole organization)
-- [ ] Fleet dashboard showing the state of multiple devices
-- [ ] Runtime manifest signature verification
+- [x] Device Agent with per-job capability tokens
+- [x] NNAPI capability probe and smoke test — run on every CI build against a real device
+- [ ] Run a caller-supplied model rather than the built-in benchmarks ([#4](https://github.com/m96-chan/DroidRunner/issues/4))
+- [ ] QNN / LiteRT / MediaTek Neuron / Samsung ENN adapters ([#4](https://github.com/m96-chan/DroidRunner/issues/4))
+- [ ] Runtime manifest signature verification ([#5](https://github.com/m96-chan/DroidRunner/issues/5))
+- [ ] Notify or auto-install when the runtime bundle is out of date ([#14](https://github.com/m96-chan/DroidRunner/issues/14))
+- [ ] Fleet dashboard showing the state of multiple devices ([#7](https://github.com/m96-chan/DroidRunner/issues/7))
+- [ ] Publish on F-Droid ([#18](https://github.com/m96-chan/DroidRunner/issues/18))
+- [ ] Generate a GPL-compliant runtime source archive and SBOM
 
 ## Related projects
 
