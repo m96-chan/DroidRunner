@@ -108,8 +108,8 @@ class RunnerStatusTest {
 
     @Test fun jobTotalsSurviveStartingTheServiceAgain() {
         RunnerStatus.onServiceStarted()
-        RunnerStatus.onLogLine("Job build completed with result: Succeeded")
-        RunnerStatus.onLogLine("Job flaky completed with result: Failed")
+        RunnerStatus.onRunnerLine("Job build completed with result: Succeeded")
+        RunnerStatus.onRunnerLine("Job flaky completed with result: Failed")
 
         RunnerStatus.onServiceStopped()
         RunnerStatus.onServiceStarted()
@@ -117,7 +117,7 @@ class RunnerStatusTest {
         assertEquals(1, RunnerStatus.snapshot.value.jobsSucceeded)
         assertEquals(1, RunnerStatus.snapshot.value.jobsFailed)
 
-        RunnerStatus.onLogLine("Job build completed with result: Succeeded")
+        RunnerStatus.onRunnerLine("Job build completed with result: Succeeded")
         assertEquals(2, RunnerStatus.snapshot.value.jobsSucceeded)
     }
 
@@ -126,7 +126,7 @@ class RunnerStatusTest {
         RunnerStatus.useCounterStore(stored)
 
         RunnerStatus.onServiceStarted()
-        RunnerStatus.onLogLine("Job build completed with result: Succeeded")
+        RunnerStatus.onRunnerLine("Job build completed with result: Succeeded")
 
         assertEquals(8, stored.succeeded)
         assertEquals(2, stored.failed)
