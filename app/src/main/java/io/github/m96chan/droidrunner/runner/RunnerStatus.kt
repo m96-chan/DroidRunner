@@ -48,6 +48,14 @@ private class PrefsCounterStore(
 /**
  * Shared runner state. RunnerService parses the official runner's listener output
  * and publishes transitions here; the dashboard collects [snapshot].
+ *
+ * Every line the device produces — the listener's and the app's own — passes
+ * through here, so this is also where the log file is kept (issue #52). The
+ * service owns the listener, but not the whole story: the setup screen
+ * registers a runner before any service exists, and the lines explaining an
+ * overnight pause have to survive the service that stopped. The log is
+ * therefore held for as long as the process lives, opened from [attach]
+ * alongside the rest of the state that outlives a single run.
  */
 object RunnerStatus {
     private const val LOG_LINES = 100
@@ -59,6 +67,14 @@ object RunnerStatus {
 
     private var prefs: android.content.SharedPreferences? = null
     private var counterStore: JobCounterStore? = null
+
+    /**
+     * The log on disk, or null before [attach]. Never closed: every append
+     * flushes, so there is nothing buffered to lose, and the process dying is
+     * the only end this file has.
+     */
+    @Volatile
+    private var log: RunnerLog? = null
 
     /** Notified when a job starts (true) and when it finishes (false). */
     fun interface JobBoundaryListener {
@@ -80,6 +96,7 @@ object RunnerStatus {
         if (prefs != null) return
         val store = context.applicationContext.getSharedPreferences("runner_stats", 0)
         prefs = store
+        log = RunnerLog(context.applicationContext.filesDir)
         useCounterStore(PrefsCounterStore(store))
         _snapshot.update { it.copy(bootGapMs = gapOf(context, readBootRecord(store), bootId())) }
     }
@@ -149,7 +166,13 @@ object RunnerStatus {
 
     internal fun reset() {
         _snapshot.value = RunnerSnapshot()
+        log = null
         counterStore = null
+    }
+
+    /** Points the log at a file of the test's choosing; production uses [attach]. */
+    internal fun attachLog(replacement: RunnerLog?) {
+        log = replacement
     }
 
     /**
@@ -188,7 +211,7 @@ object RunnerStatus {
         _snapshot.update {
             it.copy(state = RunnerState.STARTING, currentJob = null, restarts = it.restarts + 1)
         }
-        onLogLine("recovery: $reason")
+        onAppLine("recovery: $reason")
     }
 
     /** Conditions recovered; the listener is starting again. */
@@ -202,10 +225,36 @@ object RunnerStatus {
         }
     }
 
-    @Synchronized
-    fun onLogLine(rawLine: String) {
+    /**
+     * Marks the start of a listener attempt in the log file (issue #40). Not
+     * state and not a line anyone said, so the dashboard's tail never sees it.
+     */
+    fun onListenerAttempt(startedAtMillis: Long) {
+        log?.startAttempt(startedAtMillis)
+    }
+
+    /** A line the listener or the runner CLI printed, quoted as it came. */
+    fun onRunnerLine(rawLine: String) = record(rawLine, RunnerLog.Source.RUNNER)
+
+    /**
+     * Something DroidRunner did, and why. These used to reach the in-memory
+     * tail only, which meant the reason a device stopped taking jobs died with
+     * the app process (issue #52).
+     */
+    fun onAppLine(rawLine: String) = record(rawLine, RunnerLog.Source.APP)
+
+    private fun record(rawLine: String, source: RunnerLog.Source) {
         val line = rawLine.trim()
         if (line.isEmpty()) return
+        // The file has a lock of its own. Writing outside this object's monitor
+        // keeps per-line disk I/O off the path the dashboard's state takes,
+        // which the listener can drive thousands of lines a minute.
+        log?.append(line, source)
+        publish(line)
+    }
+
+    @Synchronized
+    private fun publish(line: String) {
         val wasRunning = _snapshot.value.state == RunnerState.JOB_RUNNING
         _snapshot.update { current ->
             var next = current.copy(recentLog = (current.recentLog + line).takeLast(LOG_LINES))

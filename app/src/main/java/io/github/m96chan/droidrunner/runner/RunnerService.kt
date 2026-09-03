@@ -119,7 +119,7 @@ class RunnerService : Service() {
                     decision is Admission.Allowed -> {
                         if (pausedFor != null) {
                             RunnerStatus.onResumed()
-                            RunnerStatus.onLogLine("admission: conditions recovered, resuming")
+                            RunnerStatus.onAppLine("admission: conditions recovered, resuming")
                             pausedFor = null
                         }
                         if (process == null && System.currentTimeMillis() >= nextStartAtMillis) {
@@ -131,7 +131,7 @@ class RunnerService : Service() {
                         // Hold between jobs; only heat interrupts a running one.
                         val mayStop = !jobRunning.get() || decision.urgent
                         if (process != null && mayStop) {
-                            RunnerStatus.onLogLine(
+                            RunnerStatus.onAppLine(
                                 "admission: ${decision.reason}" +
                                     if (decision.urgent && jobRunning.get()) " — stopping active job" else "",
                             )
@@ -148,7 +148,7 @@ class RunnerService : Service() {
                 Thread.sleep(POLL_INTERVAL_MS)
             }
         }.onFailure {
-            if (it !is InterruptedException) RunnerStatus.onLogLine("runner error: ${it.message}")
+            if (it !is InterruptedException) RunnerStatus.onAppLine("runner error: ${it.message}")
         }
         starting.set(false)
         if (!stopRequested.get()) stopSelf()
@@ -184,7 +184,7 @@ class RunnerService : Service() {
                 // Configured before this build, without the stored details
                 // needed to re-register; the existing registration still works.
                 if (!ephemeral) return startListener(runtimeDir)
-                RunnerStatus.onLogLine(
+                RunnerStatus.onAppLine(
                     "ephemeral: re-register once from the setup screen to enable per-job registration",
                 )
                 backOff(
@@ -196,11 +196,11 @@ class RunnerService : Service() {
             }
             val outcome = runCatching {
                 if (ephemeral) RunnerRegistration.cleanWorkDirectory(runtimeDir)
-                RunnerStatus.onLogLine(
+                RunnerStatus.onAppLine(
                     if (ephemeral) "ephemeral: registering for the next job" else "registering runner",
                 )
                 RunnerRegistration.register(this, runtimeDir, config, ephemeral) { line ->
-                    RunnerStatus.onLogLine(line)
+                    RunnerStatus.onRunnerLine(line)
                 }
             }
             if (outcome.isFailure) {
@@ -276,17 +276,17 @@ class RunnerService : Service() {
         ).redirectErrorStream(true).start()
         process = started
         val startedAt = System.currentTimeMillis()
+        // Marked from here, not from the output thread: the header then lands
+        // after the app lines that led to this start, and before the first
+        // thing the listener says.
+        RunnerStatus.onListenerAttempt(startedAt)
 
         // Streaming runs off the supervisor thread so conditions keep being
         // evaluated while the listener is busy.
         thread(name = "runner-output", isDaemon = true) {
             runCatching {
-                RunnerLog(filesDir).use { log ->
-                    log.startAttempt(startedAt)
-                    started.inputStream.bufferedReader().forEachLine { line ->
-                        log.append(line)
-                        RunnerStatus.onLogLine(line)
-                    }
+                started.inputStream.bufferedReader().forEachLine { line ->
+                    RunnerStatus.onRunnerLine(line)
                 }
             }
             val exitCode = started.waitFor()
@@ -300,7 +300,7 @@ class RunnerService : Service() {
                 restartDelayMs = 0
                 nextStartAtMillis = 0
                 onHealthy()
-                RunnerStatus.onLogLine("ephemeral: job finished, cleaning up")
+                RunnerStatus.onAppLine("ephemeral: job finished, cleaning up")
             } else {
                 backOff(
                     "listener exited with code $exitCode",
@@ -330,7 +330,7 @@ class RunnerService : Service() {
         val clean = haltListenerProcesses()
         target?.destroyForcibly()
         if (!clean) {
-            RunnerStatus.onLogLine(
+            RunnerStatus.onAppLine(
                 "warning: a listener survived being killed — GitHub may still see this runner",
             )
         }
@@ -347,7 +347,7 @@ class RunnerService : Service() {
      */
     private fun stopStrayListeners() {
         if (listenerProcesses().isEmpty()) return
-        RunnerStatus.onLogLine("stopping listener processes left from an earlier run")
+        RunnerStatus.onAppLine("stopping listener processes left from an earlier run")
         haltListenerProcesses()
     }
 
@@ -380,7 +380,7 @@ class RunnerService : Service() {
         tree.filter(ProcessTree::alive).forEach { ProcessTree.signal(it, ProcessTree.SIGTERM) }
         if (ProcessTree.awaitExit(tree, FORCED_STOP_MS)) return true
 
-        RunnerStatus.onLogLine("listener ignored the stop request; killing it")
+        RunnerStatus.onAppLine("listener ignored the stop request; killing it")
         tree.filter(ProcessTree::alive).forEach { ProcessTree.signal(it, ProcessTree.SIGKILL) }
         return ProcessTree.awaitExit(tree, FORCED_STOP_MS)
     }
