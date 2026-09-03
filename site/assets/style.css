@@ -179,12 +179,12 @@ td.todo { color: var(--dim); }
 
 /* ---- meter (decorative status bars) -------------------------------------- */
 .meter { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: 0.85rem; }
-.meter .name { width: 190px; color: var(--dim); flex-shrink: 0; }
+.meter .name { width: 220px; color: var(--dim); flex-shrink: 0; }
 .meter .bar { flex: 1; height: 10px; border-radius: 5px; background: var(--panel-inset); overflow: hidden; min-width: 60px; }
 .meter .bar i { display: block; height: 100%; background: var(--green); }
 .meter .bar.part i { background: var(--yellow); }
 .meter .bar.none i { background: var(--border); }
-.meter .val { width: 84px; text-align: right; color: var(--dim); flex-shrink: 0; }
+.meter .val { width: 105px; text-align: right; color: var(--dim); flex-shrink: 0; }
 
 /* ---- footer -------------------------------------------------------------- */
 footer { color: var(--dim); font-size: 0.82rem; border-top: 1px solid var(--border); padding-top: 18px; margin-top: 40px; }
@@ -196,5 +196,5 @@ ul li { margin: 5px 0; }
 @media (max-width: 560px) {
   body { font-size: 14px; }
   .panel { padding: 28px 15px 18px; }
-  .meter .name { width: 120px; }
+  .meter .name { width: 130px; font-size: .8rem; }
 }
