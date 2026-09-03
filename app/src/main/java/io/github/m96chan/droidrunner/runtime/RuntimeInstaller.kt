@@ -14,13 +14,17 @@ class RuntimeInstaller(private val context: Context) {
     val installedVersion: String?
         get() = File(runtimeDir, ".installed").takeIf { it.isFile }?.readText()?.trim()
 
-    fun install(manifestUrl: String, progress: (String) -> Unit = {}) {
+    /**
+     * [progress] reports the current phase and, while downloading, how far
+     * along it is (0..1); null means the phase has no measurable length.
+     */
+    fun install(manifestUrl: String, progress: (String, Float?) -> Unit = { _, _ -> }) {
         require(manifestUrl.startsWith("https://")) { "Manifest must use HTTPS" }
-        progress("manifest")
+        progress("reading manifest", null)
         val manifest = parseManifest(URL(manifestUrl).readText())
         require(manifest.url.startsWith("https://")) { "Runtime must use HTTPS" }
         val archive = File(context.cacheDir, "runtime-${manifest.version}.tar.gz")
-        progress("download")
+        progress("downloading runtime", 0f)
         val connection = URL(manifest.url).openConnection()
         val totalBytes = connection.contentLengthLong
         connection.getInputStream().use { input ->
@@ -37,7 +41,7 @@ class RuntimeInstaller(private val context: Context) {
                         val step = (copied * 20 / totalBytes).toInt()
                         if (step != lastStep) {
                             lastStep = step
-                            progress("download ${step * 5}%")
+                            progress("downloading runtime", copied.toFloat() / totalBytes)
                         }
                     }
                 }
@@ -45,9 +49,15 @@ class RuntimeInstaller(private val context: Context) {
         }
         check(sha256(archive).equals(manifest.sha256, ignoreCase = true)) { "Runtime SHA-256 mismatch" }
 
-        progress("extract")
+        progress("extracting runtime", null)
         val staging = File(context.filesDir, "runner-runtime.new").apply { deleteRecursively(); mkdirs() }
-        TarExtractor.extract(archive, staging)
+        try {
+            TarExtractor.extract(archive, staging)
+        } catch (failed: Throwable) {
+            staging.deleteRecursively()
+            archive.delete()
+            throw failed
+        }
         // The bundle is data only (proot ships inside the APK): validate the
         // pieces the runner needs before activating it.
         check(File(staging, "rootfs/usr/bin/env").exists()) { "Runtime bundle has no rootfs" }

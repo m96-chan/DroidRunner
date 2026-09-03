@@ -102,11 +102,20 @@ object RunnerRegistration {
             .redirectErrorStream(true)
             .start()
         val output = StringBuilder()
-        process.inputStream.bufferedReader().forEachLine {
-            output.appendLine(it)
-            onLine(it)
+        try {
+            process.inputStream.bufferedReader().forEachLine {
+                output.appendLine(it)
+                onLine(it)
+            }
+            check(process.waitFor() == 0) { output.toString().takeLast(500) }
+        } catch (interrupted: Throwable) {
+            // Cancelling has to stop config.sh too, and leave no half-written
+            // identity behind for the next attempt to trip over.
+            process.destroy()
+            runCatching { process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS) }
+            clearLocalRegistration(runtimeDir)
+            throw interrupted
         }
-        check(process.waitFor() == 0) { output.toString().takeLast(500) }
         save(runtimeDir, config)
     }
 
