@@ -40,7 +40,10 @@ Android端末固有のNNAPIやベンダーNPUをCIから検証できる端末プ
 - **btop風ダッシュボード** — CPU・メモリ・バッテリー・温度・ディスク・ネットワークの
   リソースモニターとRunner稼働状況をリアルタイム表示
 - **自己防衛** — 非充電・残量低下・高温・容量不足のあいだはジョブを保留し、
-  異常終了しても自動でリスナーを再起動
+  異常終了しても自動でリスナーを再起動。保留中は実際にGitHubからofflineに見える
+  (「保留したつもり」で終わらない)
+- **状態を隠さない** — 通知にRunnerの状態と、保留中はその理由を表示。
+  Picture-in-Pictureで他アプリを使いながら見ておける
 - **ephemeralモード** — ジョブごとに再登録し、work directoryを消去(任意)
 
 ## 全体構成
@@ -97,7 +100,7 @@ Runnerの状態は、Foreground Serviceが公式Runnerのlistener出力をパー
 | PRootでの公式Runner起動 | 実機検証済み(ジョブ実行成功) |
 | Foreground Service(Runner状態パース付き) | PoC実装済み |
 | SoC/NPU候補ラベル | PoC実装済み |
-| 充電・温度・ストレージ制御 | PoC実装済み |
+| 充電・温度・ストレージ制御 | 実機検証済み(保留中はGitHubからofflineに見える) |
 | ephemeral runner(ジョブ後クリーンアップ) | PoC実装済み |
 | リスナー異常終了からの復旧 | PoC実装済み |
 | NPU Device Agent(loopback API・NNAPI probe・CLI) | PoC実装済み |
@@ -105,6 +108,8 @@ Runnerの状態は、Foreground Serviceが公式Runnerのlistener出力をパー
 | 任意モデル(`.tflite`)の実行 | 設計済み・未実装 |
 | 複数端末ダッシュボード | 未実装 |
 | 署名付きruntime manifest | PoC実装済み |
+| Runner状態・保留理由・警告を出す通知 | PoC実装済み |
+| Picture-in-PictureでのRunner表示 | PoC実装済み |
 
 ## Runnerラベル
 
@@ -421,6 +426,9 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 - [ ] 組み込みベンチマークではなく任意のモデルを実行する([#4](https://github.com/m96-chan/DroidRunner/issues/4))
 - [ ] QNN / LiteRT / MediaTek Neuron / Samsung ENN adapter([#4](https://github.com/m96-chan/DroidRunner/issues/4))
 - [x] runtime manifestの署名検証
+- [x] Runner状態と保留理由を出す通知、およびGitHubには見えないことだけを伝える警告
+- [x] スマホを他の用途で使いながらRunnerを見ておくPicture-in-Picture
+- [ ] 1サンプルだけ条件に触れた程度でジョブを保留しない([#37](https://github.com/m96-chan/DroidRunner/issues/37))
 - [ ] runtime bundleの更新通知・自動導入([#14](https://github.com/m96-chan/DroidRunner/issues/14))
 - [ ] 複数端末の状態を表示する管理画面([#7](https://github.com/m96-chan/DroidRunner/issues/7))
 - [ ] F-Droidでの公開([#18](https://github.com/m96-chan/DroidRunner/issues/18))

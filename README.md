@@ -41,7 +41,8 @@ real hardware.
 - **Background standby** — keeps the runner alive with a Foreground Service and a wake lock
 - **Tamper detection** — verifies the runtime bundle's SHA-256 before extracting it
 - **btop-style dashboard** — live CPU, memory, battery, thermal, disk, and network monitor together with runner status
-- **Self-protecting** — holds jobs while the device is unplugged, low, hot, or short on space, and restarts the listener on its own after a failure
+- **Self-protecting** — holds jobs while the device is unplugged, low, hot, or short on space, and restarts the listener on its own after a failure. A held device really does go offline to GitHub, rather than only believing it has
+- **Says what it is doing** — the notification carries the runner state and, when work is held, the reason; a picture-in-picture window keeps it on screen while the phone is used for something else
 - **Ephemeral mode** — optionally re-registers and wipes the work directory after every job
 
 ## Architecture overview
@@ -100,7 +101,7 @@ service and streamed to the UI as a `StateFlow`.
 | Official runner under PRoot | Verified on-device (job executed successfully) |
 | Foreground service with runner-state parsing | Implemented (PoC) |
 | SoC/NPU candidate labels | Implemented (PoC) |
-| Charging / thermal / storage admission control | Implemented (PoC) |
+| Charging / thermal / storage admission control | Verified on-device (a held device goes offline to GitHub) |
 | Ephemeral runners with post-job cleanup | Implemented (PoC) |
 | Listener crash recovery with restart backoff | Implemented (PoC) |
 | NPU Device Agent (loopback API, NNAPI probes, CLI) | Implemented (PoC) |
@@ -108,6 +109,8 @@ service and streamed to the UI as a `StateFlow`.
 | Arbitrary model (`.tflite`) execution | Designed, not implemented |
 | Multi-device fleet dashboard | Not implemented |
 | Signed runtime manifest | Implemented (PoC) |
+| Notification with runner state, hold reason, and alerts | Implemented (PoC) |
+| Picture-in-picture runner view | Implemented (PoC) |
 
 ## Runner labels
 
@@ -435,6 +438,9 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 - [ ] Run a caller-supplied model rather than the built-in benchmarks ([#4](https://github.com/m96-chan/DroidRunner/issues/4))
 - [ ] QNN / LiteRT / MediaTek Neuron / Samsung ENN adapters ([#4](https://github.com/m96-chan/DroidRunner/issues/4))
 - [x] Runtime manifest signature verification
+- [x] Notification carrying the runner state, the hold reason, and alerts for what GitHub cannot see
+- [x] Picture-in-picture window for watching a runner while using the phone
+- [ ] Stop holding jobs for a condition that lasts one sample ([#37](https://github.com/m96-chan/DroidRunner/issues/37))
 - [ ] Notify or auto-install when the runtime bundle is out of date ([#14](https://github.com/m96-chan/DroidRunner/issues/14))
 - [ ] Fleet dashboard showing the state of multiple devices ([#7](https://github.com/m96-chan/DroidRunner/issues/7))
 - [ ] Publish on F-Droid ([#18](https://github.com/m96-chan/DroidRunner/issues/18))
