@@ -4,7 +4,7 @@
 
 [English README is here](README.md)
 
-**[紹介ページとチュートリアル](https://www.m96-chan.dev/DroidRunner/ja/)** — 概要、画面、端末セットアップの手順。
+**[紹介ページとチュートリアル](https://droidrunner.m96-chan.dev/ja/)** — 概要、画面、端末セットアップの手順。
 
 DroidRunnerは、ARM64 Android端末をRepository単位のGitHub Actions
 self-hosted runnerとして動作させるAndroidアプリです。
