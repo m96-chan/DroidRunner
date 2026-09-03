@@ -94,6 +94,10 @@ class MainActivity : ComponentActivity() {
                         runtime = runtime,
                         secretStore = secretStore,
                         onClose = { showSetup = false },
+                        // Repairing a runtime from setup leaves a device that
+                        // is a runner again; the launch-time autostart above
+                        // has already run, so bring it up here (issue #46).
+                        onStartRunner = { startRunner() },
                     )
                 } else {
                     DashboardScreen(

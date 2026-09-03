@@ -1,7 +1,10 @@
 package io.github.m96chan.droidrunner.runner
 
 import android.content.Context
+import io.github.m96chan.droidrunner.BuildConfig
 import io.github.m96chan.droidrunner.github.GitHubApi
+import io.github.m96chan.droidrunner.github.GitHubApiException
+import io.github.m96chan.droidrunner.github.UserSession
 import io.github.m96chan.droidrunner.model.RunnerConfig
 import io.github.m96chan.droidrunner.model.RunnerTarget
 import io.github.m96chan.droidrunner.security.SecretStore
@@ -61,6 +64,23 @@ object RunnerRegistration {
         File(runtimeDir, LEGACY_MARKER).writeText(config.repositoryUrl)
     }
 
+    /**
+     * Copies the stored registration details from one runtime tree into
+     * another, so replacing the runtime does not forget what this device
+     * registered as (issue #46).
+     *
+     * Only the details are carried, never the runner's own identity files:
+     * those belong to the runtime being replaced. RunnerService registers
+     * again from these details when it finds no identity, which is the path
+     * ephemeral runners already take after every job.
+     */
+    fun copyDetails(from: File, to: File) {
+        listOf(CONFIG_FILE, LEGACY_MARKER).forEach { name ->
+            val file = File(from, name)
+            if (file.isFile) file.copyTo(File(to, name), overwrite = true)
+        }
+    }
+
     fun load(runtimeDir: File): RunnerConfig? {
         val file = File(runtimeDir, CONFIG_FILE)
         if (!file.isFile) return null
@@ -92,9 +112,21 @@ object RunnerRegistration {
         onLine: (String) -> Unit = {},
     ) {
         val store = SecretStore(context)
-        val credential = store.getUserToken() ?: store.getPat()
+        val session = UserSession(store, BuildConfig.GITHUB_APP_CLIENT_ID)
+        // A user sign-in renews itself before it lapses (issue #42); a
+        // hand-entered PAT cannot, so it is used as it stands.
+        val userToken = session.accessToken()
+        val credential = userToken ?: store.getPat()
             ?: error("No GitHub credential stored — reconnect on the setup screen")
-        val token = GitHubApi().createRegistrationToken(config.target, credential)
+        val api = GitHubApi()
+        val token = try {
+            api.createRegistrationToken(config.target, credential)
+        } catch (rejected: GitHubApiException) {
+            // The expiry is only advisory — clocks drift and tokens get revoked
+            // early — so a 401 earns one renewal before it counts as a failure.
+            if (rejected.status != 401 || userToken == null) throw rejected
+            api.createRegistrationToken(config.target, session.renew())
+        }
         // config.sh refuses to run while a local configuration exists; --replace
         // only settles the server-side duplicate.
         clearLocalRegistration(runtimeDir)
