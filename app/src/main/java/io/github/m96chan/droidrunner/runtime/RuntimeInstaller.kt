@@ -28,30 +28,11 @@ class RuntimeInstaller(private val context: Context) {
         verifySignature(manifestUrl, manifestBytes, progress)
         val manifest = parseManifest(String(manifestBytes))
         require(manifest.url.startsWith("https://")) { "Runtime must use HTTPS" }
-        val archive = File(context.cacheDir, "runtime-${manifest.version}.tar.gz")
-        progress("downloading runtime", 0f)
-        val connection = URL(manifest.url).openConnection()
-        val totalBytes = connection.contentLengthLong
-        connection.getInputStream().use { input ->
-            archive.outputStream().use { out ->
-                val buffer = ByteArray(128 * 1024)
-                var copied = 0L
-                var lastStep = -1
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    out.write(buffer, 0, count)
-                    copied += count
-                    if (totalBytes > 0) {
-                        val step = (copied * 20 / totalBytes).toInt()
-                        if (step != lastStep) {
-                            lastStep = step
-                            progress("downloading runtime", copied.toFloat() / totalBytes)
-                        }
-                    }
-                }
-            }
-        }
+        // Kept under filesDir, not cacheDir: the system is free to reclaim the
+        // cache under storage pressure, which is exactly what a 200MB download
+        // creates.
+        val archive = File(context.filesDir, "runtime-download.tar.gz")
+        download(manifest, archive, progress)
         check(sha256(archive).equals(manifest.sha256, ignoreCase = true)) { "Runtime SHA-256 mismatch" }
 
         progress("extracting runtime", null)
@@ -70,9 +51,57 @@ class RuntimeInstaller(private val context: Context) {
         File(staging, "home/runner/run.sh").setExecutable(true)
         File(staging, "home/runner/config.sh").setExecutable(true)
         File(staging, ".installed").writeText(manifest.version)
-        runtimeDir.deleteRecursively()
-        check(staging.renameTo(runtimeDir)) { "Cannot activate runtime" }
+        RuntimeActivation.activate(
+            staging = staging,
+            target = runtimeDir,
+            previous = File(context.filesDir, "runner-runtime.old"),
+        )
         archive.delete()
+    }
+
+    /**
+     * Wires [RuntimeDownload] to HTTP. Everything worth testing lives there;
+     * this is the part that only a real server can exercise.
+     */
+    private fun download(
+        manifest: RuntimeManifest,
+        archive: File,
+        progress: (String, Float?) -> Unit,
+    ) {
+        progress("downloading runtime", 0f)
+        RuntimeDownload.fetch(
+            target = archive,
+            source = { offset ->
+                val connection = URL(manifest.url).openConnection()
+                if (offset > 0) connection.setRequestProperty("Range", "bytes=$offset-")
+                val resumed = offset > 0 &&
+                    (connection as? java.net.HttpURLConnection)?.responseCode == 206
+                val length = connection.contentLengthLong
+                RuntimeDownload.Chunk(
+                    stream = connection.getInputStream(),
+                    resumed = resumed,
+                    totalBytes = if (length > 0) length + (if (resumed) offset else 0L) else -1L,
+                )
+            },
+            beforeFirstByte = { checkSpaceFor(it) },
+            progress = { progress("downloading runtime", it) },
+        )
+    }
+
+    /**
+     * Refuses to start rather than failing part-way through an extraction with
+     * whatever error the filesystem happens to raise. The app already watches
+     * free storage before accepting jobs; it should hold itself to the same
+     * check.
+     */
+    private fun checkSpaceFor(archiveBytes: Long) {
+        if (archiveBytes <= 0) return
+        val needed = RuntimeActivation.requiredBytes(archiveBytes)
+        val free = context.filesDir.usableSpace
+        check(free >= needed) {
+            "Not enough free space: the runtime needs about ${needed / MB}MB " +
+                "and this device has ${free / MB}MB"
+        }
     }
 
     /**
@@ -105,6 +134,11 @@ class RuntimeInstaller(private val context: Context) {
 
     private fun parseManifest(text: String): RuntimeManifest = JSONObject(text).let {
         RuntimeManifest(it.getString("version"), it.getString("url"), it.getString("sha256"))
+    }
+
+    private companion object {
+        const val DOWNLOAD_ATTEMPTS = 3
+        const val MB = 1024L * 1024
     }
 
     private fun sha256(file: File): String {
