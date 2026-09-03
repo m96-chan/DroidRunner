@@ -102,7 +102,7 @@ Runnerの状態は、Foreground Serviceが公式Runnerのlistener出力をパー
 | probe検証済みNNAPIラベル | PoC実装済み |
 | 任意モデル(`.tflite`)の実行 | 設計済み・未実装 |
 | 複数端末ダッシュボード | 未実装 |
-| 署名付きruntime manifest | 未実装 |
+| 署名付きruntime manifest | PoC実装済み |
 
 ## Runnerラベル
 
@@ -338,8 +338,30 @@ GitHub Releaseへ公開します:
 }
 ```
 
-SHA-256は破損や意図しない差し替えの検出には使えますが、manifest自体が置き換えられる攻撃は
-防げません。正式リリースではAPKへ埋め込んだ公開鍵によるmanifest署名検証を追加します。
+SHA-256が保証するのは「アーカイブがmanifestと一致すること」だけで、**そのmanifestを誰が
+書いたか**は分かりません。manifestを差し替えられる者は、CIジョブが実行されるrootfsを
+自由に指定できてしまいます。そのためmanifestにも署名し、APKへ埋め込んだ公開鍵で
+ダウンロード前に検証します。
+
+署名鍵は一度作って安全に保管し、秘密鍵をリポジトリのsecret `RUNTIME_SIGNING_KEY` に
+登録してください:
+
+```bash
+openssl ecparam -genkey -name prime256v1 -noout -out runtime-signing.pem
+openssl ec -in runtime-signing.pem -pubout -outform DER | base64 -w0
+```
+
+出力された公開鍵を`gradle.properties`へ設定します:
+
+```properties
+droidrunner.runtimeSigningKeys=MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE...
+```
+
+カンマ区切りで複数の鍵を信頼できるので、鍵のローテーションが可能です(新しい鍵を配布 →
+両方信頼される間はどちらで署名してもよい → 古い鍵を外す)。
+
+鍵が設定されていないビルドは検証できないため、その旨をインストール時に表示します
+(黙って受け入れることはしません)。鍵を持つビルドは、未署名・不正署名のmanifestを拒否します。
 
 ## NPU Device Agent
 
@@ -396,7 +418,7 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 - [x] NNAPI capability probeとsmoke test — CIビルドごとに実機で実行
 - [ ] 組み込みベンチマークではなく任意のモデルを実行する([#4](https://github.com/m96-chan/DroidRunner/issues/4))
 - [ ] QNN / LiteRT / MediaTek Neuron / Samsung ENN adapter([#4](https://github.com/m96-chan/DroidRunner/issues/4))
-- [ ] runtime manifestの署名検証([#5](https://github.com/m96-chan/DroidRunner/issues/5))
+- [x] runtime manifestの署名検証
 - [ ] runtime bundleの更新通知・自動導入([#14](https://github.com/m96-chan/DroidRunner/issues/14))
 - [ ] 複数端末の状態を表示する管理画面([#7](https://github.com/m96-chan/DroidRunner/issues/7))
 - [ ] F-Droidでの公開([#18](https://github.com/m96-chan/DroidRunner/issues/18))

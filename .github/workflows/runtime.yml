@@ -30,7 +30,37 @@ jobs:
           RUNNER_VERSION: ${{ inputs.runner_version }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-        run: sudo -E runtime/build-bundle.sh
+        run: |
+          sudo -E runtime/build-bundle.sh
+          # The bundle build chroots, so it runs as root and leaves its output
+          # owned by root; later steps sign and upload as the runner user.
+          sudo chown -R "$(id -u):$(id -g)" runtime/out
+
+      # A manifest is what points a device at a rootfs, so it needs an origin
+      # of its own: the SHA-256 inside it only proves the archive matches the
+      # manifest, not who wrote the manifest.
+      - name: Sign the manifest
+        env:
+          SIGNING_KEY: ${{ secrets.RUNTIME_SIGNING_KEY }}
+        run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            if [ -n "${{ inputs.release_tag }}" ]; then
+              echo "::error::RUNTIME_SIGNING_KEY is not configured. A published" \
+                "runtime must be signed — apps built with a trusted key refuse" \
+                "an unsigned manifest."
+              exit 1
+            fi
+            echo "::warning::No signing key; this artifact's manifest is unsigned."
+            exit 0
+          fi
+          printf '%s' "$SIGNING_KEY" > "$RUNNER_TEMP/signing.pem"
+          openssl dgst -sha256 -sign "$RUNNER_TEMP/signing.pem" \
+            runtime/out/runtime-manifest.json | base64 -w0 \
+            > runtime/out/runtime-manifest.json.sig
+          rm -f "$RUNNER_TEMP/signing.pem"
+          echo "signed:"
+          cat runtime/out/runtime-manifest.json.sig
+          echo
 
       - name: Upload artifact
         if: github.event_name != 'workflow_dispatch' || inputs.release_tag == ''
@@ -40,6 +70,7 @@ jobs:
           path: |
             runtime/out/droidrunner-runtime-arm64.tar.gz
             runtime/out/runtime-manifest.json
+            runtime/out/runtime-manifest.json.sig
 
       - name: Publish release
         if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
@@ -52,4 +83,5 @@ jobs:
             || true
           gh release upload "$tag" --clobber \
             runtime/out/droidrunner-runtime-arm64.tar.gz \
-            runtime/out/runtime-manifest.json
+            runtime/out/runtime-manifest.json \
+            runtime/out/runtime-manifest.json.sig

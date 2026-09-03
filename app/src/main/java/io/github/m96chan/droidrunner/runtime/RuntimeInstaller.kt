@@ -1,6 +1,7 @@
 package io.github.m96chan.droidrunner.runtime
 
 import android.content.Context
+import io.github.m96chan.droidrunner.BuildConfig
 import org.json.JSONObject
 import java.io.File
 import java.net.URL
@@ -21,7 +22,11 @@ class RuntimeInstaller(private val context: Context) {
     fun install(manifestUrl: String, progress: (String, Float?) -> Unit = { _, _ -> }) {
         require(manifestUrl.startsWith("https://")) { "Manifest must use HTTPS" }
         progress("reading manifest", null)
-        val manifest = parseManifest(URL(manifestUrl).readText())
+        // Verify the bytes as served: re-serialising would change what the
+        // signature covers.
+        val manifestBytes = URL(manifestUrl).readBytes()
+        verifySignature(manifestUrl, manifestBytes, progress)
+        val manifest = parseManifest(String(manifestBytes))
         require(manifest.url.startsWith("https://")) { "Runtime must use HTTPS" }
         val archive = File(context.cacheDir, "runtime-${manifest.version}.tar.gz")
         progress("downloading runtime", 0f)
@@ -68,6 +73,34 @@ class RuntimeInstaller(private val context: Context) {
         runtimeDir.deleteRecursively()
         check(staging.renameTo(runtimeDir)) { "Cannot activate runtime" }
         archive.delete()
+    }
+
+    /**
+     * Fetches the manifest's detached signature and checks it. A build without
+     * trusted keys cannot verify anything; that is reported through [progress]
+     * rather than failing, so self-builders are not blocked — but a build that
+     * does carry keys refuses an unsigned or wrongly signed manifest.
+     */
+    private fun verifySignature(
+        manifestUrl: String,
+        manifestBytes: ByteArray,
+        progress: (String, Float?) -> Unit,
+    ) {
+        val signature = runCatching { URL("$manifestUrl.sig").readText() }.getOrNull()
+        when (val result = ManifestSignature.verify(
+            manifestBytes,
+            signature,
+            BuildConfig.RUNTIME_SIGNING_KEYS,
+        )) {
+            is ManifestSignature.Result.Valid ->
+                progress("manifest signature verified", null)
+
+            is ManifestSignature.Result.Unverifiable ->
+                progress("manifest signature not checked (no trusted key in this build)", null)
+
+            is ManifestSignature.Result.Invalid ->
+                error("Refusing this runtime: ${result.reason}")
+        }
     }
 
     private fun parseManifest(text: String): RuntimeManifest = JSONObject(text).let {

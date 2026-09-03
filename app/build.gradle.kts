@@ -33,6 +33,15 @@ android {
         // Self-builders register their own app and set these in gradle.properties.
         buildConfigField("String", "GITHUB_APP_CLIENT_ID", "\"${project.findProperty("droidrunner.githubAppClientId") ?: ""}\"")
         buildConfigField("String", "GITHUB_APP_SLUG", "\"${project.findProperty("droidrunner.githubAppSlug") ?: ""}\"")
+        // Public keys trusted to sign runtime manifests, comma-separated
+        // X.509/base64. Empty means signatures cannot be checked, which the
+        // app reports rather than silently accepting anything.
+        buildConfigField(
+            "String",
+            "RUNTIME_SIGNING_KEYS",
+            "\"${project.findProperty("droidrunner.runtimeSigningKeys") ?: ""}\"",
+        )
+
         // Repo whose GitHub Releases host the runtime bundle (runtime-* tags).
         buildConfigField("String", "RUNTIME_REPO", "\"${project.findProperty("droidrunner.runtimeRepo") ?: ""}\"")
 

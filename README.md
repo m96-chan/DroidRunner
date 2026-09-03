@@ -105,7 +105,7 @@ service and streamed to the UI as a `StateFlow`.
 | Probe-verified NNAPI labels | Implemented (PoC) |
 | Arbitrary model (`.tflite`) execution | Designed, not implemented |
 | Multi-device fleet dashboard | Not implemented |
-| Signed runtime manifest | Not implemented |
+| Signed runtime manifest | Implemented (PoC) |
 
 ## Runner labels
 
@@ -353,9 +353,32 @@ together with a matching manifest:
 }
 ```
 
-SHA-256 detects corruption and accidental replacement, but it cannot defend against an
-attacker who replaces the manifest itself. Production releases will add manifest
-signature verification against a public key embedded in the APK.
+The SHA-256 proves the archive matches the manifest. It says nothing about who wrote
+the manifest — and whoever can replace a manifest can point devices at a rootfs of
+their choosing, which is where CI jobs execute. So the manifest is signed too, and the
+app verifies it against public keys compiled into the APK before anything is
+downloaded.
+
+Generate a signing key once, keep it safe, and put the private key in the repository
+secret `RUNTIME_SIGNING_KEY`:
+
+```bash
+openssl ecparam -genkey -name prime256v1 -noout -out runtime-signing.pem
+openssl ec -in runtime-signing.pem -pubout -outform DER | base64 -w0
+```
+
+Put that public key in `gradle.properties`:
+
+```properties
+droidrunner.runtimeSigningKeys=MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE...
+```
+
+Several keys can be trusted at once, comma-separated, so a key can be rotated: ship the
+new one in a release, sign with either while both are trusted, then drop the old one.
+
+A build with no key configured cannot verify anything and says so during install rather
+than pretending otherwise; a build that *does* carry a key refuses an unsigned or
+wrongly signed manifest.
 
 ## NPU Device Agent
 
@@ -409,7 +432,7 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 - [x] NNAPI capability probe and smoke test — run on every CI build against a real device
 - [ ] Run a caller-supplied model rather than the built-in benchmarks ([#4](https://github.com/m96-chan/DroidRunner/issues/4))
 - [ ] QNN / LiteRT / MediaTek Neuron / Samsung ENN adapters ([#4](https://github.com/m96-chan/DroidRunner/issues/4))
-- [ ] Runtime manifest signature verification ([#5](https://github.com/m96-chan/DroidRunner/issues/5))
+- [x] Runtime manifest signature verification
 - [ ] Notify or auto-install when the runtime bundle is out of date ([#14](https://github.com/m96-chan/DroidRunner/issues/14))
 - [ ] Fleet dashboard showing the state of multiple devices ([#7](https://github.com/m96-chan/DroidRunner/issues/7))
 - [ ] Publish on F-Droid ([#18](https://github.com/m96-chan/DroidRunner/issues/18))
