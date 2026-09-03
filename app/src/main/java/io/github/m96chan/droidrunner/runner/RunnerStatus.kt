@@ -25,6 +25,27 @@ data class RunnerSnapshot(
 )
 
 /**
+ * Where the lifetime job totals live between runs of the app: SharedPreferences
+ * on a device, behind an interface so that the round trip can be exercised in a
+ * unit test, which has no SharedPreferences to write to.
+ */
+internal interface JobCounterStore {
+    /** The stored totals, succeeded first. */
+    fun read(): Pair<Int, Int>
+    fun write(succeeded: Int, failed: Int)
+}
+
+private class PrefsCounterStore(
+    private val prefs: android.content.SharedPreferences,
+) : JobCounterStore {
+    override fun read(): Pair<Int, Int> = prefs.getInt("jobs_ok", 0) to prefs.getInt("jobs_fail", 0)
+
+    override fun write(succeeded: Int, failed: Int) {
+        prefs.edit().putInt("jobs_ok", succeeded).putInt("jobs_fail", failed).apply()
+    }
+}
+
+/**
  * Shared runner state. RunnerService parses the official runner's listener output
  * and publishes transitions here; the dashboard collects [snapshot].
  */
@@ -37,6 +58,7 @@ object RunnerStatus {
     val snapshot: StateFlow<RunnerSnapshot> = _snapshot
 
     private var prefs: android.content.SharedPreferences? = null
+    private var counterStore: JobCounterStore? = null
 
     /** Notified when a job starts (true) and when it finishes (false). */
     fun interface JobBoundaryListener {
@@ -58,13 +80,15 @@ object RunnerStatus {
         if (prefs != null) return
         val store = context.applicationContext.getSharedPreferences("runner_stats", 0)
         prefs = store
-        _snapshot.update {
-            it.copy(
-                jobsSucceeded = store.getInt("jobs_ok", 0),
-                jobsFailed = store.getInt("jobs_fail", 0),
-                bootGapMs = gapOf(context, readBootRecord(store), bootId()),
-            )
-        }
+        useCounterStore(PrefsCounterStore(store))
+        _snapshot.update { it.copy(bootGapMs = gapOf(context, readBootRecord(store), bootId())) }
+    }
+
+    /** Installs the store the totals are kept in, and restores what it holds. */
+    internal fun useCounterStore(store: JobCounterStore) {
+        counterStore = store
+        val (succeeded, failed) = store.read()
+        _snapshot.update { it.copy(jobsSucceeded = succeeded, jobsFailed = failed) }
     }
 
     /**
@@ -120,25 +144,36 @@ object RunnerStatus {
     }
 
     private fun persistCounts(snapshot: RunnerSnapshot) {
-        prefs?.edit()
-            ?.putInt("jobs_ok", snapshot.jobsSucceeded)
-            ?.putInt("jobs_fail", snapshot.jobsFailed)
-            ?.apply()
+        counterStore?.write(snapshot.jobsSucceeded, snapshot.jobsFailed)
     }
 
     internal fun reset() {
         _snapshot.value = RunnerSnapshot()
+        counterStore = null
     }
 
+    /**
+     * A new run of the service, not a new device: only what describes a run is
+     * rebuilt here, and the rest is carried over by copying rather than left to
+     * whichever fields a freshly built snapshot happens to list. The lifetime
+     * job totals most of all — stopping and starting is routine, admission
+     * control does it whenever the device is unplugged or hot, and resetting
+     * them here did not merely blank the display: the next job to finish wrote
+     * the reset over the stored totals (issue #51). The boot gap belongs to the
+     * boot and the log to the device, so both stay as well.
+     */
     fun onServiceStarted() {
         _snapshot.update {
-            RunnerSnapshot(
+            it.copy(
                 state = RunnerState.STARTING,
                 startedAtMillis = System.currentTimeMillis(),
-                recentLog = it.recentLog,
-                // The gap belongs to the boot, not to this run of the service,
-                // so starting the runner again must not erase it.
-                bootGapMs = it.bootGapMs,
+                currentJob = null,
+                pausedReason = null,
+                // Restarts are per-run by decision, not by omission: they count
+                // the supervisor rescuing a listener that died, and carrying
+                // them into a start the user asked for would read as a runner
+                // that keeps falling over. The log still has the earlier ones.
+                restarts = 0,
             )
         }
     }
