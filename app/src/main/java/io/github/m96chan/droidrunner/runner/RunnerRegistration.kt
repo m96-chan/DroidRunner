@@ -3,6 +3,7 @@ package io.github.m96chan.droidrunner.runner
 import android.content.Context
 import io.github.m96chan.droidrunner.github.GitHubApi
 import io.github.m96chan.droidrunner.model.RunnerConfig
+import io.github.m96chan.droidrunner.model.RunnerTarget
 import io.github.m96chan.droidrunner.security.SecretStore
 import org.json.JSONArray
 import org.json.JSONObject
@@ -43,8 +44,15 @@ object RunnerRegistration {
     fun save(runtimeDir: File, config: RunnerConfig) {
         File(runtimeDir, CONFIG_FILE).writeText(
             JSONObject()
-                .put("owner", config.owner)
-                .put("repository", config.repository)
+                .apply {
+                    when (val target = config.target) {
+                        is RunnerTarget.Repository -> {
+                            put("owner", target.owner)
+                            put("repository", target.name)
+                        }
+                        is RunnerTarget.Organization -> put("organization", target.org)
+                    }
+                }
                 .put("runnerName", config.runnerName)
                 .put("labels", JSONArray(config.labels.sorted()))
                 .toString(),
@@ -59,9 +67,13 @@ object RunnerRegistration {
         return runCatching {
             val json = JSONObject(file.readText())
             val labels = json.optJSONArray("labels") ?: JSONArray()
+            val org = json.optString("organization").takeIf { it.isNotBlank() }
             RunnerConfig(
-                owner = json.getString("owner"),
-                repository = json.getString("repository"),
+                target = if (org != null) {
+                    RunnerTarget.Organization(org)
+                } else {
+                    RunnerTarget.Repository(json.getString("owner"), json.getString("repository"))
+                },
                 runnerName = json.getString("runnerName"),
                 labels = (0 until labels.length()).map { labels.getString(it) }.toSet(),
             )
@@ -82,7 +94,7 @@ object RunnerRegistration {
         val store = SecretStore(context)
         val credential = store.getUserToken() ?: store.getPat()
             ?: error("No GitHub credential stored — reconnect on the setup screen")
-        val token = GitHubApi().createRegistrationToken(config.owner, config.repository, credential)
+        val token = GitHubApi().createRegistrationToken(config.target, credential)
         // config.sh refuses to run while a local configuration exists; --replace
         // only settles the server-side duplicate.
         clearLocalRegistration(runtimeDir)

@@ -52,6 +52,7 @@ import io.github.m96chan.droidrunner.github.RepositoryRef
 import io.github.m96chan.droidrunner.github.storedDeviceAuthorization
 import io.github.m96chan.droidrunner.github.toStoredJson
 import io.github.m96chan.droidrunner.model.RunnerConfig
+import io.github.m96chan.droidrunner.model.RunnerTarget
 import io.github.m96chan.droidrunner.runner.AdmissionThresholds
 import io.github.m96chan.droidrunner.runner.RunnerRegistration
 import io.github.m96chan.droidrunner.runner.ThermalStatus
@@ -128,6 +129,10 @@ fun SetupScreen(
     var reposLoaded by remember { mutableStateOf(false) }
     var loadingRepos by remember { mutableStateOf(false) }
     var selectedRepo by remember { mutableStateOf<RepositoryRef?>(null) }
+    // Organization scope serves every repository in the org, so it is opt-in.
+    var organizationScope by remember { mutableStateOf(prefs.getBoolean("org_scope", false)) }
+    var organizations by remember { mutableStateOf<List<RunnerTarget.Organization>>(emptyList()) }
+    var selectedOrg by remember { mutableStateOf<RunnerTarget.Organization?>(null) }
 
     // Battery-optimization exemption keeps Doze from throttling the runner
     // when the device sits idle and unplugged. Re-checked on resume because
@@ -178,6 +183,14 @@ fun SetupScreen(
             }.onSuccess { found ->
                 repos = found
                 reposLoaded = true
+                organizations = runCatching {
+                    withContext(Dispatchers.IO) { api.listOrganizations(token) }
+                }.getOrDefault(emptyList())
+                if (selectedOrg !in organizations) {
+                    val remembered = prefs.getString("selected_org", null)
+                    selectedOrg = organizations.firstOrNull { it.org == remembered }
+                        ?: organizations.singleOrNull()
+                }
                 if (selectedRepo !in found) {
                     val remembered = prefs.getString("selected_repo", null)
                     selectedRepo = found.firstOrNull { it.fullName == remembered } ?: found.singleOrNull()
@@ -216,7 +229,7 @@ fun SetupScreen(
 
     fun manifestSource(): String? = manifestUrl.ifBlank { resolvedManifest.orEmpty() }.ifBlank { null }
 
-    fun registerRunner(target: RepositoryRef, credential: String) {
+    fun registerRunner(target: RunnerTarget, credential: String) {
         if (File(runtime.runtimeDir, ".configured").isFile) {
             status = null
             return
@@ -228,7 +241,7 @@ fun SetupScreen(
         // Probe-verified NNAPI labels join the SoC-name hints, so jobs can
         // target backends this device actually reports.
         val config = RunnerConfig(
-            target.owner, target.name,
+            target,
             "android-${android.os.Build.MODEL}-$deviceId",
             capabilities.labels() + NpuLabels.refresh(context),
         )
@@ -240,7 +253,7 @@ fun SetupScreen(
                         ?: error("No runtime release found — set a manifest URL under advanced")
                     withContext(Dispatchers.IO) { runtime.install(manifest) { status = "runtime: $it" } }
                 }
-                status = "registering ${target.fullName}…"
+                status = "registering ${target.displayName}…"
                 withContext(Dispatchers.IO) {
                     // Stream config.sh output into the runner panel's log tail
                     // so the slow proot/.NET startup is visible.
@@ -354,7 +367,19 @@ fun SetupScreen(
                     },
                 )
 
-                else -> RepositoryPicker(
+                else -> ScopePicker(
+                    organizationScope = organizationScope,
+                    onScopeChange = {
+                        organizationScope = it
+                        prefs.edit().putBoolean("org_scope", it).apply()
+                    },
+                    organizations = organizations,
+                    selectedOrg = selectedOrg,
+                    onSelectOrg = {
+                        selectedOrg = it
+                        prefs.edit().putString("selected_org", it.org).apply()
+                    },
+                ) { RepositoryPicker(
                     repos = repos,
                     reposLoaded = reposLoaded,
                     loading = loadingRepos,
@@ -372,7 +397,7 @@ fun SetupScreen(
                     },
                     onRefresh = { refreshRepos() },
                     onDisconnect = { disconnect() },
-                )
+                ) }
             }
         }
 
@@ -554,13 +579,18 @@ fun SetupScreen(
             }
         }
 
-        if (userToken != null && selectedRepo != null) {
+        val selectedTarget: RunnerTarget? = when {
+            organizationScope -> selectedOrg
+            selectedRepo != null -> RunnerTarget.Repository(selectedRepo!!.owner, selectedRepo!!.name)
+            else -> null
+        }
+        if (userToken != null && selectedTarget != null) {
             Button(
                 enabled = !busy && !configured && (runtime.installed || manifestSource() != null),
                 colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Green, contentColor = BtopColors.Background),
-                onClick = { registerRunner(selectedRepo!!, userToken!!) },
+                onClick = { registerRunner(selectedTarget, userToken!!) },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (configured) "Registered" else "Register ${selectedRepo!!.fullName}") }
+            ) { Text(if (configured) "Registered" else "Register ${selectedTarget.displayName}") }
         }
 
         Row(
@@ -590,7 +620,7 @@ fun SetupScreen(
                 onClick = {
                     prefs.edit().putString("owner", owner).putString("repo", repo).apply()
                     secretStore.putPat(pat)
-                    registerRunner(RepositoryRef(owner, repo), pat)
+                    registerRunner(RunnerTarget.Repository(owner, repo), pat)
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Register with PAT") }
@@ -802,5 +832,105 @@ private fun <T> Choice(
             )
             Spacer(Modifier.width(6.dp))
         }
+    }
+}
+
+/**
+ * Chooses what the runner registers against. Repository scope is the default
+ * because an organization runner accepts jobs from every repository in the
+ * org unless it is placed in a runner group with an allow-list.
+ */
+@Composable
+private fun ScopePicker(
+    organizationScope: Boolean,
+    onScopeChange: (Boolean) -> Unit,
+    organizations: List<RunnerTarget.Organization>,
+    selectedOrg: RunnerTarget.Organization?,
+    onSelectOrg: (RunnerTarget.Organization) -> Unit,
+    repositoryPicker: @Composable () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "scope",
+                color = BtopColors.Dim,
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.width(60.dp),
+            )
+            listOf(false to "repository", true to "organization").forEach { (isOrg, label) ->
+                val selected = organizationScope == isOrg
+                Text(
+                    label,
+                    color = if (selected) BtopColors.Background else BtopColors.Dim,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier
+                        .clickable { onScopeChange(isOrg) }
+                        .background(
+                            if (selected) BtopColors.Cyan else BtopColors.Panel,
+                            RoundedCornerShape(4.dp),
+                        )
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+            }
+        }
+
+        if (!organizationScope) {
+            repositoryPicker()
+            return@Column
+        }
+
+        if (organizations.isEmpty()) {
+            Text(
+                "The app is not installed on any organization you can manage. " +
+                    "Install it on the organization, then refresh.",
+                color = BtopColors.Yellow,
+                style = MaterialTheme.typography.labelMedium,
+            )
+            return@Column
+        }
+
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 200.dp)
+                .border(1.dp, BtopColors.Border, RoundedCornerShape(6.dp))
+                .verticalScroll(rememberScrollState()),
+        ) {
+            organizations.forEach { org ->
+                val isSelected = org == selectedOrg
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelectOrg(org) }
+                        .background(if (isSelected) BtopColors.Border.copy(alpha = 0.4f) else BtopColors.Panel)
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (isSelected) "●" else "○",
+                        color = if (isSelected) BtopColors.Green else BtopColors.Dim,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        org.org,
+                        color = if (isSelected) BtopColors.Text else BtopColors.Dim,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        }
+
+        Text(
+            "⚠ An organization runner accepts jobs from every repository in the org. " +
+                "Restrict it with a runner group unless you trust them all.",
+            color = BtopColors.Yellow,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, BtopColors.Yellow.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                .padding(8.dp),
+        )
     }
 }

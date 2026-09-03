@@ -1,19 +1,37 @@
 package io.github.m96chan.droidrunner.github
 
+import io.github.m96chan.droidrunner.model.RunnerTarget
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
-data class Installation(val id: Long, val account: String, val appSlug: String)
+data class Installation(
+    val id: Long,
+    val account: String,
+    val appSlug: String,
+    /** "Organization" or "User". */
+    val accountType: String,
+)
 
 data class RepositoryRef(val owner: String, val name: String) {
     val fullName: String get() = "$owner/$name"
 }
 
 class GitHubApi {
-    fun createRegistrationToken(owner: String, repo: String, token: String): String =
-        request("POST", "https://api.github.com/repos/$owner/$repo/actions/runners/registration-token", token)
-            .getString("token")
+    /**
+     * Short-lived token `config.sh` exchanges for a runner identity. The
+     * endpoint differs by scope: repository runners are issued from the repo,
+     * organization runners from the org.
+     */
+    fun createRegistrationToken(target: RunnerTarget, token: String): String {
+        val path = when (target) {
+            is RunnerTarget.Repository ->
+                "repos/${target.owner}/${target.name}/actions/runners/registration-token"
+            is RunnerTarget.Organization ->
+                "orgs/${target.org}/actions/runners/registration-token"
+        }
+        return request("POST", "https://api.github.com/$path", token).getString("token")
+    }
 
     /** Installations of the DroidRunner GitHub App visible to the signed-in user. */
     fun listInstallations(token: String): List<Installation> {
@@ -25,9 +43,16 @@ class GitHubApi {
                 id = installation.getLong("id"),
                 account = installation.optJSONObject("account")?.optString("login").orEmpty(),
                 appSlug = installation.optString("app_slug"),
+                accountType = installation.optJSONObject("account")?.optString("type").orEmpty(),
             )
         }
     }
+
+    /** Organizations this app is installed on, as registration targets. */
+    fun listOrganizations(token: String): List<RunnerTarget.Organization> =
+        listInstallations(token)
+            .filter { it.accountType == "Organization" && it.account.isNotBlank() }
+            .map { RunnerTarget.Organization(it.account) }
 
     /** Repositories the given installation grants this user access to. */
     fun listInstallationRepositories(token: String, installationId: Long): List<RepositoryRef> {
