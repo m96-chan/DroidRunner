@@ -10,7 +10,6 @@ import io.github.m96chan.droidrunner.npu.DeviceCapabilitiesJson
 import io.github.m96chan.droidrunner.runtime.RuntimeInstaller
 import java.io.File
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 import kotlinx.coroutines.CoroutineScope
@@ -166,6 +165,10 @@ class RunnerService : Service() {
      * job consumed the registration) and starts the listener.
      */
     private fun launchListener(runtimeDir: File) {
+        // Nothing of ours is running at this point, so anything still holding a
+        // session belongs to a previous app process and would only make this
+        // start fail on a conflict.
+        stopStrayListeners()
         val ephemeral = RunnerRegistration.ephemeralEnabled(this)
         // Re-register when the mode changed: an existing persistent
         // registration would otherwise keep serving jobs forever.
@@ -291,14 +294,72 @@ class RunnerService : Service() {
         }
     }
 
-    /** SIGTERM and wait, so the listener deregisters its session with GitHub. */
-    private fun stopListener() {
-        process?.let {
-            it.destroy()
-            runCatching { it.waitFor(LISTENER_STOP_TIMEOUT_S, TimeUnit.SECONDS) }
-        }
-        process = null
+    /**
+     * Stops the listener and everything proot is running for it (issue #35).
+     *
+     * Destroying the process we started signals proot alone, and proot both
+     * survives SIGTERM and does not pass it to the runner it traces. The
+     * runner then keeps its session, so a device that believes it is holding
+     * jobs is still online to GitHub and can still be handed one. Signalling
+     * the tree from the leaves inwards gives the runner its chance to
+     * deregister first; whatever is still standing afterwards is killed.
+     *
+     * Returns whether the tree is actually gone.
+     */
+    private fun stopListener(): Boolean {
+        val target = process
         jobRunning.set(false)
+        process = null
+        val clean = haltListenerProcesses()
+        target?.destroyForcibly()
+        if (!clean) {
+            RunnerStatus.onLogLine(
+                "warning: a listener survived being killed — GitHub may still see this runner",
+            )
+        }
+        return clean
+    }
+
+    /**
+     * Kills listeners left over from an earlier run of the app.
+     *
+     * When the app process dies the listener is re-parented to init and keeps
+     * running, holding its GitHub session, so every later start fails with
+     * "A session for this runner already exists" until the session expires.
+     * Only ever called while this service owns no listener of its own.
+     */
+    private fun stopStrayListeners() {
+        if (listenerProcesses().isEmpty()) return
+        RunnerStatus.onLogLine("stopping listener processes left from an earlier run")
+        haltListenerProcesses()
+    }
+
+    /**
+     * Every process of this app's proot, and everything below it.
+     *
+     * Found by command line rather than by descending from the [Process] we
+     * hold, because a listener orphaned by an app restart no longer descends
+     * from anything we have a handle on — and that is exactly the one that
+     * keeps a session alive.
+     */
+    private fun listenerProcesses(): List<Int> {
+        val marker = "${applicationInfo.nativeLibraryDir}/libproot.so"
+        return ProcessTree.pidsMatching(marker)
+            .flatMap { ProcessTree.treeOf(it) }
+            .distinct()
+    }
+
+    /** Asks the listener tree to leave, then insists. Returns true if it is gone. */
+    private fun haltListenerProcesses(): Boolean {
+        val tree = listenerProcesses()
+        if (tree.isEmpty()) return true
+
+        tree.forEach { ProcessTree.signal(it, ProcessTree.SIGTERM) }
+        if (ProcessTree.awaitExit(tree, GRACEFUL_STOP_MS)) return true
+
+        RunnerStatus.onLogLine("listener ignored the stop request; killing it")
+        tree.filter(ProcessTree::alive).forEach { ProcessTree.signal(it, ProcessTree.SIGKILL) }
+        return ProcessTree.awaitExit(tree, FORCED_STOP_MS)
     }
 
     override fun onDestroy() {
@@ -327,6 +388,13 @@ class RunnerService : Service() {
     companion object {
         const val ACTION_STOP = "io.github.m96chan.droidrunner.STOP"
         private const val POLL_INTERVAL_MS = 5_000L
-        private const val LISTENER_STOP_TIMEOUT_S = 5L
+
+        /**
+         * How long the runner gets to shut down of its own accord. A clean
+         * exit is what deregisters the session with GitHub, and that is worth
+         * waiting for: the alternative costs minutes of session conflicts.
+         */
+        private const val GRACEFUL_STOP_MS = 20_000L
+        private const val FORCED_STOP_MS = 5_000L
     }
 }
