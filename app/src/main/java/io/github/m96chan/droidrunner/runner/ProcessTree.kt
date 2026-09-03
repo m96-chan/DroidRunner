@@ -16,6 +16,18 @@ import java.io.File
  */
 object ProcessTree {
     /**
+     * Where the process table lives.
+     *
+     * The scan is the half of the stop path that decides whether there is
+     * anything to stop at all, so it has to be exercisable without a device:
+     * a scan that quietly matches nothing makes [pidsMatching] return an empty
+     * list, which reads exactly like "the listener is already gone" while the
+     * runner is still connected to GitHub (issue #35). Tests point the
+     * functions below at a fixture tree; production takes the default.
+     */
+    private val PROC = File("/proc")
+
+    /**
      * The runner releases its GitHub session on SIGINT and not on SIGTERM.
      * Measured on a device: SIGTERM left the session registered and the
      * replacement listener spent 136-201s retrying past "A session for this
@@ -58,27 +70,33 @@ object ProcessTree {
         return ordered
     }
 
-    /** Every live pid mapped to its parent, from `/proc`. */
-    fun snapshotParents(): Map<Int, Int> = buildMap {
-        File("/proc").listFiles().orEmpty().forEach { entry ->
+    /** Every live pid mapped to its parent, from [proc]. */
+    fun snapshotParents(proc: File = PROC): Map<Int, Int> = buildMap {
+        proc.listFiles().orEmpty().forEach { entry ->
             val pid = entry.name.toIntOrNull() ?: return@forEach
+            // A process can exit between the listing and this read; skipping
+            // the one entry keeps the rest of the snapshot, where abandoning
+            // the scan would leave a stop half-done.
             val stat = runCatching { File(entry, "stat").readText() }.getOrNull() ?: return@forEach
             ppidOf(stat)?.let { put(pid, it) }
         }
     }
 
-    fun treeOf(rootPid: Int): List<Int> = descendantsOf(snapshotParents(), rootPid)
+    fun treeOf(rootPid: Int, proc: File = PROC): List<Int> =
+        descendantsOf(snapshotParents(proc), rootPid)
 
-    fun alive(pid: Int): Boolean = File("/proc/$pid").exists()
+    fun alive(pid: Int, proc: File = PROC): Boolean = File(proc, pid.toString()).exists()
 
     /**
      * Live pids whose command line mentions [marker] — used to find listeners
      * left behind by a previous run of the app, which `init` has re-parented
      * and which no longer descend from anything we hold.
      */
-    fun pidsMatching(marker: String): List<Int> =
-        File("/proc").listFiles().orEmpty().mapNotNull { entry ->
+    fun pidsMatching(marker: String, proc: File = PROC): List<Int> =
+        proc.listFiles().orEmpty().mapNotNull { entry ->
             val pid = entry.name.toIntOrNull() ?: return@mapNotNull null
+            // Same reason as in [snapshotParents]: an entry that has gone away
+            // is one process fewer to stop, not a reason to stop looking.
             val cmdline = runCatching { File(entry, "cmdline").readText() }.getOrNull()
                 ?: return@mapNotNull null
             pid.takeIf { cmdline.contains(marker) }
