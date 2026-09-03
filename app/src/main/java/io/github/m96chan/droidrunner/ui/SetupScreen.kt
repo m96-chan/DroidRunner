@@ -630,6 +630,15 @@ fun SetupScreen(
                     style = MaterialTheme.typography.labelMedium,
                 )
             }
+            // Said here because the toggle otherwise promises more than Android
+            // lets it deliver: the boot broadcast is held back until first
+            // unlock, and until then nothing of ours can run.
+            Text(
+                "boot start waits for the first unlock — a device dedicated to CI " +
+                    "should have no secure lock screen",
+                color = BtopColors.Dim,
+                style = MaterialTheme.typography.labelSmall,
+            )
             Spacer(Modifier.padding(top = 6.dp))
             if (batteryExempt) {
                 Text(

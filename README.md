@@ -78,7 +78,8 @@ Compose:
 - **pwr/net** — battery level and charging state, battery temperature, Android thermal
   status, and network throughput
 - **runner** — runner state (stopped / starting / listening / running job), registered
-  repository, uptime, succeeded and failed job counts, and a live tail of the runner log
+  repository, uptime, succeeded and failed job counts, how long the device stayed
+  offline after a reboot that left it locked, and a live tail of the runner log
 - **setup** — a separate screen (⚙) with GitHub sign-in, repository picker, runtime
   install, registration, and the job policy (charging / battery / thermal / storage
   thresholds, ephemeral mode, start-on-boot); a registered runner starts automatically
@@ -422,6 +423,13 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 - Docker-based actions and service containers are not available
 - PRoot's syscall translation adds overhead
 - Android battery optimization and vendor task killers can interfere
+- Start-on-boot resumes the runner once the device is **unlocked**, not when it boots:
+  Android holds `BOOT_COMPLETED` back while the user is credential-locked, and the
+  runtime bundle and the stored credentials sit in credential-encrypted storage that is
+  unreadable until first unlock. A device dedicated to CI should therefore have no
+  secure lock screen — otherwise a power cut takes CI down until someone picks the
+  phone up. The dashboard reports how long a boot went unserved
+  ([#41](https://github.com/m96-chan/DroidRunner/issues/41))
 - Android 12+ restricts how foreground services may be started
 - Some actions do not support ARM64 or a Linux environment on Android
 - The rootfs and build caches can consume significant storage
@@ -440,6 +448,7 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 - [x] Runtime manifest signature verification
 - [x] Notification carrying the runner state, the hold reason, and alerts for what GitHub cannot see
 - [x] Picture-in-picture window for watching a runner while using the phone
+- [x] Report how long a reboot left the device unserved because it was locked ([#41](https://github.com/m96-chan/DroidRunner/issues/41))
 - [ ] Stop holding jobs for a condition that lasts one sample ([#37](https://github.com/m96-chan/DroidRunner/issues/37))
 - [ ] Notify or auto-install when the runtime bundle is out of date ([#14](https://github.com/m96-chan/DroidRunner/issues/14))
 - [ ] Fleet dashboard showing the state of multiple devices ([#7](https://github.com/m96-chan/DroidRunner/issues/7))
