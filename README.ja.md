@@ -29,7 +29,7 @@ Android端末固有のNNAPIやベンダーNPUをCIから検証できる端末プ
 - **APK単体** — Termuxなどのコンパニオンアプリは不要
 - **root不要** — PRoot上でLinux ARM64環境を実行
 - **公式Runner** — GitHub公式のLinux ARM64 Actions Runnerを使用
-- **Repository限定** — 初期バージョンでは1つのRepositoryだけへ登録
+- **RepositoryまたはOrganizationスコープ** — 1つのリポジトリ、または組織内の全リポジトリを1台で担当
 - **GitHub Appログイン** — Device Flowでサインインしてリポジトリを選ぶだけ。PATの手動発行は不要
 - **端末自動分類** — Android API、SoC、NPU候補からRunnerラベルを生成
 - **安全な資格情報管理** — PATをAndroid Keystoreで暗号化
@@ -88,6 +88,7 @@ Runnerの状態は、Foreground Serviceが公式Runnerのlistener出力をパー
 | btop風ダッシュボードUI | PoC実装済み |
 | GitHub App Device Flowログイン+リポジトリ選択 | PoC実装済み |
 | Repository登録トークンの取得 | PoC実装済み |
+| Organizationスコープのrunner | PoC実装済み |
 | 資格情報のKeystore保存(userトークン / PAT) | PoC実装済み |
 | runtime bundleの取得・SHA-256検証 | PoC実装済み |
 | prootのNDKビルド(APK同梱)+ bundle CI | PoC実装済み |
@@ -260,8 +261,18 @@ secrets: `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_
    自動コピー)。`github.com/login/device`でコードを入力して承認する
 3. DroidRunner GitHub Appがどのリポジトリにも未インストールの場合、アプリが
    インストールを促すので、Runnerを割り当てたいリポジトリへインストールする
-4. リポジトリを選んで**Register \<owner\>/\<repo\>**を押す — runtime bundle
-   (約200MB)は最新の`runtime-*` GitHub Releaseから自動発見・自動インストール
+4. **スコープ**を選ぶ(単一リポジトリ、またはアプリをインストール済みの組織)。
+   対象を選んで**Register**を押す。runtime bundle(約200MB)は最新の
+   `runtime-*` GitHub Releaseから自動発見・自動インストールされます
+
+   > [!WARNING]
+   > Organization runnerは、[runner group](https://docs.github.com/ja/actions/hosting-your-own-runners/managing-self-hosted-runners/managing-access-to-self-hosted-runners-using-groups)
+   > で許可リストを設定しない限り、**組織内の全リポジトリからジョブを受け付けます**。
+   > Workflowのコードを実行する端末にとって、これはRepositoryスコープより明確に広い
+   > 信頼境界です(Repositoryが既定なのはそのためです)。
+
+   対象は後から変更できます。Runnerを停止して新しい対象を選ぶと、ボタンが
+   **Re-register**に変わります。
 5. 完了 — 以後はアプリを起動するだけでRunnerが自動スタートします
    (Start/Stopはダッシュボードのrunnerパネルにあります)
 
@@ -384,6 +395,7 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 - [ ] NNAPI capability probeとsmoke test
 - [ ] QNN / LiteRT / MediaTek Neuron / Samsung ENN adapter
 - [x] ephemeral runnerとジョブ後クリーンアップ
+- [x] Organizationスコープのrunner(1台で組織全体を担当)
 - [ ] 複数端末の状態を表示する管理画面
 - [ ] runtime manifestの署名検証
 

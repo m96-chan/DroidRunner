@@ -32,7 +32,7 @@ real hardware.
 - **Single APK** — no Termux or other companion app required
 - **No root** — runs a Linux ARM64 environment on top of PRoot
 - **Official runner** — uses GitHub's official Linux ARM64 Actions Runner
-- **Repository-scoped** — the initial version registers with exactly one repository
+- **Repository or organization scope** — serve one repository, or every repository in an organization from a single device
 - **GitHub App login** — device-flow sign-in with a repository picker; no manual PAT handling
 - **Automatic device classification** — generates runner labels from Android API level, SoC, and NPU hints
 - **Safe credential handling** — encrypts the PAT with the Android Keystore
@@ -91,6 +91,7 @@ service and streamed to the UI as a `StateFlow`.
 | btop-style dashboard UI | Implemented (PoC) |
 | GitHub App device-flow login + repository picker | Implemented (PoC) |
 | Repository registration token exchange | Implemented (PoC) |
+| Organization-scoped runners | Implemented (PoC) |
 | Credential storage in the Keystore (user token / PAT) | Implemented (PoC) |
 | Runtime bundle download + SHA-256 verification | Implemented (PoC) |
 | proot NDK build (in-APK) + runtime bundle CI | Implemented (PoC) |
@@ -268,9 +269,20 @@ their devices to move to a new one.
    copied to the clipboard); enter it at `github.com/login/device` and approve
 3. If the DroidRunner GitHub App is not installed on any of your repositories, the app
    prompts you to install it — install it on the repository this runner should serve
-4. Pick the repository and tap **Register \<owner\>/\<repo\>** — the runtime bundle
+4. Choose the **scope** — a single repository, or an organization the app is
+   installed on — pick the target, and tap **Register** . The runtime bundle
    (~200MB) is discovered from the newest `runtime-*` GitHub Release and installed
    automatically
+
+   > [!WARNING]
+   > An organization runner accepts jobs from **every repository in the
+   > organization** unless you place it in a [runner group](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/managing-access-to-self-hosted-runners-using-groups)
+   > with an allow-list. On a device that executes workflow code, that is a
+   > materially wider trust boundary than repository scope — the repository
+   > default exists for a reason.
+
+   Changing the target later is possible: stop the runner, pick the new target,
+   and the button offers **Re-register**.
 5. Done — the runner starts automatically whenever the app launches
    (Start/Stop controls live in the dashboard's runner panel)
 
@@ -396,6 +408,7 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 - [ ] NNAPI capability probe and smoke test
 - [ ] QNN / LiteRT / MediaTek Neuron / Samsung ENN adapters
 - [x] Ephemeral runners with post-job cleanup
+- [x] Organization-scoped runners (one device serving a whole organization)
 - [ ] Fleet dashboard showing the state of multiple devices
 - [ ] Runtime manifest signature verification
 
