@@ -354,8 +354,14 @@ class RunnerService : Service() {
         val tree = listenerProcesses()
         if (tree.isEmpty()) return true
 
-        tree.forEach { ProcessTree.signal(it, ProcessTree.SIGTERM) }
+        // SIGINT, not SIGTERM: only the interrupt makes the runner delete its
+        // session with GitHub, and a session left behind costs the next start
+        // minutes of "already exists" retries.
+        tree.forEach { ProcessTree.signal(it, ProcessTree.SIGINT) }
         if (ProcessTree.awaitExit(tree, GRACEFUL_STOP_MS)) return true
+
+        tree.filter(ProcessTree::alive).forEach { ProcessTree.signal(it, ProcessTree.SIGTERM) }
+        if (ProcessTree.awaitExit(tree, FORCED_STOP_MS)) return true
 
         RunnerStatus.onLogLine("listener ignored the stop request; killing it")
         tree.filter(ProcessTree::alive).forEach { ProcessTree.signal(it, ProcessTree.SIGKILL) }

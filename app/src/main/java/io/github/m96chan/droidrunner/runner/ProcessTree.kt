@@ -15,6 +15,13 @@ import java.io.File
  * own processes.
  */
 object ProcessTree {
+    /**
+     * The runner releases its GitHub session on SIGINT and not on SIGTERM.
+     * Measured on a device: SIGTERM left the session registered and the
+     * replacement listener spent 136-201s retrying past "A session for this
+     * runner already exists"; SIGINT came back in 19s with no conflict at all.
+     */
+    const val SIGINT = 2
     const val SIGTERM = 15
     const val SIGKILL = 9
 
