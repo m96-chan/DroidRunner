@@ -114,32 +114,35 @@ class RunnerService : Service() {
             while (!stopRequested.get()) {
                 val thresholds = AdmissionThresholds.load(this)
                 val decision = AdmissionPolicy.evaluate(sampleConditions(), thresholds)
+                val step = SupervisorStep.decide(
+                    decision = decision,
+                    hasProcess = process != null,
+                    jobRunning = jobRunning.get(),
+                    nowMillis = System.currentTimeMillis(),
+                    nextStartAtMillis = nextStartAtMillis,
+                    pausedFor = pausedFor,
+                )
+                pausedFor = step.pausedFor
 
-                when {
-                    decision is Admission.Allowed -> {
-                        if (pausedFor != null) {
+                step.actions.forEach { action ->
+                    when (action) {
+                        SupervisorStep.Action.Resume -> {
                             RunnerStatus.onResumed()
                             RunnerStatus.onAppLine("admission: conditions recovered, resuming")
-                            pausedFor = null
                         }
-                        if (process == null && System.currentTimeMillis() >= nextStartAtMillis) {
-                            launchListener(runtimeDir)
-                        }
-                    }
 
-                    decision is Admission.Blocked -> {
-                        // Hold between jobs; only heat interrupts a running one.
-                        val mayStop = !jobRunning.get() || decision.urgent
-                        if (process != null && mayStop) {
+                        SupervisorStep.Action.SweepStrays -> stopStrayListeners()
+                        SupervisorStep.Action.Start -> launchListener(runtimeDir)
+                        is SupervisorStep.Action.Stop -> {
                             RunnerStatus.onAppLine(
-                                "admission: ${decision.reason}" +
-                                    if (decision.urgent && jobRunning.get()) " — stopping active job" else "",
+                                "admission: ${action.reason}" +
+                                    if (action.stopsActiveJob) " — stopping active job" else "",
                             )
                             stopListener()
                         }
-                        if (process == null && pausedFor != decision.reason) {
-                            pausedFor = decision.reason
-                            RunnerStatus.onPaused(decision.reason)
+
+                        is SupervisorStep.Action.AnnounceHold -> {
+                            RunnerStatus.onPaused(action.reason)
                         }
                     }
                 }
@@ -169,10 +172,6 @@ class RunnerService : Service() {
      * job consumed the registration) and starts the listener.
      */
     private fun launchListener(runtimeDir: File) {
-        // Nothing of ours is running at this point, so anything still holding a
-        // session belongs to a previous app process and would only make this
-        // start fail on a conflict.
-        stopStrayListeners()
         val ephemeral = RunnerRegistration.ephemeralEnabled(this)
         // Re-register when the mode changed: an existing persistent
         // registration would otherwise keep serving jobs forever.
@@ -225,13 +224,14 @@ class RunnerService : Service() {
     /** Delays the next start attempt, growing the wait while failures repeat. */
     private fun backOff(reason: String, ranMillis: Long, failure: AlertPolicy.Failure) {
         if (ranMillis >= RestartPolicy.HEALTHY_RUN_MS) onHealthy()
-        consecutiveFailures++
+        val failureRecord = AlertPolicy.recordFailure(failure, consecutiveFailures, alerted)
+        consecutiveFailures = failureRecord.consecutiveFailures
+        alerted = failureRecord.alerted
         restartDelayMs = RestartPolicy.nextDelayMs(restartDelayMs, ranMillis)
         nextStartAtMillis = System.currentTimeMillis() + restartDelayMs
         RunnerStatus.onRestarting("$reason — retrying in ${restartDelayMs / 1000}s")
 
-        if (!AlertPolicy.shouldAlert(failure, consecutiveFailures, alerted)) return
-        alerted = true
+        if (!failureRecord.alertNow) return
         when (failure) {
             AlertPolicy.Failure.REGISTRATION -> notifications.alert(
                 "DroidRunner cannot register",

@@ -1,5 +1,6 @@
 package io.github.m96chan.droidrunner.runner
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -55,5 +56,24 @@ class AlertPolicyTest {
         assertFalse(
             AlertPolicy.shouldAlert(AlertPolicy.Failure.REGISTRATION, 9, alreadyAlerted = true),
         )
+    }
+
+    @Test fun escalatingFailuresCountAndLatchExactlyOneAlert() {
+        var failures = 0
+        var alerted = false
+        val announcements = (1..8).count {
+            val record = AlertPolicy.recordFailure(
+                AlertPolicy.Failure.LISTENER,
+                failures,
+                alerted,
+            )
+            failures = record.consecutiveFailures
+            alerted = record.alerted
+            record.alertNow
+        }
+
+        assertTrue(alerted)
+        assertEquals(8, failures)
+        assertEquals(1, announcements)
     }
 }
