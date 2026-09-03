@@ -35,8 +35,32 @@ object RunnerCommand {
             it.environment().putAll(extraEnv)
         }
 
-    private fun proot(context: Context, dir: File, command: List<String>): ProcessBuilder {
-        val nativeDir = context.applicationInfo.nativeLibraryDir
+    /**
+     * The Context-reading half: the two paths only Android can tell us, and
+     * the one directory that has to exist before proot starts. Everything that
+     * decides *what* proot is asked to do lives in [prootCommand], which needs
+     * no Android runtime and is therefore covered by unit tests.
+     */
+    private fun proot(context: Context, dir: File, command: List<String>): ProcessBuilder =
+        prootCommand(
+            nativeDir = context.applicationInfo.nativeLibraryDir,
+            prootTmpDir = File(context.cacheDir, "proot-tmp").apply { mkdirs() }.absolutePath,
+            dir = dir,
+            command = command,
+        )
+
+    /**
+     * Every argument and variable below was arrived at by debugging on a real
+     * phone, and dropping one breaks jobs on device while the build stays
+     * green — hence RunnerCommandTest, which pins each of them with the reason
+     * it is here.
+     */
+    internal fun prootCommand(
+        nativeDir: String,
+        prootTmpDir: String,
+        dir: File,
+        command: List<String>,
+    ): ProcessBuilder {
         val builder = ProcessBuilder(
             listOf(
                 "$nativeDir/libproot.so",
@@ -60,8 +84,7 @@ object RunnerCommand {
         )
         builder.environment()["PROOT_LOADER"] = "$nativeDir/libproot-loader.so"
         builder.environment()["PROOT_LOADER_32"] = "$nativeDir/libproot-loader32.so"
-        builder.environment()["PROOT_TMP_DIR"] =
-            File(context.cacheDir, "proot-tmp").apply { mkdirs() }.absolutePath
+        builder.environment()["PROOT_TMP_DIR"] = prootTmpDir
         return builder
     }
 }
