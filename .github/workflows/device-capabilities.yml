@@ -1,0 +1,25 @@
+name: Device capabilities
+
+# Dumps what a given device actually exposes. Useful when adding hardware to
+# the pool: labels come from probes, and this shows the probe's raw view.
+on:
+  workflow_dispatch:
+    inputs:
+      label:
+        description: "Extra runner label selecting the device (e.g. soc-qti-sm8650-qcom)"
+        required: true
+
+permissions: {}
+
+jobs:
+  capabilities:
+    runs-on: [self-hosted, android, "${{ inputs.label }}"]
+    steps:
+      - name: Device and NNAPI capabilities
+        run: droidrunner-device capabilities
+
+      - name: NNAPI drivers
+        run: droidrunner-device devices
+
+      - name: CONV_2D across every driver
+        run: droidrunner-device bench-all --iterations 20 --size 32
