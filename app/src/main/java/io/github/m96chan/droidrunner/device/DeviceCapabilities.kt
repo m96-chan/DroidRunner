@@ -8,20 +8,18 @@ data class DeviceCapabilities(
     val manufacturer: String,
     val model: String,
     val soc: String,
-    val hasNpuHint: Boolean,
+    val vendor: SocVendor?,
 ) {
+    /** A recognised vendor is the only NPU hint the SoC string can give. */
+    val hasNpuHint: Boolean get() = vendor != null
+
     fun labels(): Set<String> = buildSet {
         add("android")
         add("arm64")
         add("android-api-${Build.VERSION.SDK_INT}")
         add("soc-${slug(soc)}")
         add(if (hasNpuHint) "android-npu" else "android-no-npu")
-        when {
-            soc.contains("qualcomm", true) || soc.contains("snapdragon", true) -> add("npu-qnn")
-            soc.contains("tensor", true) -> add("npu-tflite")
-            soc.contains("mediatek", true) || soc.contains("dimensity", true) -> add("npu-neuron")
-            soc.contains("exynos", true) -> add("npu-enn")
-        }
+        vendor?.npuLabel?.takeIf { it != "npu-unknown" }?.let(::add)
     }
 
     companion object {
@@ -32,12 +30,11 @@ data class DeviceCapabilities(
                 Build.HARDWARE,
                 readCpuInfo()
             ).joinToString(" ")
-            val npuWords = listOf("qualcomm", "snapdragon", "tensor", "mediatek", "dimensity", "exynos", "kirin")
             return DeviceCapabilities(
                 Build.MANUFACTURER,
                 Build.MODEL,
                 soc,
-                npuWords.any { soc.contains(it, ignoreCase = true) }
+                SocVendor.detect(soc),
             )
         }
 
