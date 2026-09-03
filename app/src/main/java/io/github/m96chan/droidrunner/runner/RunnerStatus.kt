@@ -16,6 +16,11 @@ data class RunnerSnapshot(
     val jobsFailed: Int = 0,
     /** How many times the supervisor restarted the listener this session. */
     val restarts: Int = 0,
+    /**
+     * How long this boot ran with no runner on it, when that was long enough
+     * to mean the device sat locked (issue #41). History, not an alert.
+     */
+    val bootGapMs: Long? = null,
     val recentLog: List<String> = emptyList(),
 )
 
@@ -25,6 +30,8 @@ data class RunnerSnapshot(
  */
 object RunnerStatus {
     private const val LOG_LINES = 100
+    private const val BOOT_ID_KEY = "boot_id"
+    private const val BOOT_STARTED_AFTER_KEY = "boot_started_after_ms"
 
     private val _snapshot = MutableStateFlow(RunnerSnapshot())
     val snapshot: StateFlow<RunnerSnapshot> = _snapshot
@@ -43,7 +50,10 @@ object RunnerStatus {
         jobListener = listener
     }
 
-    /** Loads persisted lifetime job counters; call once from app entry points. */
+    /**
+     * Loads persisted lifetime job counters and the boot history; call once
+     * from app entry points.
+     */
     fun attach(context: android.content.Context) {
         if (prefs != null) return
         val store = context.applicationContext.getSharedPreferences("runner_stats", 0)
@@ -52,8 +62,61 @@ object RunnerStatus {
             it.copy(
                 jobsSucceeded = store.getInt("jobs_ok", 0),
                 jobsFailed = store.getInt("jobs_fail", 0),
+                bootGapMs = gapOf(context, readBootRecord(store), bootId()),
             )
         }
+    }
+
+    /**
+     * Notes that the runner is running on this boot, and how far into the boot
+     * it got there (issue #41).
+     *
+     * Only the service can record this: the gap being measured is exactly the
+     * time before the service was able to run at all.
+     */
+    fun recordBootStart(context: android.content.Context) {
+        val store = prefs ?: return
+        val bootId = bootId()
+        val record = BootGapPolicy.record(
+            stored = readBootRecord(store),
+            bootId = bootId,
+            uptimeMs = android.os.SystemClock.elapsedRealtime(),
+        )
+        store.edit()
+            .putString(BOOT_ID_KEY, record.bootId)
+            .putLong(BOOT_STARTED_AFTER_KEY, record.startedAfterBootMs)
+            .apply()
+        _snapshot.update { it.copy(bootGapMs = gapOf(context, record, bootId)) }
+    }
+
+    private fun gapOf(
+        context: android.content.Context,
+        record: BootGapPolicy.BootRecord?,
+        bootId: String,
+    ): Long? = BootGapPolicy.unattendedGapMs(
+        stored = record,
+        bootId = bootId,
+        startOnBootEnabled = context.applicationContext
+            .getSharedPreferences("setup", android.content.Context.MODE_PRIVATE)
+            .getBoolean("boot_autostart", true),
+    )
+
+    private fun readBootRecord(store: android.content.SharedPreferences): BootGapPolicy.BootRecord? {
+        val id = store.getString(BOOT_ID_KEY, null) ?: return null
+        return BootGapPolicy.BootRecord(id, store.getLong(BOOT_STARTED_AFTER_KEY, 0))
+    }
+
+    /**
+     * The kernel's identity for the running boot. Where that file cannot be
+     * read, the wall-clock moment the device booted stands in, to the minute:
+     * the whole minute is there so that the clock being corrected shortly after
+     * boot does not make this look like a second boot.
+     */
+    private fun bootId(): String = runCatching {
+        java.io.File("/proc/sys/kernel/random/boot_id").readText().trim().ifEmpty { null }
+    }.getOrNull() ?: run {
+        val bootedAt = System.currentTimeMillis() - android.os.SystemClock.elapsedRealtime()
+        "booted-at-${bootedAt / 60_000}"
     }
 
     private fun persistCounts(snapshot: RunnerSnapshot) {
@@ -73,6 +136,9 @@ object RunnerStatus {
                 state = RunnerState.STARTING,
                 startedAtMillis = System.currentTimeMillis(),
                 recentLog = it.recentLog,
+                // The gap belongs to the boot, not to this run of the service,
+                // so starting the runner again must not erase it.
+                bootGapMs = it.bootGapMs,
             )
         }
     }

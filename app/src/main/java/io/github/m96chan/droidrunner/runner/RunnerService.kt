@@ -80,6 +80,9 @@ class RunnerService : Service() {
         wakeLock = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "DroidRunner:Runner").also { it.acquire() }
         RunnerStatus.onServiceStarted()
+        // Timestamp this boot while the service is coming up: a device that was
+        // held at the lock screen only finds out here how long it was away.
+        RunnerStatus.recordBootStart(this)
 
         // Device Agent: loopback bridge that jobs use to reach Android-side
         // hardware (NNAPI); URL and token file are injected into the runner
