@@ -65,6 +65,7 @@ import io.github.m96chan.droidrunner.ui.theme.BtopColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -86,6 +87,9 @@ fun SetupScreen(
 
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    // Long-running setup runs behind a modal, so nobody wanders off mid-flight.
+    var progress by remember { mutableStateOf<SetupProgress?>(null) }
+    var setupJob by remember { mutableStateOf<Job?>(null) }
     val configured = remember(runner.state, status, busy) { File(runtime.runtimeDir, ".configured").isFile }
 
     // Latest runtime-* release of the configured runtime repo; lets Register
@@ -230,7 +234,7 @@ fun SetupScreen(
     fun manifestSource(): String? = manifestUrl.ifBlank { resolvedManifest.orEmpty() }.ifBlank { null }
 
     fun registerRunner(target: RunnerTarget, credential: String) {
-        if (File(runtime.runtimeDir, ".configured").isFile) {
+        if (RunnerRegistration.load(runtime.runtimeDir)?.target == target) {
             status = null
             return
         }
@@ -245,25 +249,39 @@ fun SetupScreen(
             "android-${android.os.Build.MODEL}-$deviceId",
             capabilities.labels() + NpuLabels.refresh(context),
         )
-        scope.launch {
+        progress = SetupProgress("preparing")
+        setupJob = scope.launch {
             status = runCatching {
                 config.validate()?.let { error(it) }
                 if (!runtime.installed) {
                     val manifest = manifestSource()
                         ?: error("No runtime release found — set a manifest URL under advanced")
-                    withContext(Dispatchers.IO) { runtime.install(manifest) { status = "runtime: $it" } }
+                    // runInterruptible so Cancel actually breaks the blocking
+                    // download and extraction, rather than leaving them running.
+                    runInterruptible(Dispatchers.IO) {
+                        runtime.install(manifest) { phase, fraction ->
+                            progress = SetupProgress(phase, fraction)
+                        }
+                    }
                 }
-                status = "registering ${target.displayName}…"
-                withContext(Dispatchers.IO) {
+                progress = SetupProgress("registering ${target.displayName}")
+                runInterruptible(Dispatchers.IO) {
                     // Stream config.sh output into the runner panel's log tail
                     // so the slow proot/.NET startup is visible.
                     RunnerRegistration.register(
                         context, runtime.runtimeDir, config,
                         ephemeral = RunnerRegistration.ephemeralEnabled(context),
-                    ) { line -> RunnerStatus.onLogLine(line) }
+                    ) { line ->
+                        RunnerStatus.onLogLine(line)
+                        progress = SetupProgress("registering ${target.displayName}", detail = line)
+                    }
                 }
                 null
-            }.getOrElse { "failed: ${it.message}" }
+            }.getOrElse { failure ->
+                if (failure is kotlinx.coroutines.CancellationException) "setup cancelled"
+                else "failed: ${failure.message}"
+            }
+            progress = null
             busy = false
         }
     }
@@ -285,6 +303,13 @@ fun SetupScreen(
                     startPolling(auth)
                 }
             }
+        }
+    }
+
+    progress?.let { current ->
+        SetupProgressDialog(current) {
+            setupJob?.cancel()
+            setupJob = null
         }
     }
 
@@ -429,13 +454,20 @@ fun SetupScreen(
                             onClick = {
                                 val manifest = manifestSource() ?: return@Button
                                 busy = true
-                                scope.launch {
+                                progress = SetupProgress("preparing")
+                                setupJob = scope.launch {
                                     status = runCatching {
-                                        withContext(Dispatchers.IO) {
-                                            runtime.install(manifest) { status = "runtime: $it" }
+                                        runInterruptible(Dispatchers.IO) {
+                                            runtime.install(manifest) { phase, fraction ->
+                                                progress = SetupProgress(phase, fraction)
+                                            }
                                         }
                                         null
-                                    }.getOrElse { "failed: ${it.message}" }
+                                    }.getOrElse { failure ->
+                                        if (failure is kotlinx.coroutines.CancellationException) "update cancelled"
+                                        else "failed: ${failure.message}"
+                                    }
+                                    progress = null
                                     busy = false
                                 }
                             },
@@ -585,12 +617,37 @@ fun SetupScreen(
             else -> null
         }
         if (userToken != null && selectedTarget != null) {
+            val storedTarget = remember(configured, status, busy) {
+                RunnerRegistration.load(runtime.runtimeDir)?.target
+            }
+            val alreadyRegistered = storedTarget == selectedTarget
+            // Re-registering swaps the runner's identity, so the listener has
+            // to be down first — the same reason the runtime update waits.
+            val runnerStopped = runner.state == RunnerState.STOPPED
             Button(
-                enabled = !busy && !configured && (runtime.installed || manifestSource() != null),
+                enabled = !busy && !alreadyRegistered &&
+                    (runtime.installed || manifestSource() != null) &&
+                    (storedTarget == null || runnerStopped),
                 colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Green, contentColor = BtopColors.Background),
                 onClick = { registerRunner(selectedTarget, userToken!!) },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (configured) "Registered" else "Register ${selectedTarget.displayName}") }
+            ) {
+                Text(
+                    when {
+                        alreadyRegistered -> "Registered: ${selectedTarget.displayName}"
+                        storedTarget != null -> "Re-register as ${selectedTarget.displayName}"
+                        else -> "Register ${selectedTarget.displayName}"
+                    },
+                )
+            }
+            if (!alreadyRegistered && storedTarget != null && !runnerStopped) {
+                Text(
+                    "Stop the runner first — re-registering replaces its identity " +
+                        "(currently ${storedTarget.displayName}).",
+                    color = BtopColors.Dim,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
         }
 
         Row(

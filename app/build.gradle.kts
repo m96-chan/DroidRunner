@@ -9,6 +9,7 @@ plugins {
 // 0.0.0-dev / code 1, which no published release can be confused with.
 val releaseTag: String? = (project.findProperty("droidrunner.releaseTag") as String?)
     ?: System.getenv("DROIDRUNNER_RELEASE_TAG")
+val hasReleaseKey = System.getenv("ANDROID_KEYSTORE_FILE") != null
 val semver: String? = releaseTag?.removePrefix("v")
     ?.takeIf { Regex("""\d+\.\d+\.\d+""").matches(it) }
 
@@ -77,17 +78,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // A published release must never be debug-signed: Android refuses
-            // to upgrade across a signature change, and reinstalling this app
-            // loses the runner registration and the stored GitHub credentials.
-            // Local builds may fall back, tagged releases may not.
-            val hasReleaseKey = System.getenv("ANDROID_KEYSTORE_FILE") != null
-            val isTaggedRelease = releaseTag != null
-            check(hasReleaseKey || !isTaggedRelease) {
-                "Refusing to build $releaseTag with the debug key: configure " +
-                    "ANDROID_KEYSTORE_FILE (CI: the ANDROID_KEYSTORE_BASE64 secret). " +
-                    "Publishing a debug-signed release would strand every installed device."
-            }
             signingConfig = if (hasReleaseKey) {
                 signingConfigs.getByName("release")
             } else {
@@ -136,4 +126,18 @@ dependencies {
     // Android's org.json is a stub in unit tests; use the real implementation.
     testImplementation("org.json:json:20240303")
     debugImplementation("androidx.compose.ui:ui-tooling")
+}
+
+// A published release must never be debug-signed: Android refuses to upgrade
+// across a signature change, and reinstalling this app loses the runner
+// registration and the stored GitHub credentials. This fires only when a
+// release APK is actually assembled, so debug builds can still carry a tag.
+tasks.matching { it.name == "packageRelease" }.configureEach {
+    doFirst {
+        check(hasReleaseKey || releaseTag == null) {
+            "Refusing to package $releaseTag with the debug key: configure " +
+                "ANDROID_KEYSTORE_FILE (CI: the ANDROID_KEYSTORE_BASE64 secret). " +
+                "Publishing a debug-signed release would strand every installed device."
+        }
+    }
 }
