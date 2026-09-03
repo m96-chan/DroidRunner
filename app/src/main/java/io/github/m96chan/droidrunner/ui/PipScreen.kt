@@ -18,6 +18,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.m96chan.droidrunner.monitor.SystemMonitor
 import io.github.m96chan.droidrunner.monitor.SystemSnapshot
+import io.github.m96chan.droidrunner.runner.RunnerSnapshot
 import io.github.m96chan.droidrunner.runner.RunnerState
 import io.github.m96chan.droidrunner.runner.RunnerStatus
 import io.github.m96chan.droidrunner.ui.theme.BtopColors
@@ -59,13 +60,11 @@ fun PipScreen(monitor: SystemMonitor) {
             )
         }
 
-        // A held runner has to say why: held and broken look identical from
-        // outside, and this window exists to answer exactly that question.
-        val detail = runner.pausedReason ?: runner.currentJob
+        val detail = pipDetail(runner)
         if (detail != null) {
             Text(
-                detail,
-                color = if (runner.state == RunnerState.PAUSED) BtopColors.Yellow else BtopColors.Text,
+                detail.text,
+                color = if (detail.isCondition) BtopColors.Yellow else BtopColors.Text,
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -82,6 +81,26 @@ fun PipScreen(monitor: SystemMonitor) {
             modifier = Modifier.padding(top = 4.dp),
         )
     }
+}
+
+/** The middle line of the window, and whether it is a warning. */
+internal data class PipDetail(val text: String, val isCondition: Boolean)
+
+/**
+ * What the second line says.
+ *
+ * A held runner has to say why — held and broken look identical from outside,
+ * and answering that is what this window is for. But an admission warning can
+ * now stand while the listener keeps working (issue #37), and then the job's
+ * name is the more useful fact: a condition that merely threatens to stop the
+ * runner must not blank out the build it has not stopped. Whatever appears is
+ * coloured as a warning when it is one, so a condition is never mistaken for
+ * the thing being built.
+ */
+internal fun pipDetail(runner: RunnerSnapshot): PipDetail? = when {
+    runner.currentJob != null -> PipDetail(runner.currentJob, isCondition = false)
+    runner.pausedReason != null -> PipDetail(runner.pausedReason, isCondition = true)
+    else -> null
 }
 
 /**

@@ -41,6 +41,19 @@ class RunnerStatusTest {
         assertEquals(1, RunnerStatus.snapshot.value.jobsFailed)
     }
 
+    @Test fun admissionWarningDoesNotChangeListenerStateAndRecoversEagerly() {
+        RunnerStatus.onServiceStarted()
+        RunnerStatus.onRunnerLine("Listening for Jobs")
+
+        RunnerStatus.onConditionObserved("not charging")
+        assertEquals(RunnerState.LISTENING, RunnerStatus.snapshot.value.state)
+        assertEquals("not charging", RunnerStatus.snapshot.value.pausedReason)
+
+        RunnerStatus.onConditionRecovered()
+        assertEquals(RunnerState.LISTENING, RunnerStatus.snapshot.value.state)
+        assertNull(RunnerStatus.snapshot.value.pausedReason)
+    }
+
     @Test fun notifiesJobBoundariesOnce() {
         val transitions = mutableListOf<Boolean>()
         RunnerStatus.setJobBoundaryListener { transitions += it }

@@ -95,7 +95,16 @@ class RunnerNotifications(private val context: Context) {
          * A held runner has to say *why* it is held: from the outside, held and
          * broken look identical, and only the device knows the difference.
          */
-        fun statusText(snapshot: RunnerSnapshot): String = when (snapshot.state) {
+        fun statusText(snapshot: RunnerSnapshot): String = snapshot.pausedReason
+            ?.takeIf { snapshot.state != RunnerState.PAUSED }
+            ?.let {
+                if (snapshot.state == RunnerState.LISTENING || snapshot.state == RunnerState.JOB_RUNNING) {
+                    "Condition: $it — still running"
+                } else {
+                    "Condition: $it"
+                }
+            }
+            ?: when (snapshot.state) {
             RunnerState.STOPPED -> "Stopped"
             RunnerState.STARTING -> "Starting"
             RunnerState.LISTENING -> "Listening for jobs"
@@ -103,6 +112,6 @@ class RunnerNotifications(private val context: Context) {
                 snapshot.currentJob?.let { "Running $it" } ?: "Running a job"
             RunnerState.PAUSED ->
                 "Holding jobs: ${snapshot.pausedReason ?: "device is not ready"}"
-        }
+            }
     }
 }

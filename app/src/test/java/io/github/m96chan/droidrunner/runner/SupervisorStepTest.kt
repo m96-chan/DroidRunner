@@ -11,14 +11,16 @@ class SupervisorStepTest {
         jobRunning: Boolean = false,
         nowMillis: Long = 1_000,
         nextStartAtMillis: Long = 0,
-        pausedFor: String? = null,
+        reportedFor: String? = null,
+        held: Boolean = false,
     ) = SupervisorStep.decide(
         decision,
         hasProcess,
         jobRunning,
         nowMillis,
         nextStartAtMillis,
-        pausedFor,
+        reportedFor,
+        held,
     )
 
     @Test fun aNormalHoldWaitsForTheRunningJob() {
@@ -28,8 +30,8 @@ class SupervisorStepTest {
             jobRunning = true,
         )
 
-        assertEquals(emptyList<Action>(), result.actions)
-        assertEquals(null, result.pausedFor)
+        assertEquals(listOf(Action.ReportCondition("not charging")), result.actions)
+        assertEquals("not charging", result.reportedFor)
     }
 
     @Test fun aHoldStopsTheIdleListenerThenAnnouncesIt() {
@@ -41,10 +43,15 @@ class SupervisorStepTest {
         // This is the regression boundary for #35: a hold decision must result
         // in an actual stop action, not merely a paused dashboard.
         assertEquals(
-            listOf(Action.Stop("not charging", stopsActiveJob = false), Action.AnnounceHold("not charging")),
+            listOf(
+                Action.ReportCondition("not charging"),
+                Action.Stop("not charging", stopsActiveJob = false),
+                Action.AnnounceHold("not charging"),
+            ),
             result.actions,
         )
-        assertEquals("not charging", result.pausedFor)
+        assertEquals("not charging", result.reportedFor)
+        assertEquals(true, result.held)
     }
 
     @Test fun criticalHeatInterruptsTheRunningJob() {
@@ -55,7 +62,11 @@ class SupervisorStepTest {
         )
 
         assertEquals(
-            listOf(Action.Stop("critical heat", stopsActiveJob = true), Action.AnnounceHold("critical heat")),
+            listOf(
+                Action.ReportCondition("critical heat"),
+                Action.Stop("critical heat", stopsActiveJob = true),
+                Action.AnnounceHold("critical heat"),
+            ),
             result.actions,
         )
     }
@@ -63,11 +74,12 @@ class SupervisorStepTest {
     @Test fun theSameHoldIsAnnouncedOnlyOnce() {
         val result = decide(
             Admission.Blocked("not charging", urgent = false),
-            pausedFor = "not charging",
+            reportedFor = "not charging",
+            held = true,
         )
 
         assertEquals(emptyList<Action>(), result.actions)
-        assertEquals("not charging", result.pausedFor)
+        assertEquals("not charging", result.reportedFor)
     }
 
     @Test fun backoffPreventsAnEarlyRestart() {
@@ -85,11 +97,30 @@ class SupervisorStepTest {
             Admission.Allowed,
             nowMillis = 1_000,
             nextStartAtMillis = 1_000,
-            pausedFor = "not charging",
+            reportedFor = "not charging",
+            held = true,
         )
 
         assertEquals(listOf(Action.Resume, Action.SweepStrays, Action.Start), result.actions)
-        assertEquals(null, result.pausedFor)
+        assertEquals(null, result.reportedFor)
+    }
+
+    @Test fun aPendingConditionIsReportedWithoutStoppingTheListener() {
+        val result = decide(Admission.Pending("not charging"), hasProcess = true)
+
+        assertEquals(listOf(Action.ReportCondition("not charging")), result.actions)
+        assertEquals("not charging", result.reportedFor)
+        assertEquals(false, result.held)
+    }
+
+    @Test fun recoveryFromPendingClearsTheWarningWithoutRestarting() {
+        val result = decide(
+            Admission.Allowed,
+            hasProcess = true,
+            reportedFor = "not charging",
+        )
+
+        assertEquals(listOf(Action.ClearCondition), result.actions)
     }
 
     @Test fun anExistingListenerIsNeverStartedTwice() {
