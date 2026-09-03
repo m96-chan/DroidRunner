@@ -1,0 +1,42 @@
+package io.github.m96chan.droidrunner.runner
+
+/**
+ * Decides when a failure is worth interrupting someone over (issue #34).
+ *
+ * GitHub already emails when a job fails, so the app only speaks about what
+ * GitHub cannot see. Even then it speaks once per problem: a phone that buzzes
+ * on every retry teaches its owner to ignore it, which costs more than the
+ * silence it replaces.
+ */
+object AlertPolicy {
+
+    /** Failures the device can see and GitHub cannot. */
+    enum class Failure { LISTENER, REGISTRATION }
+
+    /**
+     * A listener that exits gets the benefit of the doubt for a few restarts —
+     * most of them recover on their own (issue #6), and recovery is not news.
+     * By the fourth consecutive failure the backoff is already a minute long
+     * and the device is not serving anything.
+     */
+    const val LISTENER_FAILURES_BEFORE_ALERT = 4
+
+    /**
+     * Registration failing usually means the sign-in expired, which retrying
+     * will never fix, so it speaks up as soon as it is more than a blip.
+     */
+    const val REGISTRATION_FAILURES_BEFORE_ALERT = 2
+
+    fun shouldAlert(
+        failure: Failure,
+        consecutiveFailures: Int,
+        alreadyAlerted: Boolean,
+    ): Boolean {
+        if (alreadyAlerted) return false
+        val threshold = when (failure) {
+            Failure.LISTENER -> LISTENER_FAILURES_BEFORE_ALERT
+            Failure.REGISTRATION -> REGISTRATION_FAILURES_BEFORE_ALERT
+        }
+        return consecutiveFailures >= threshold
+    }
+}

@@ -32,6 +32,23 @@ def artwork() -> Image.Image:
     return art
 
 
+def silhouette(art: Image.Image) -> Image.Image:
+    """White-on-transparent cut-out of the robot, for the notification icon.
+
+    Android tints a notification icon and keeps only its alpha, so the strap and
+    the git graph have to become holes rather than colours — they are dropped by
+    keeping the green layer alone.
+    """
+    out = Image.new("RGBA", art.size, (0, 0, 0, 0))
+    src, dst = art.load(), out.load()
+    for y in range(art.height):
+        for x in range(art.width):
+            r, g, b, a = src[x, y]
+            if a > 128 and abs(r - 145) < 40 and abs(g - 186) < 40 and abs(b - 38) < 60:
+                dst[x, y] = (255, 255, 255, 255)
+    return out.crop(out.split()[3].getbbox())
+
+
 def compose(art: Image.Image, size: int, fill: float, bg: str | None, shape: str = "square") -> Image.Image:
     scale = size * fill / max(art.size)
     a = art.resize((max(1, round(art.width * scale)), max(1, round(art.height * scale))), Image.LANCZOS)
@@ -48,6 +65,7 @@ def compose(art: Image.Image, size: int, fill: float, bg: str | None, shape: str
 
 def main() -> int:
     art = artwork()
+    mono = silhouette(art)
     res = ROOT / "app/src/main/res"
     for name, mult in DENSITIES.items():
         d = res / f"mipmap-{name}"
@@ -55,7 +73,11 @@ def main() -> int:
         compose(art, round(108 * mult), ADAPTIVE_FILL, None).save(d / "ic_launcher_foreground.png", optimize=True)
         compose(art, round(48 * mult), 0.80, BG).save(d / "ic_launcher.png", optimize=True)
         compose(art, round(48 * mult), 0.66, BG, "circle").save(d / "ic_launcher_round.png", optimize=True)
-        print(f"mipmap-{name}")
+        # Notification icons are drawn in a 24dp box and tinted by the system.
+        dd = res / f"drawable-{name}"
+        dd.mkdir(parents=True, exist_ok=True)
+        compose(mono, round(24 * mult), 0.92, None).save(dd / "ic_stat_runner.png", optimize=True)
+        print(f"mipmap-{name}, drawable-{name}")
 
     # GitHub App avatar: GitHub masks it into a circle in some views, so leave room.
     compose(art, 1024, 0.84, BG).convert("RGB").save(ROOT / "art/github-app-avatar.png", optimize=True)

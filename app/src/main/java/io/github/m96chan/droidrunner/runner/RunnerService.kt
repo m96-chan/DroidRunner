@@ -1,12 +1,9 @@
 package io.github.m96chan.droidrunner.runner
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import android.os.PowerManager
-import androidx.core.app.NotificationCompat
 import io.github.m96chan.droidrunner.monitor.SystemMonitor
 import io.github.m96chan.droidrunner.npu.DeviceAgentServer
 import io.github.m96chan.droidrunner.npu.DeviceCapabilitiesJson
@@ -16,6 +13,13 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 /**
  * Keeps the official runner alive under a foreground service, and holds new
@@ -35,19 +39,32 @@ class RunnerService : Service() {
     private val stopRequested = AtomicBoolean(false)
     private val jobRunning = AtomicBoolean(false)
     private lateinit var monitor: SystemMonitor
+    private lateinit var notifications: RunnerNotifications
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /** Restart backoff state, owned by the supervisor and the output thread. */
     @Volatile private var restartDelayMs = 0L
     @Volatile private var nextStartAtMillis = 0L
 
+    /** Alert state for issue #34: one notification per streak of failures. */
+    @Volatile private var consecutiveFailures = 0
+    @Volatile private var alerted = false
+
     override fun onCreate() {
         super.onCreate()
         RunnerStatus.attach(this)
         monitor = SystemMonitor(this)
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(
-            NotificationChannel(CHANNEL, "GitHub Runner", NotificationManager.IMPORTANCE_LOW),
-        )
+        notifications = RunnerNotifications(this).also { it.createChannels() }
+
+        // The notification says whatever the dashboard says; it reads the same
+        // state and only redraws when the wording would change, so a busy log
+        // does not mean a notification update per line.
+        scope.launch {
+            RunnerStatus.snapshot
+                .map { RunnerNotifications.statusText(it) }
+                .distinctUntilChanged()
+                .collect { notifications.updateOngoing(it) }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -55,7 +72,10 @@ class RunnerService : Service() {
             stopRunner()
             return START_NOT_STICKY
         }
-        startForeground(NOTIFICATION, notification("Waiting for GitHub Actions jobs"))
+        startForeground(
+            RunnerNotifications.ONGOING_ID,
+            notifications.ongoing(RunnerNotifications.statusText(RunnerStatus.snapshot.value)),
+        )
         if (!starting.compareAndSet(false, true)) return START_NOT_STICKY
         stopRequested.set(false)
         wakeLock = getSystemService(PowerManager::class.java)
@@ -117,7 +137,6 @@ class RunnerService : Service() {
                         if (process == null && pausedFor != decision.reason) {
                             pausedFor = decision.reason
                             RunnerStatus.onPaused(decision.reason)
-                            updateNotification("Paused: ${decision.reason}")
                         }
                     }
                 }
@@ -161,7 +180,11 @@ class RunnerService : Service() {
                 RunnerStatus.onLogLine(
                     "ephemeral: re-register once from the setup screen to enable per-job registration",
                 )
-                backOff("missing stored registration details", ranMillis = 0)
+                backOff(
+                    "missing stored registration details",
+                    ranMillis = 0,
+                    failure = AlertPolicy.Failure.REGISTRATION,
+                )
                 return
             }
             val outcome = runCatching {
@@ -174,7 +197,11 @@ class RunnerService : Service() {
                 }
             }
             if (outcome.isFailure) {
-                backOff("registration failed: ${outcome.exceptionOrNull()?.message}", ranMillis = 0)
+                backOff(
+                    "registration failed: ${outcome.exceptionOrNull()?.message}",
+                    ranMillis = 0,
+                    failure = AlertPolicy.Failure.REGISTRATION,
+                )
                 return
             }
         }
@@ -182,14 +209,39 @@ class RunnerService : Service() {
     }
 
     /** Delays the next start attempt, growing the wait while failures repeat. */
-    private fun backOff(reason: String, ranMillis: Long) {
+    private fun backOff(reason: String, ranMillis: Long, failure: AlertPolicy.Failure) {
+        if (ranMillis >= RestartPolicy.HEALTHY_RUN_MS) onHealthy()
+        consecutiveFailures++
         restartDelayMs = RestartPolicy.nextDelayMs(restartDelayMs, ranMillis)
         nextStartAtMillis = System.currentTimeMillis() + restartDelayMs
         RunnerStatus.onRestarting("$reason — retrying in ${restartDelayMs / 1000}s")
+
+        if (!AlertPolicy.shouldAlert(failure, consecutiveFailures, alerted)) return
+        alerted = true
+        when (failure) {
+            AlertPolicy.Failure.REGISTRATION -> notifications.alert(
+                "DroidRunner cannot register",
+                "GitHub would not accept this device $consecutiveFailures times in a row. " +
+                    "The sign-in has probably expired — open the setup screen to connect again.\n\n" +
+                    reason,
+            )
+
+            AlertPolicy.Failure.LISTENER -> notifications.alert(
+                "DroidRunner is not staying up",
+                "The runner failed to keep running $consecutiveFailures times in a row, " +
+                    "so this device is not serving jobs.\n\n" + reason,
+            )
+        }
+    }
+
+    /** A run long enough to count clears the failure streak and its alert. */
+    private fun onHealthy() {
+        consecutiveFailures = 0
+        alerted = false
+        notifications.clearAlert()
     }
 
     private fun startListener(runtimeDir: File) {
-        updateNotification("Waiting for GitHub Actions jobs")
         // Keep the CLI in step with the agent API this build implements.
         DeviceCliInstaller.install(this, runtimeDir)
         val started = RunnerCommand.run(
@@ -227,9 +279,14 @@ class RunnerService : Service() {
                 // Expected: an ephemeral listener exits after one job.
                 restartDelayMs = 0
                 nextStartAtMillis = 0
+                onHealthy()
                 RunnerStatus.onLogLine("ephemeral: job finished, cleaning up")
             } else {
-                backOff("listener exited with code $exitCode", ranMillis)
+                backOff(
+                    "listener exited with code $exitCode",
+                    ranMillis,
+                    failure = AlertPolicy.Failure.LISTENER,
+                )
             }
         }
     }
@@ -244,22 +301,10 @@ class RunnerService : Service() {
         jobRunning.set(false)
     }
 
-    private fun notification(text: String) = NotificationCompat.Builder(this, CHANNEL)
-        .setSmallIcon(android.R.drawable.stat_notify_sync)
-        .setContentTitle("DroidRunner")
-        .setContentText(text)
-        .setOngoing(true)
-        .build()
-
-    private fun updateNotification(text: String) {
-        runCatching {
-            getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification(text))
-        }
-    }
-
     override fun onDestroy() {
         stopRunner()
         executor.shutdownNow()
+        scope.cancel()
         super.onDestroy()
     }
 
@@ -281,8 +326,6 @@ class RunnerService : Service() {
 
     companion object {
         const val ACTION_STOP = "io.github.m96chan.droidrunner.STOP"
-        private const val CHANNEL = "runner"
-        private const val NOTIFICATION = 96
         private const val POLL_INTERVAL_MS = 5_000L
         private const val LISTENER_STOP_TIMEOUT_S = 5L
     }
