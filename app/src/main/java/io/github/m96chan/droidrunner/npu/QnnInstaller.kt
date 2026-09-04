@@ -26,6 +26,9 @@ class QnnInstaller(private val context: Context) {
 
     val installDir = File(context.filesDir, "qnn")
 
+    /** Kept apart from the libraries: these are read before anything is installed. */
+    val licenceDir = File(context.filesDir, "qnn-licences")
+
     /** Which QNN release and Hexagon generation are installed, if any. */
     val installed: String?
         get() = File(installDir, STAMP).takeIf { it.isFile }?.readText()?.trim()
@@ -34,13 +37,52 @@ class QnnInstaller(private val context: Context) {
     fun libraryDir(): File? = installDir.takeIf { installed != null }
 
     /**
+     * Fetches the licence documents so they can be read, and returns them in
+     * the order they must be shown.
+     *
+     * This is the one thing that happens before consent, and it is deliberate:
+     * the URL each POM declares for its terms answers 403 without credentials,
+     * so the readable copy is the one inside the package. Asking someone to
+     * accept a document they cannot open would not be consent at all. No
+     * library is fetched here — 300KB of PDF, not 38MB of runtime.
+     */
+    fun fetchLicences(progress: (String, Float?) -> Unit = { _, _ -> }): List<File> {
+        licenceDir.mkdirs()
+        return QnnLicences.required.map { licence ->
+            val target = File(licenceDir, licence.fileName)
+            if (target.length() != licence.bytes || sha256(target) != licence.sha256) {
+                progress("fetching ${licence.title}", null)
+                RemoteZip(HttpZip(URL(QnnArtifacts.url(licence.module)))).extract(
+                    name = licence.zipEntry,
+                    target = target,
+                    scratch = File(licenceDir, "${licence.fileName}.z"),
+                    sha256 = licence.sha256,
+                )
+            }
+            target
+        }
+    }
+
+    /**
      * Installs the runtime for [htpVersion], reporting phases through
      * [progress] with a 0..1 fraction while bytes are moving.
+     *
+     * [consent] is the acceptance recorded on this device; without one that
+     * covers the current terms, nothing is fetched. The check is here rather
+     * than only in the UI because this is the last point before the bytes
+     * move, and a future caller reaching it another way must not slip past.
      *
      * Returns false when the right runtime was already present and nothing was
      * fetched.
      */
-    fun install(htpVersion: Int, progress: (String, Float?) -> Unit = { _, _ -> }): Boolean {
+    fun install(
+        htpVersion: Int,
+        consent: String?,
+        progress: (String, Float?) -> Unit = { _, _ -> },
+    ): Boolean {
+        check(QnnLicences.accepted(consent)) {
+            "Qualcomm's licences have not been accepted on this device"
+        }
         val entries = QnnArtifacts.entriesFor(htpVersion)
             ?: error("No QNN runtime is published for Hexagon v$htpVersion")
         val stamp = QnnArtifacts.stamp(htpVersion)
@@ -88,6 +130,20 @@ class QnnInstaller(private val context: Context) {
     /** Removes the runtime, for a device that no longer wants it on disk. */
     fun uninstall() {
         installDir.deleteRecursively()
+    }
+
+    private fun sha256(file: File): String {
+        if (!file.isFile) return ""
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     /**

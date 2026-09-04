@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Only the directory holding Qualcomm's licence PDFs is shared, and only so a
+    PDF reader can open them. Nothing else under filesDir is exposed: the
+    runner's runtime, its registration and its credentials live there too.
+-->
+<paths>
+    <files-path name="qnn-licences" path="qnn-licences/" />
+</paths>
