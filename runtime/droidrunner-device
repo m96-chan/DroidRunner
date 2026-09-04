@@ -2,25 +2,46 @@
 #
 # droidrunner-device — talk to the DroidRunner Device Agent from a CI job.
 #
-# The agent runs in the Android app and exposes hardware (NNAPI today) that a
-# process inside the PRoot guest cannot reach. The runner injects
-# DROIDRUNNER_DEVICE_URL and DROIDRUNNER_DEVICE_TOKEN; this wrapper hides the
-# HTTP/token plumbing.
+# The agent runs in the Android app and exposes hardware (NNAPI, and Qualcomm's
+# own runtime) that a process inside the PRoot guest cannot reach. The runner
+# injects DROIDRUNNER_DEVICE_URL and DROIDRUNNER_DEVICE_TOKEN; this wrapper
+# hides the HTTP/token plumbing.
 #
 # Usage:
 #   droidrunner-device capabilities
-#   droidrunner-device devices
+#   droidrunner-device devices [--json]
 #   droidrunner-device test add  [--device NAME] [--iterations N]
 #   droidrunner-device test conv [--device NAME] [--iterations N]
 #                                [--size N] [--channels N] [--filters N]
 #   droidrunner-device test model <file.tflite> [--device NAME] [--iterations N]
 #                                   [--input FILE]... [--output-dir DIR] [--baseline]
-#   droidrunner-device bench-all [--iterations N] [--size N]
+#   droidrunner-device bench-all [--iterations N] [--size N] [--json]
+#
+# Everywhere: --output FILE writes the machine-readable result to FILE as well
+# as stdout, so a job can hand it to upload-artifact without a redirect that
+# also catches a warning line.
+#
+# Exit status (see docs/RESULT-CONTRACT.md):
+#   0  it ran
+#   1  usage error, or something unclassified
+#   2  the driver refused the graph — a sweep records this and carries on
+#   3  no such device on this phone
+#   4  the agent is unreachable — a sweep stops
 set -euo pipefail
 
-die() { echo "droidrunner-device: $*" >&2; exit 1; }
+# Human notes go to stderr throughout, so stdout is only ever the result. A
+# consumer pipes stdout into jq; a person reads both interleaved as before.
+note() { echo "$*" >&2; }
+die() { note "droidrunner-device: $*"; exit 1; }
 
-[ -n "${DROIDRUNNER_DEVICE_URL:-}" ] || die "DROIDRUNNER_DEVICE_URL is not set (is this job running on a DroidRunner device?)"
+EXIT_REFUSED=2
+EXIT_UNKNOWN_DEVICE=3
+EXIT_UNREACHABLE=4
+
+[ -n "${DROIDRUNNER_DEVICE_URL:-}" ] || {
+    note "droidrunner-device: DROIDRUNNER_DEVICE_URL is not set (is this job running on a DroidRunner device?)"
+    exit $EXIT_UNREACHABLE
+}
 command -v curl >/dev/null || die "curl is required"
 
 # The capability token is issued per job and delivered through a file in the
@@ -31,6 +52,8 @@ if [ -z "${DROIDRUNNER_DEVICE_TOKEN:-}" ]; then
     [ -r "$token_file" ] || die "no capability token at $token_file (the agent only issues one while a job runs)"
     DROIDRUNNER_DEVICE_TOKEN="$(cat "$token_file")"
 fi
+
+output_file=""
 
 api() {
     local method="$1" path="$2" data="${3:-}"
@@ -44,27 +67,77 @@ api() {
     fi
 }
 
-# Device names from the capabilities payload, without needing jq.
-device_names() {
-    api GET /v1/capabilities | grep -o '"name":"[^"]*"' | cut -d'"' -f4
+# Like api(), but tells a refusal apart from a phone that stopped answering:
+# curl fails for both a 4xx and a dead socket, and only one of those is worth
+# abandoning a sweep over.
+ask() {
+    local body status
+    set +e
+    body="$(api "$@" 2>/dev/null)"
+    status=$?
+    set -e
+    if [ $status -ne 0 ] && [ -z "$body" ]; then
+        # -f swallows the body on an HTTP error, so ask again without it before
+        # concluding the agent is gone.
+        set +e
+        body="$(curl -sS -X POST -H "Authorization: Bearer $DROIDRUNNER_DEVICE_TOKEN" \
+            -H "Content-Type: application/json" -d "${3:-}" \
+            "$DROIDRUNNER_DEVICE_URL$2" 2>/dev/null)"
+        status=$?
+        set -e
+        if [ $status -ne 0 ] || [ -z "$body" ]; then
+            note "droidrunner-device: the agent at $DROIDRUNNER_DEVICE_URL did not answer"
+            exit $EXIT_UNREACHABLE
+        fi
+    fi
+    printf '%s' "$body"
+}
+
+emit() {  # emit <json>
+    printf '%s\n' "$1"
+    [ -n "$output_file" ] && printf '%s\n' "$1" > "$output_file"
+    return 0
 }
 
 json_field() {  # json_field <json> <key>
     printf '%s' "$1" | grep -o "\"$2\":[^,}]*" | head -n1 | cut -d: -f2- | tr -d '" '
 }
 
+# Device names from the capabilities payload, without needing jq.
+device_names() {
+    api GET /v1/capabilities | grep -o '"name":"[^"]*"' | cut -d'"' -f4
+}
+
+# Turns the agent's own code into this wrapper's exit status, so a caller can
+# branch without parsing anything.
+status_for() {  # status_for <json>
+    case "$(json_field "$1" code)" in
+        refused) return $EXIT_REFUSED ;;
+        unknown-device|not-installed) return $EXIT_UNKNOWN_DEVICE ;;
+        "") return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 cmd="${1:-}"
-[ -n "$cmd" ] || { sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+[ -n "$cmd" ] || { sed -n '3,28p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1; }
 shift || true
 
 case "$cmd" in
     capabilities)
-        api GET /v1/capabilities
-        echo
+        emit "$(ask GET /v1/capabilities)"
         ;;
 
     devices)
-        device_names
+        as_json=""
+        [ "${1:-}" = "--json" ] && as_json=1
+        if [ -n "$as_json" ]; then
+            names=""
+            for dev in $(device_names); do names="$names\"$dev\","; done
+            emit "{\"schema\":1,\"ok\":true,\"devices\":[${names%,}]}"
+        else
+            device_names
+        fi
         ;;
 
     test)
@@ -94,6 +167,8 @@ case "$cmd" in
                     mkdir -p "$2" || die "cannot create $2"
                     output_dir="$(cd "$2" && pwd)"
                     shift 2 ;;
+                --output) output_file="$2"; shift 2 ;;
+                --json) shift ;;   # already the only thing on stdout
                 --iterations) iterations="$2"; shift 2 ;;
                 --size) size="$2"; shift 2 ;;
                 --channels) channels="$2"; shift 2 ;;
@@ -112,33 +187,37 @@ case "$cmd" in
         [ -n "$channels" ] && body="$body\"channels\":$channels,"
         [ -n "$filters" ] && body="$body\"filters\":$filters,"
         body="${body%,}}"
-        response="$(case "$kind" in
-            add) api POST /v1/tests/nnapi "$body" ;;
-            conv) api POST /v1/tests/conv "$body" ;;
-            model) api POST /v1/tests/model "$body" ;;
+        case "$kind" in
+            add) response="$(ask POST /v1/tests/nnapi "$body")" ;;
+            conv) response="$(ask POST /v1/tests/conv "$body")" ;;
+            model) response="$(ask POST /v1/tests/model "$body")" ;;
             *) die "unknown test: $kind (expected add, conv or model)" ;;
-        esac)"
-        printf '%s\n' "$response"
+        esac
+        emit "$response"
         # A test the device refused is a failed test. curl succeeded, so
         # without this the step passes while the phone is saying it could not
-        # run the thing being asked about -- which is exactly how a refusal
-        # ends up read as a result (issue #82).
-        [ "$(json_field "$response" ok)" = "true" ] || exit 1
+        # run the thing being asked about (issue #82).
+        [ "$(json_field "$response" ok)" = "true" ] || status_for "$response" || exit $?
         ;;
 
     bench-all)
-        iterations=50; size=64
+        iterations=50; size=64; as_json=""
         while [ $# -gt 0 ]; do
             case "$1" in
                 --iterations) iterations="$2"; shift 2 ;;
                 --size) size="$2"; shift 2 ;;
+                --json) as_json=1; shift ;;
+                --output) output_file="$2"; shift 2 ;;
                 *) die "unknown option: $1" ;;
             esac
         done
-        printf '%-22s %12s %10s %s\n' DEVICE AVG_US GFLOPS NOTE
+        [ -n "$as_json" ] || printf '%-22s %12s %10s %s\n' DEVICE AVG_US GFLOPS NOTE
+        entries=""
         for dev in $(device_names); do
-            result="$(api POST /v1/tests/conv \
-                "{\"device\":\"$dev\",\"iterations\":$iterations,\"size\":$size}" || true)"
+            result="$(ask POST /v1/tests/conv \
+                "{\"device\":\"$dev\",\"iterations\":$iterations,\"size\":$size}")"
+            entries="$entries$result,"
+            [ -n "$as_json" ] && continue
             if printf '%s' "$result" | grep -q '"ok":true'; then
                 printf '%-22s %12s %10s\n' "$dev" \
                     "$(json_field "$result" avgUs)" "$(json_field "$result" gflops)"
@@ -147,6 +226,9 @@ case "$cmd" in
                     "$(json_field "$result" error)" "$(json_field "$result" result)"
             fi
         done
+        # An array, the same shape a batch request will return, so a consumer
+        # written against one reads the other (issue #94).
+        [ -n "$as_json" ] && emit "{\"schema\":1,\"ok\":true,\"results\":[${entries%,}]}"
         ;;
 
     *)

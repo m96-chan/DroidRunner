@@ -7,6 +7,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
+import org.json.JSONObject
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
@@ -203,4 +204,56 @@ class DeviceAgentServerTest {
         assertEquals(emptyList<String>(), qnnCalls)
     }
 
+}
+
+class ResultContractOverHttpTest {
+
+    @Rule @JvmField val temp = TemporaryFolder()
+
+    private lateinit var runtimeDir: File
+    private lateinit var server: DeviceAgentServer
+
+    @Before fun start() {
+        runtimeDir = temp.newFolder("runtime")
+        server = DeviceAgentServer(runtimeDir, requestedPort = 0) { """{"stub":true}""" }
+        server.start()
+        server.onJobActive(true)
+    }
+
+    @After fun stop() = server.stop()
+
+    private fun get(path: String, token: String?): Pair<Int, String> {
+        val connection = (URL("${server.url}$path").openConnection() as HttpURLConnection).apply {
+            connectTimeout = 5_000
+            readTimeout = 5_000
+            token?.let { setRequestProperty("Authorization", "Bearer $it") }
+        }
+        val status = connection.responseCode
+        val text = (if (status in 200..299) connection.inputStream else connection.errorStream)
+            ?.bufferedReader()?.use { it.readText() }.orEmpty()
+        connection.disconnect()
+        return status to text
+    }
+
+    @Test fun a200CarriesTheSchemaEvenWhenTheHandlerDidNot() {
+        val token = File(runtimeDir, "home/runner/.droidrunner-agent-token").readText()
+
+        val (status, body) = get("/v1/capabilities", token)
+
+        assertEquals(200, status)
+        assertEquals(1, JSONObject(body).getInt("schema"))
+        assertTrue(JSONObject(body).getBoolean("stub"))
+    }
+
+    @Test fun aRefusalCarriesACodeAConsumerCanBranchOn() {
+        // Reading English to decide whether to abandon a sweep is exactly what
+        // the contract exists to stop.
+        val (status, body) = get("/v1/capabilities", "wrong-token")
+
+        assertEquals(401, status)
+        val parsed = JSONObject(body)
+        assertEquals(1, parsed.getInt("schema"))
+        assertFalse(parsed.getBoolean("ok"))
+        assertEquals("invalid-request", parsed.getString("code"))
+    }
 }

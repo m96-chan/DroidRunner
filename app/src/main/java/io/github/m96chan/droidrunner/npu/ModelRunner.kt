@@ -210,6 +210,7 @@ internal object ModelRunner {
             // cost two device round trips.
             JSONObject()
                 .put("ok", false)
+                .put("code", ResultContract.Code.FAILED)
                 .put("model", model.name)
                 .put("requestedDevice", deviceName ?: "default")
                 .put("error", failure::class.java.simpleName)

@@ -1,0 +1,113 @@
+name: Run a model on a DroidRunner device
+description: >
+  Runs a TFLite model on a phone's accelerator and reports what actually
+  executed it, for a repository that has no reason to know a shell wrapper and
+  a loopback HTTP API exist underneath.
+
+inputs:
+  model:
+    description: Path to the .tflite file, relative to the workspace.
+    required: true
+  device:
+    description: >
+      Accelerator to pin to, e.g. google-edgetpu or qnn-htp. Omit to let the
+      runtime choose, which is not the same thing and is reported as such.
+    required: false
+    default: ""
+  iterations:
+    description: Timed iterations.
+    required: false
+    default: "50"
+  inputs:
+    description: >
+      Newline-separated input tensor files, in the model's own order, raw
+      little-endian in each tensor's dtype. Omit for a latency-only run.
+    required: false
+    default: ""
+  output-dir:
+    description: Where to write the output tensors. Omit to discard them.
+    required: false
+    default: ""
+  baseline:
+    description: Also run the CPU reference in the same request.
+    required: false
+    default: "false"
+  results-path:
+    description: Where to write the result JSON.
+    required: false
+    default: droidrunner-result.json
+
+outputs:
+  avg-us:
+    description: Mean latency in microseconds.
+    value: ${{ steps.run.outputs.avg-us }}
+  median-us:
+    description: Median latency in microseconds.
+    value: ${{ steps.run.outputs.median-us }}
+  executed:
+    description: accelerator, partial, cpu-fallback or cpu — who did the work.
+    value: ${{ steps.run.outputs.executed }}
+  executed-by:
+    description: The delegate that claimed the nodes and the driver it was pinned to.
+    value: ${{ steps.run.outputs.executed-by }}
+  results-path:
+    description: The result JSON written by this step.
+    value: ${{ steps.run.outputs.results-path }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        MODEL: ${{ inputs.model }}
+        DEVICE: ${{ inputs.device }}
+        ITERATIONS: ${{ inputs.iterations }}
+        TENSOR_INPUTS: ${{ inputs.inputs }}
+        OUTPUT_DIR: ${{ inputs.output-dir }}
+        BASELINE: ${{ inputs.baseline }}
+        RESULTS: ${{ inputs.results-path }}
+      run: |
+        set -euo pipefail
+        args=(test model "$MODEL" --iterations "$ITERATIONS" --output "$RESULTS")
+        [ -n "$DEVICE" ] && args+=(--device "$DEVICE")
+        [ -n "$OUTPUT_DIR" ] && args+=(--output-dir "$OUTPUT_DIR")
+        [ "$BASELINE" = "true" ] && args+=(--baseline)
+        while IFS= read -r line; do
+          [ -n "$line" ] && args+=(--input "$line")
+        done <<< "$TENSOR_INPUTS"
+
+        # The wrapper's exit status is the contract: 2 is a refusal, 3 is no
+        # such device, 4 is a phone that stopped answering. Each is reported as
+        # itself rather than collapsed into "the step failed".
+        status=0
+        droidrunner-device "${args[@]}" > /dev/null || status=$?
+
+        field() { grep -o "\"$1\":[^,}]*" "$RESULTS" | head -n1 | cut -d: -f2- | tr -d '" '; }
+        {
+          echo "avg-us=$(field avgUs)"
+          echo "median-us=$(field medianUs)"
+          echo "executed=$(field executed)"
+          echo "executed-by=$(field executedBy)"
+          echo "results-path=$RESULTS"
+        } >> "$GITHUB_OUTPUT"
+
+        {
+          echo "### $MODEL on ${DEVICE:-the default driver}"
+          echo
+          echo "| | |"
+          echo "| --- | --- |"
+          echo "| executed | \`$(field executed)\` |"
+          echo "| by | \`$(field executedBy)\` |"
+          echo "| median | $(field medianUs) µs |"
+          echo "| iterations | $ITERATIONS |"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        case $status in
+          0) ;;
+          2) echo "::warning::the driver refused the graph; see $RESULTS" ;;
+          3) echo "::error::no such device on this phone: $DEVICE" ;;
+          4) echo "::error::the device agent did not answer" ;;
+          *) echo "::error::the run failed; see $RESULTS" ;;
+        esac
+        exit $status
