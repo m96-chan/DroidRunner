@@ -261,6 +261,10 @@ internal class DeviceAgentServer(
             iterations = iterations,
             inputs = inputs,
             outputTarget = outputTarget,
+            baseline = request.optBoolean("baseline"),
+            // App-private and outside the guest's home: a diagnostic scratch
+            // file is not something a job should find, or be able to write.
+            diagnosticsDir = runtimeDir.parentFile,
         )
     }
 

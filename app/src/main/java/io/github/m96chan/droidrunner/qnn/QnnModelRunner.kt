@@ -10,6 +10,8 @@
  */
 package io.github.m96chan.droidrunner.qnn
 
+import io.github.m96chan.droidrunner.npu.Delegation
+import io.github.m96chan.droidrunner.npu.refuseUnattributable
 import io.github.m96chan.droidrunner.npu.TensorIo
 import org.json.JSONArray
 import org.json.JSONObject
@@ -34,6 +36,9 @@ import java.nio.ByteOrder
  * something.
  */
 internal object QnnModelRunner {
+
+    /** What TFLite calls this delegate when it announces the partitioning. */
+    private const val QNN_DELEGATE = "TfLiteQnnDelegate"
 
     /**
      * Where this process says how far it got.
@@ -142,10 +147,10 @@ internal object QnnModelRunner {
             timings.sort()
 
             step("reading what the delegate reported")
-            val delegation = QnnDelegation.parse(DelegateLog.since(log, logFrom))
+            val delegation = Delegation.parse(DelegateLog.since(log, logFrom))
             step("reading profiling")
             val profiling = QnnNative.profiling(handle)
-            refuseUnattributable(delegation, profiling)?.let { reason ->
+            refuseUnattributable(delegation, profiling, QNN_DELEGATE)?.let { reason ->
                 return failure(model, backend, reason, DelegateLog.since(log, logFrom).takeLast(600))
             }
 
@@ -169,7 +174,7 @@ internal object QnnModelRunner {
                                 .put("delegated", it.delegated)
                                 .put("total", it.total)
                                 .put("partitions", it.partitions)
-                                .put("describe", it.describe())
+                                .put("describe", it.describe("the Hexagon"))
                                 .put("partial", it.partial),
                         )
                     }
