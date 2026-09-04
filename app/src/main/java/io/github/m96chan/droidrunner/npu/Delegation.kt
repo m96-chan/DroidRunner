@@ -133,6 +133,51 @@ internal data class Delegation(
 }
 
 /**
+ * Who ran the graph, in the two words a result reports (issue #93).
+ *
+ * Naming the delegate is not enough on its own. Pinning to `mtk-mdla_shim` and
+ * having XNNPACK take the graph means the NNAPI delegate refused and the CPU
+ * picked it up — the pinned driver did nothing — and the first version of this
+ * reported exactly that as `executed: accelerator`,
+ * `executedBy: TfLiteXNNPackDelegate:mtk-mdla_shim`. Found by running on a
+ * second vendor, which is the only reason it was found at all.
+ */
+internal fun executedFor(delegation: Delegation?, deviceName: String?): Pair<String, String> {
+    val delegate = delegation?.delegate
+    return when {
+        delegation == null -> (if (deviceName == null) "cpu" else "unknown") to "cpu"
+
+        // A CPU delegate took it. Whatever was asked for did not run it.
+        delegate in CPU_DELEGATES ->
+            (if (deviceName == null) "cpu" else "cpu-fallback") to (delegate ?: "cpu")
+
+        // NNAPI's own reference driver is the CPU, whatever route reached it.
+        // Reporting it as an accelerator is the same wrong claim as reporting
+        // XNNPACK as one.
+        deviceName in CPU_DEVICES -> "cpu" to "${delegate ?: "delegate"}:$deviceName"
+
+        // Something took it that is not the delegate a pinned NNAPI device
+        // would have gone through, so the pin did not happen.
+        deviceName != null && delegate != null && delegate != NNAPI_DELEGATE ->
+            "cpu-fallback" to delegate
+
+        delegation.none -> "cpu-fallback" to "cpu"
+
+        deviceName != null -> delegation.executed to "${delegate ?: "delegate"}:$deviceName"
+
+        else -> delegation.executed to (delegate ?: "delegate")
+    }
+}
+
+/** TFLite's own CPU delegate. It is not an accelerator however it is reached. */
+private val CPU_DELEGATES = setOf("TfLiteXNNPackDelegate")
+
+/** NNAPI drivers that are the CPU. The name says so; the report should too. */
+private val CPU_DEVICES = setOf("nnapi-reference")
+
+private const val NNAPI_DELEGATE = "TfLiteNnapiDelegate"
+
+/**
  * Whether a run may be published as an accelerator measurement.
  *
  * Silence counts as a no. If the delegate never said what it took, the honest

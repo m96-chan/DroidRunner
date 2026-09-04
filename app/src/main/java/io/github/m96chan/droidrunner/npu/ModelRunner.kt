@@ -138,26 +138,10 @@ internal object ModelRunner {
                 .put("sizeBytes", model.length())
                 .put("requestedDevice", deviceName ?: "default")
                 // What actually happened, rather than what was asked for.
-                .put(
-                    "executed",
-                    when {
-                        delegation != null -> delegation.executed
-                        deviceName == null -> "cpu"
-                        else -> "unknown"
-                    },
-                )
-                // Names both halves of the answer: the delegate that claimed
-                // the nodes, and the driver it was pinned to. "accelerator"
-                // alone would read the same for a graph NNAPI handed to
-                // nnapi-reference, which is the CPU.
-                .put(
-                    "executedBy",
-                    when {
-                        delegation == null || delegation.none -> "cpu"
-                        deviceName != null -> "${delegation.delegate ?: "delegate"}:$deviceName"
-                        else -> delegation.delegate ?: "delegate"
-                    },
-                )
+                .put("executed", executedFor(delegation, deviceName).first)
+                // Names both halves when there are two: the delegate that
+                // claimed the nodes and the driver it was pinned to.
+                .put("executedBy", executedFor(delegation, deviceName).second)
                 .apply {
                     delegation?.let {
                         put(

@@ -166,3 +166,75 @@ class DelegateNamingTest {
         assertEquals("all 8 operators on the delegate, 1 partitions", Delegation(8, 8, 1).describe())
     }
 }
+
+class ExecutedForTest {
+
+    private fun nnapi(delegated: Int, total: Int) =
+        Delegation(delegated, total, 1, "TfLiteNnapiDelegate")
+
+    private fun xnnpack(delegated: Int, total: Int) =
+        Delegation(delegated, total, 1, "TfLiteXNNPackDelegate")
+
+    @Test fun aPinnedDriverThatRanItIsNamedWithTheDelegate() {
+        val (executed, by) = executedFor(nnapi(64, 64), "mtk-neuron_shim")
+
+        assertEquals("accelerator", executed)
+        assertEquals("TfLiteNnapiDelegate:mtk-neuron_shim", by)
+    }
+
+    @Test fun aCpuDelegateIsNeverAnAcceleratorHoweverItWasReached() {
+        // Pinning to mtk-mdla_shim and having XNNPACK take the graph means the
+        // NNAPI delegate refused and the CPU picked it up. The first version
+        // of this reported that as accelerator on mtk-mdla_shim, which is the
+        // exact claim #93 exists to stop. Caught by running on a second vendor.
+        val (executed, by) = executedFor(xnnpack(64, 64), "mtk-mdla_shim")
+
+        assertEquals("cpu-fallback", executed)
+        assertEquals("TfLiteXNNPackDelegate", by)
+    }
+
+    @Test fun withNothingRequestedTheCpuIsJustTheCpu() {
+        assertEquals("cpu" to "TfLiteXNNPackDelegate", executedFor(xnnpack(60, 64), null))
+        assertEquals("cpu" to "cpu", executedFor(null, null))
+    }
+
+    @Test fun aPartialAcceleratorRunSaysPartial() {
+        val (executed, by) = executedFor(nnapi(31, 64), "google-edgetpu")
+
+        assertEquals("partial", executed)
+        assertEquals("TfLiteNnapiDelegate:google-edgetpu", by)
+    }
+
+    @Test fun takingNothingIsAFallbackWhateverTheDelegateWasCalled() {
+        assertEquals("cpu-fallback" to "cpu", executedFor(nnapi(0, 64), "mtk-dsp_shim"))
+    }
+
+    @Test fun aRequestedDeviceWithNoReportAtAllIsUnknownRatherThanFine() {
+        // Silence is not a measurement. Saying "accelerator" here would be a
+        // guess wearing the clothes of a result.
+        assertEquals("unknown" to "cpu", executedFor(null, "mtk-neuron_shim"))
+    }
+}
+
+class CpuDriverTest {
+
+    @Test fun nnapisReferenceDriverIsTheCpuAndSaysSo() {
+        // It is the CPU by name and by nature. Calling a 257ms run on it an
+        // accelerator result is the same wrong claim as calling XNNPACK one,
+        // and it was in the first version for the same reason.
+        val (executed, by) = executedFor(
+            Delegation(64, 64, 1, "TfLiteNnapiDelegate"),
+            "nnapi-reference",
+        )
+
+        assertEquals("cpu", executed)
+        assertEquals("TfLiteNnapiDelegate:nnapi-reference", by)
+    }
+
+    @Test fun arealAcceleratorThroughTheSameDelegateIsStillAnAccelerator() {
+        assertEquals(
+            "accelerator",
+            executedFor(Delegation(64, 64, 1, "TfLiteNnapiDelegate"), "mtk-mdla_shim").first,
+        )
+    }
+}
