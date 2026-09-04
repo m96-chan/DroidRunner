@@ -8,6 +8,18 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!--
+        Android 17 blocks direct NPU access from apps that do not declare this,
+        and that includes the deprecated NNAPI this app already uses to reach
+        MediaTek and Tensor accelerators. Declared before targeting API 37 so
+        the path that works today keeps working when the target moves.
+
+        required="false" because a phone without an NPU is still a perfectly
+        good ARM64 runner — most of what this app does has nothing to do with
+        accelerators.
+    -->
+    <uses-feature android:name="android.hardware.npu" android:required="false" />
+
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
