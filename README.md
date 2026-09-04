@@ -218,13 +218,20 @@ Obtainium then updates the app in place as new tags are published.
 
 > [!NOTE]
 > Updates install over the existing app only while the signing key stays the same.
-> Reinstalling from a differently signed source (a future F-Droid build, or your own
-> build) requires uninstalling first, which discards the runner registration and the
-> stored GitHub credentials — you would have to register the device again.
+> Reinstalling from a differently signed source — your own build, say — requires
+> uninstalling first, which discards the runner registration and the stored GitHub
+> credentials, so you would have to register the device again.
 
 Google Play is not a distribution target: the app exists to execute code fetched from
 outside the store, which runs into the Device & Network Abuse policy on dynamic code
 execution.
+
+F-Droid is not one either. Its promise is that everything running on your device was
+built from source, and this app cannot honour it: on first setup it downloads a
+~200MB Ubuntu rootfs and GitHub's prebuilt runner, and then executes whatever a
+workflow contains. Building the APK from source would guarantee the least dangerous
+part of what actually runs. Releases here, or Obtainium, serve the same people
+without that mismatch.
 
 ## Build environment
 
@@ -464,7 +471,6 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 - [ ] Skip unreadable entries in GitHub responses, and say when an older runtime was chosen ([#58](https://github.com/m96-chan/DroidRunner/issues/58))
 - [ ] Notify or auto-install when the runtime bundle is out of date ([#14](https://github.com/m96-chan/DroidRunner/issues/14))
 - [ ] Fleet dashboard showing the state of multiple devices ([#7](https://github.com/m96-chan/DroidRunner/issues/7))
-- [ ] Publish on F-Droid ([#18](https://github.com/m96-chan/DroidRunner/issues/18))
 - [ ] Generate a GPL-compliant runtime source archive and SBOM
 
 ## Related projects
