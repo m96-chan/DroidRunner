@@ -12,6 +12,14 @@ data class RunnerSnapshot(
     val currentJob: String? = null,
     /** Current admission warning; the listener may still be active while it is confirmed. */
     val pausedReason: String? = null,
+    /**
+     * When GitHub first refused this listener's session, or null.
+     *
+     * Set after an app update, where the killed listener never released it
+     * (issue #79). Kept as the moment it started so the screen can say how
+     * long the wait has been rather than only that there is one.
+     */
+    val sessionHeldSince: Long? = null,
     val jobsSucceeded: Int = 0,
     val jobsFailed: Int = 0,
     /** How many times the supervisor restarted the listener this session. */
@@ -231,7 +239,13 @@ object RunnerStatus {
 
     fun onServiceStopped() {
         _snapshot.update {
-            it.copy(state = RunnerState.STOPPED, currentJob = null, startedAtMillis = null, pausedReason = null)
+            it.copy(
+                state = RunnerState.STOPPED,
+                currentJob = null,
+                startedAtMillis = null,
+                pausedReason = null,
+                sessionHeldSince = null,
+            )
         }
     }
 
@@ -263,14 +277,32 @@ object RunnerStatus {
         publish(line)
     }
 
+    /**
+     * Forgets that a session was held, without claiming it was released.
+     *
+     * Used once the wait has been acted on or reported, so the same minute is
+     * not announced again on every poll (issue #79).
+     */
+    fun onSessionWaitAcknowledged() {
+        _snapshot.update { it.copy(sessionHeldSince = null) }
+    }
+
     @Synchronized
     private fun publish(line: String) {
         val wasRunning = _snapshot.value.state == RunnerState.JOB_RUNNING
         _snapshot.update { current ->
             var next = current.copy(recentLog = (current.recentLog + line).takeLast(LOG_LINES))
             when {
-                line.contains("Listening for Jobs", ignoreCase = true) ->
-                    next = next.copy(state = RunnerState.LISTENING, currentJob = null)
+                SessionConflict.isResolved(line) ->
+                    next = next.copy(
+                        state = RunnerState.LISTENING,
+                        currentJob = null,
+                        sessionHeldSince = null,
+                    )
+                // Only the first one starts the clock; the retry line repeats
+                // every few seconds and would otherwise keep resetting it.
+                SessionConflict.isConflict(line) && next.sessionHeldSince == null ->
+                    next = next.copy(sessionHeldSince = System.currentTimeMillis())
                 line.contains("Running job:", ignoreCase = true) ->
                     next = next.copy(
                         state = RunnerState.JOB_RUNNING,
