@@ -23,13 +23,16 @@ jobs:
   bundle:
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build runtime bundle
         env:
           RUNNER_VERSION: ${{ inputs.runner_version }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          # Resolving the latest actions/runner release is an API call, and an
+          # unauthenticated one shares a rate limit with every other runner.
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           sudo -E runtime/build-bundle.sh
           # The bundle build chroots, so it runs as root and leaves its output
@@ -64,7 +67,7 @@ jobs:
 
       - name: Upload artifact
         if: github.event_name != 'workflow_dispatch' || inputs.release_tag == ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: droidrunner-runtime-arm64
           path: |

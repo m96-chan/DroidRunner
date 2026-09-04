@@ -140,7 +140,7 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     // Android's org.json is a stub in unit tests; use the real implementation.
-    testImplementation("org.json:json:20240303")
+    testImplementation("org.json:json:20260814")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
 
