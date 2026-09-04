@@ -70,9 +70,10 @@ internal object QnnNative {
     /**
      * Points this process's stdout and stderr at [path].
      *
-     * QNN writes its diagnostics with printf, and at least one phone in the
-     * fleet has a ROM whose logcat returns nothing at all. Without somewhere
-     * to put that output, a backend refusing a graph is unexplainable.
+     * QNN writes its diagnostics with printf, and an app cannot count on logcat
+     * carrying them — see [DelegateLog] for the ROM that silences them. Without
+     * somewhere to put that output, a backend refusing a graph is
+     * unexplainable.
      */
     fun captureOutput(path: String): Boolean = ensureLoaded() && redirectOutput(path)
 
