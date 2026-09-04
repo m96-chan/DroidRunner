@@ -60,14 +60,23 @@ object ModelRunner {
                     .order(ByteOrder.nativeOrder())
             }
 
-            repeat(warmup) { interpreter.runForMultipleInputsOutputs(inputs, outputs) }
+            // Every buffer has to be rewound before every run, warmup included:
+            // an invocation leaves each one at its limit, and the next bulk
+            // copy into a buffer with nothing remaining throws. The timing
+            // loop did this and the warmup did not, which is why the first
+            // run always worked and the second never did.
+            fun invoke() {
+                inputs.forEach { (it as ByteBuffer).rewind() }
+                outputs.values.forEach { it.rewind() }
+                interpreter.runForMultipleInputsOutputs(inputs, outputs)
+            }
+
+            repeat(warmup) { invoke() }
 
             val timings = LongArray(runs)
             repeat(runs) { run ->
-                inputs.forEach { (it as ByteBuffer).rewind() }
-                outputs.values.forEach { it.rewind() }
                 val started = System.nanoTime()
-                interpreter.runForMultipleInputsOutputs(inputs, outputs)
+                invoke()
                 timings[run] = System.nanoTime() - started
             }
             timings.sort()
