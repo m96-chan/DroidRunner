@@ -160,7 +160,7 @@ thermal  <span class="ok">none</span> &middot; battery <span class="ok">93%</spa
       - <span class="k">run</span>: <span class="s">uname -a</span>
       - <span class="k">run</span>: <span class="s">./ci/test-arm64.sh</span></pre>
   <p>Or ask the silicon a question:</p>
-  <pre><span class="k">runs-on</span>: [<span class="s">self-hosted</span>, <span class="s">android</span>, <span class="s">android-npu</span>]
+  <pre><span class="k">runs-on</span>: [<span class="s">self-hosted</span>, <span class="s">android</span>, <span class="s">nnapi-accelerator</span>]
 <span class="k">steps</span>:
   - <span class="k">run</span>: <span class="s">droidrunner-device capabilities</span>   <span class="c"># device info, thermal, drivers</span>
   - <span class="k">run</span>: <span class="s">droidrunner-device bench-all</span>      <span class="c"># CONV_2D on every driver</span></pre>
@@ -186,15 +186,50 @@ nnapi-reference              1107.7      17.04</pre>
     <tr><td><code>android-api-N</code></td><td>Android API level</td></tr>
     <tr><td><code>soc-*</code></td><td>Detected SoC</td></tr>
     <tr><td><code>android-npu</code> / <code>android-no-npu</code></td><td>Whether an NPU was detected</td></tr>
-    <tr><td><code>npu-qnn</code> / <code>npu-tflite</code> / <code>npu-neuron</code> / <code>npu-enn</code></td>
-        <td>Qualcomm QNN / LiteRT / MediaTek Neuron / Samsung ENN candidate</td></tr>
+    <tr><td><code>nnapi-accelerator</code></td>
+        <td><b>An accelerator answered the probe</b> &mdash; the label to select on</td></tr>
+    <tr><td><code>npu-qnn</code></td>
+        <td><b>A model has run on this phone's Hexagon</b> &mdash; measured, not guessed</td></tr>
+    <tr><td><code>npu-tflite</code> / <code>npu-neuron</code> / <code>npu-enn</code></td>
+        <td>LiteRT / MediaTek Neuron / Samsung ENN candidate, from the SoC name</td></tr>
   </table>
   </div>
   <div class="note">
-    Vendor labels are still <b>candidates</b> derived from the SoC name. Only the
-    NNAPI probe results are verified today; the adapters that would make
-    <code>npu-qnn</code> a promise rather than a guess are tracked in
-    <a href="https://github.com/m96-chan/DroidRunner/issues/4">issue #4</a>.
+    <code>nnapi</code>, <code>nnapi-accelerator</code> and <code>npu-qnn</code> come
+    from asking the device; the rest are <b>candidates</b> derived from the SoC name.
+    Select on a measured one when a job needs acceleration, or it may quietly get a
+    CPU. <code>npu-qnn</code> used to be a guess and is now earned: a Snapdragon
+    carries it only after a model has been shown to run on its Hexagon.
+  </div>
+</section>
+
+
+<section class="panel">
+  <h2>what a phone answers that a VM cannot</h2>
+  <p>
+    EfficientNet-Lite0, same model and same harness on three phones. Every row says
+    which processor actually ran it, not which one was asked for.
+  </p>
+  <table>
+    <tr><th>device</th><th>driver</th><th>int8</th><th>float32</th></tr>
+    <tr><td>Tensor G4</td><td><code>google-edgetpu</code></td><td><b>0.65 ms</b></td><td>16.7 ms</td></tr>
+    <tr><td>SM8650</td><td><code>qnn-htp</code> (Hexagon)</td><td>1.22 ms</td><td><b>2.78 ms</b></td></tr>
+    <tr><td>MT6899</td><td><code>mtk-neuron_shim</code></td><td>2.12 ms</td><td>7.29 ms</td></tr>
+    <tr><td>MT6899</td><td><code>mtk-mdla_shim</code></td><td>2.69 ms</td><td><i>fell back to the CPU</i></td></tr>
+    <tr><td>Tensor G4</td><td><i>NNAPI's own choice</i></td><td>5.65 ms</td><td>&mdash;</td></tr>
+    <tr><td>SM8650</td><td><code>nnapi-reference</code> (CPU)</td><td>113 ms</td><td>39.8 ms</td></tr>
+    <tr><td>MT6899</td><td><code>nnapi-reference</code> (CPU)</td><td>257 ms</td><td>106 ms</td></tr>
+  </table>
+  <div class="note">
+    <b>The winner changes with the quantization.</b> EdgeTPU takes int8; the Hexagon
+    takes float32 by 2.6&times;. There is no "fast phone" &mdash; it depends on the
+    model you ship.<br><br>
+    <b>Some cells are not the accelerator at all.</b> MediaTek's MDLA refuses float32
+    outright and the CPU picks it up. An earlier version of this page would have
+    printed that as a number; every result now reports who executed it, and a
+    fallback says so.<br><br>
+    <b>Letting NNAPI choose costs most of the speedup</b> &mdash; and it cannot reach a
+    Hexagon at all, which is why that row needs the opt-in on the device.
   </div>
 </section>
 
@@ -207,14 +242,20 @@ nnapi-reference              1107.7      17.04</pre>
   <div class="meter"><span class="name">ephemeral + recovery</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
   <div class="meter"><span class="name">signed runtime</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
   <div class="meter"><span class="name">NNAPI probes + benchmarks</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
-  <div class="meter"><span class="name">your own .tflite model</span><span class="bar part"><i style="width:45%"></i></span><span class="val">in progress</span></div>
-  <div class="meter"><span class="name">vendor SDK adapters</span><span class="bar none"><i style="width:8%"></i></span><span class="val">designed</span></div>
+  <div class="meter"><span class="name">your own .tflite model</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
+  <div class="meter"><span class="name">your inputs, your outputs back</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
+  <div class="meter"><span class="name">Qualcomm Hexagon (opt-in)</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
+  <div class="meter"><span class="name">result contract + action</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
+  <div class="meter"><span class="name">MediaTek Neuron direct</span><span class="bar none"><i style="width:8%"></i></span><span class="val">blocked</span></div>
   <div class="meter"><span class="name">fleet dashboard</span><span class="bar none"><i style="width:8%"></i></span><span class="val">planned</span></div>
   <p style="color:var(--dim);font-size:.85rem;margin-bottom:0">
     Everything marked <span style="color:var(--green)">working</span> has run on a real
     device, not just in CI. The
-    <a href="https://github.com/m96-chan/DroidRunner#implementation-status">README</a>
-    carries the detailed table.
+    <a href="https://github.com/m96-chan/DroidRunner#readme">README</a>
+    carries the detail. <span style="color:var(--yellow)">blocked</span> means every
+    route was tried and each one needs a library that is absent or not loadable by an
+    app &mdash; see
+    <a href="https://github.com/m96-chan/DroidRunner/issues/83">issue #83</a>.
   </p>
 </section>
 
