@@ -160,7 +160,7 @@ thermal  <span class="ok">none</span> &middot; battery <span class="ok">93%</spa
       - <span class="k">run</span>: <span class="s">uname -a</span>
       - <span class="k">run</span>: <span class="s">./ci/test-arm64.sh</span></pre>
   <p>シリコンに直接聞くこともできます:</p>
-  <pre><span class="k">runs-on</span>: [<span class="s">self-hosted</span>, <span class="s">android</span>, <span class="s">android-npu</span>]
+  <pre><span class="k">runs-on</span>: [<span class="s">self-hosted</span>, <span class="s">android</span>, <span class="s">nnapi-accelerator</span>]
 <span class="k">steps</span>:
   - <span class="k">run</span>: <span class="s">droidrunner-device capabilities</span>   <span class="c"># 端末情報・温度・ドライバ一覧</span>
   - <span class="k">run</span>: <span class="s">droidrunner-device bench-all</span>      <span class="c"># 全ドライバでCONV_2D</span></pre>
@@ -185,16 +185,48 @@ nnapi-reference              1107.7      17.04</pre>
     <tr><td><code>android-api-N</code></td><td>Android APIレベル</td></tr>
     <tr><td><code>soc-*</code></td><td>検出したSoC情報</td></tr>
     <tr><td><code>android-npu</code> / <code>android-no-npu</code></td><td>NPUを検出したかどうか</td></tr>
-    <tr><td><code>npu-qnn</code> / <code>npu-tflite</code> / <code>npu-neuron</code> / <code>npu-enn</code></td>
-        <td>Qualcomm QNN / LiteRT / MediaTek Neuron / Samsung ENN の候補</td></tr>
+    <tr><td><code>nnapi-accelerator</code></td>
+        <td><b>アクセラレータがプローブに応答した</b> &mdash; 指定すべきラベル</td></tr>
+    <tr><td><code>npu-qnn</code></td>
+        <td><b>この端末のHexagonでモデルが実際に走った</b> &mdash; 推測ではなく実測</td></tr>
+    <tr><td><code>npu-tflite</code> / <code>npu-neuron</code> / <code>npu-enn</code></td>
+        <td>LiteRT / MediaTek Neuron / Samsung ENN の候補(SoC名由来)</td></tr>
   </table>
   </div>
   <div class="note">
-    ベンダー系ラベルはSoC名から推定した<b>候補</b>です。現時点で検証済みなのは
-    NNAPIプローブの結果のみで、<code>npu-qnn</code>を推測ではなく約束にするための
-    アダプタは
-    <a href="https://github.com/m96-chan/DroidRunner/issues/4">issue #4</a>
-    で追跡しています。
+    <code>nnapi</code> / <code>nnapi-accelerator</code> / <code>npu-qnn</code> は
+    端末に聞いた<b>実測</b>、それ以外はSoC名由来の<b>候補</b>です。加速が必要なジョブは
+    実測系のラベルを指定してください。さもないと黙ってCPUで走ります。
+    <code>npu-qnn</code> はかつて推測でしたが、いまは
+    <b>Hexagonでモデルが走ったことを示した端末にだけ</b>付きます。
+  </div>
+</section>
+
+
+<section class="panel">
+  <h2>VMには答えられない問い</h2>
+  <p>
+    EfficientNet-Lite0を、3台の実機で同じモデル・同じ計測系で実行したものです。各行は
+    「依頼したドライバ」ではなく<b>実際に実行したプロセッサ</b>を報告しています。
+  </p>
+  <table>
+    <tr><th>端末</th><th>ドライバ</th><th>int8</th><th>float32</th></tr>
+    <tr><td>Tensor G4</td><td><code>google-edgetpu</code></td><td><b>0.65 ms</b></td><td>16.7 ms</td></tr>
+    <tr><td>SM8650</td><td><code>qnn-htp</code>(Hexagon)</td><td>1.22 ms</td><td><b>2.78 ms</b></td></tr>
+    <tr><td>MT6899</td><td><code>mtk-neuron_shim</code></td><td>2.12 ms</td><td>7.29 ms</td></tr>
+    <tr><td>MT6899</td><td><code>mtk-mdla_shim</code></td><td>2.69 ms</td><td><i>CPUに落ちた</i></td></tr>
+    <tr><td>Tensor G4</td><td><i>NNAPI任せ</i></td><td>5.65 ms</td><td>&mdash;</td></tr>
+    <tr><td>SM8650</td><td><code>nnapi-reference</code>(CPU)</td><td>113 ms</td><td>39.8 ms</td></tr>
+    <tr><td>MT6899</td><td><code>nnapi-reference</code>(CPU)</td><td>257 ms</td><td>106 ms</td></tr>
+  </table>
+  <div class="note">
+    <b>量子化で勝者が入れ替わります。</b>int8はEdgeTPU、float32はHexagonが2.6倍差。
+    「速い端末」というものは無く、出荷するモデル次第です。<br><br>
+    <b>いくつかのセルはアクセラレータの計測ではありません。</b>MediaTekのMDLAはfloat32を
+    断り、CPUが拾っています。以前のこのページならそれを数値として載せていました。現在は
+    毎回「誰が実行したか」を報告し、フォールバックはフォールバックとして出ます。<br><br>
+    <b>NNAPI任せは高速化のほとんどを失い</b>、そもそもHexagonには到達できません。
+    だからその行には端末側のopt-inが必要です。
   </div>
 </section>
 
@@ -207,14 +239,19 @@ nnapi-reference              1107.7      17.04</pre>
   <div class="meter"><span class="name">ephemeral / 自動復帰</span><span class="bar"><i style="width:100%"></i></span><span class="val">動作</span></div>
   <div class="meter"><span class="name">署名付きruntime</span><span class="bar"><i style="width:100%"></i></span><span class="val">動作</span></div>
   <div class="meter"><span class="name">NNAPIプローブ / ベンチ</span><span class="bar"><i style="width:100%"></i></span><span class="val">動作</span></div>
-  <div class="meter"><span class="name">任意の.tfliteモデル実行</span><span class="bar part"><i style="width:45%"></i></span><span class="val">作業中</span></div>
-  <div class="meter"><span class="name">ベンダーSDKアダプタ</span><span class="bar none"><i style="width:8%"></i></span><span class="val">設計のみ</span></div>
+  <div class="meter"><span class="name">任意の.tfliteモデル実行</span><span class="bar"><i style="width:100%"></i></span><span class="val">動作</span></div>
+  <div class="meter"><span class="name">入力を渡し、出力を受け取る</span><span class="bar"><i style="width:100%"></i></span><span class="val">動作</span></div>
+  <div class="meter"><span class="name">Qualcomm Hexagon(opt-in)</span><span class="bar"><i style="width:100%"></i></span><span class="val">動作</span></div>
+  <div class="meter"><span class="name">結果契約 + composite action</span><span class="bar"><i style="width:100%"></i></span><span class="val">動作</span></div>
+  <div class="meter"><span class="name">MediaTek Neuron 直接</span><span class="bar none"><i style="width:8%"></i></span><span class="val">保留</span></div>
   <div class="meter"><span class="name">フリート ダッシュボード</span><span class="bar none"><i style="width:8%"></i></span><span class="val">計画</span></div>
   <p style="color:var(--dim);font-size:.85rem;margin-bottom:0">
     <span style="color:var(--green)">動作</span>としたものは、CIだけでなく実機で確認済みです。
     詳細な表は
-    <a href="https://github.com/m96-chan/DroidRunner/blob/main/README.ja.md#現在の実装状況">README</a>
-    にあります。
+    <a href="https://github.com/m96-chan/DroidRunner/blob/main/README.ja.md">README</a>
+    にあります。<span style="color:var(--yellow)">保留</span>は、経路を全部試したうえで
+    どれも「端末に無い、またはアプリからロードできない」ライブラリを通ることが分かった状態です
+    (<a href="https://github.com/m96-chan/DroidRunner/issues/83">issue #83</a>)。
   </p>
 </section>
 

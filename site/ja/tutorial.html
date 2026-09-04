@@ -241,15 +241,38 @@
     実行中のジョブ向けに発行されたトークンで認証しながら、
     loopback経由でアプリ内のDevice Agentと通信します。
   </p>
-  <pre><span class="k">runs-on</span>: [<span class="s">self-hosted</span>, <span class="s">android</span>, <span class="s">android-npu</span>]
+  <pre><span class="k">runs-on</span>: [<span class="s">self-hosted</span>, <span class="s">android</span>, <span class="s">nnapi-accelerator</span>]
 <span class="k">steps</span>:
   - <span class="k">run</span>: <span class="s">droidrunner-device capabilities</span>
-  - <span class="k">run</span>: <span class="s">droidrunner-device bench-all</span>
-  - <span class="k">run</span>: <span class="s">droidrunner-device test conv --device mtk-neuron_shim --iterations 50</span></pre>
+  - <span class="k">run</span>: <span class="s">droidrunner-device devices</span>
+  - <span class="k">run</span>: <span class="s">droidrunner-device test model my-model.tflite --device google-edgetpu --iterations 30</span></pre>
+  <div class="note">
+    指定するのは <code>android-npu</code> ではなく <code>nnapi-accelerator</code> です。
+    <code>android-npu</code> は「そのSoCファミリーにNPUがあると分かっている」という
+    <b>ヒント</b>にすぎず、約束ではありません。これを指定したジョブは、
+    全部CPUで走って何も言わない端末に着地することがあります。
+  </div>
+
+  <h3>速さではなく、答えを確かめる</h3>
+  <p>
+    レイテンシは「グラフが受理された」ことしか言いません。<em>正しく計算されたか</em>は
+    別の問いで、モデルを出荷するなら重要なのはそちらです。ベンダーのシリコン上でだけ出る
+    バグは、手元のPCで検査している限り正しいコードと見分けがつきません。
+  </p>
+  <pre>  - <span class="k">uses</span>: <span class="s">m96-chan/DroidRunner/actions/run-model@v0.7.0</span>
+    <span class="k">id</span>: <span class="s">device</span>
+    <span class="k">with</span>:
+      <span class="k">model</span>: <span class="s">build/model.tflite</span>
+      <span class="k">device</span>: <span class="s">qnn-htp</span>
+      <span class="k">inputs</span>: <span class="s">fixtures/input-0.bin</span>
+      <span class="k">output-dir</span>: <span class="s">out</span>
+  - <span class="k">run</span>: <span class="s">test "${{ steps.device.outputs.executed }}" = accelerator</span>
+  - <span class="k">run</span>: <span class="s">cmp out/output-0.bin fixtures/golden-0.bin</span></pre>
   <p style="color:var(--dim)">
-    現時点でAgentが実行できるのは組み込みのADDとCONV_2Dベンチマークのみです。
-    任意のモデルの実行が次のマイルストーンです —
-    <a href="https://github.com/m96-chan/DroidRunner/issues/4">issue #4</a>。
+    結果には必ず <code>executed</code>(依頼した相手ではなく<b>実際に実行した相手</b>)が
+    付き、帰属できない実行は数値として報告せず拒否します。他リポジトリが依存できる形は
+    <a href="https://github.com/m96-chan/DroidRunner/blob/main/docs/RESULT-CONTRACT.md">RESULT-CONTRACT.md</a>
+    に書いてあります。
   </p>
 </section>
 

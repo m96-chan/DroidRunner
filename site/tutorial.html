@@ -244,15 +244,39 @@
     Device Agent in the app over loopback, authenticated with a token minted for the
     running job.
   </p>
-  <pre><span class="k">runs-on</span>: [<span class="s">self-hosted</span>, <span class="s">android</span>, <span class="s">android-npu</span>]
+  <pre><span class="k">runs-on</span>: [<span class="s">self-hosted</span>, <span class="s">android</span>, <span class="s">nnapi-accelerator</span>]
 <span class="k">steps</span>:
   - <span class="k">run</span>: <span class="s">droidrunner-device capabilities</span>
-  - <span class="k">run</span>: <span class="s">droidrunner-device bench-all</span>
-  - <span class="k">run</span>: <span class="s">droidrunner-device test conv --device mtk-neuron_shim --iterations 50</span></pre>
+  - <span class="k">run</span>: <span class="s">droidrunner-device devices</span>
+  - <span class="k">run</span>: <span class="s">droidrunner-device test model my-model.tflite --device google-edgetpu --iterations 30</span></pre>
+  <div class="note">
+    Select on <code>nnapi-accelerator</code>, not <code>android-npu</code>.
+    <code>android-npu</code> says the SoC family is known to have an NPU &mdash; a
+    hint, not a promise &mdash; so a job asking for it can land on a device that runs
+    everything on its CPU and says nothing.
+  </div>
+
+  <h3>Checking the answer, not just the clock</h3>
+  <p>
+    Latency says a graph was <em>accepted</em>. Whether it was computed
+    <em>correctly</em> is a different question, and the one that matters if you are
+    shipping a model: a bug that only appears on the vendor's silicon looks exactly
+    like working code when the check runs on a laptop.
+  </p>
+  <pre>  - <span class="k">uses</span>: <span class="s">m96-chan/DroidRunner/actions/run-model@v0.7.0</span>
+    <span class="k">id</span>: <span class="s">device</span>
+    <span class="k">with</span>:
+      <span class="k">model</span>: <span class="s">build/model.tflite</span>
+      <span class="k">device</span>: <span class="s">qnn-htp</span>
+      <span class="k">inputs</span>: <span class="s">fixtures/input-0.bin</span>
+      <span class="k">output-dir</span>: <span class="s">out</span>
+  - <span class="k">run</span>: <span class="s">test "${{ steps.device.outputs.executed }}" = accelerator</span>
+  - <span class="k">run</span>: <span class="s">cmp out/output-0.bin fixtures/golden-0.bin</span></pre>
   <p style="color:var(--dim)">
-    Today the agent runs built-in ADD and CONV_2D benchmarks. Running a model you
-    supply is the next milestone —
-    <a href="https://github.com/m96-chan/DroidRunner/issues/4">issue #4</a>.
+    Every result reports <code>executed</code> &mdash; who actually ran the graph, not
+    who was asked &mdash; and a run that cannot be attributed is refused rather than
+    reported as a number. The shape another repository can rely on is written down in
+    <a href="https://github.com/m96-chan/DroidRunner/blob/main/docs/RESULT-CONTRACT.md">RESULT-CONTRACT.md</a>.
   </p>
 </section>
 
