@@ -12,6 +12,7 @@ package io.github.m96chan.droidrunner.qnn
 
 import io.github.m96chan.droidrunner.npu.Delegation
 import io.github.m96chan.droidrunner.npu.refuseUnattributable
+import io.github.m96chan.droidrunner.npu.ResultContract
 import io.github.m96chan.droidrunner.npu.TensorIo
 import org.json.JSONArray
 import org.json.JSONObject
@@ -151,7 +152,16 @@ internal object QnnModelRunner {
             step("reading profiling")
             val profiling = QnnNative.profiling(handle)
             refuseUnattributable(delegation, profiling, QNN_DELEGATE)?.let { reason ->
-                return failure(model, backend, reason, DelegateLog.since(log, logFrom).takeLast(600))
+                // It ran; nothing could be attributed to the Hexagon. A sweep
+                // records that and carries on, which is a different thing from
+                // the phone being gone.
+                return failure(
+                    model,
+                    backend,
+                    reason,
+                    DelegateLog.since(log, logFrom).takeLast(600),
+                    ResultContract.Code.REFUSED,
+                )
             }
 
             JSONObject()
@@ -211,9 +221,16 @@ internal object QnnModelRunner {
         }
     }
 
-    private fun failure(model: File, backend: String, reason: String, detail: String) =
+    private fun failure(
+        model: File,
+        backend: String,
+        reason: String,
+        detail: String,
+        code: String = ResultContract.Code.FAILED,
+    ) =
         JSONObject()
             .put("ok", false)
+            .put("code", code)
             .put("model", model.name)
             .put("requestedDevice", "qnn-$backend")
             .put("error", reason)

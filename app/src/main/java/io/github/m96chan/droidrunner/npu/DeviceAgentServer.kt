@@ -132,7 +132,11 @@ internal class DeviceAgentServer(
             }
         }
         if (contentLength > MAX_BODY_BYTES) {
-            writeResponse(client, 413, """{"error":"request body too large"}""")
+            writeResponse(
+                client,
+                413,
+                ResultContract.error(ResultContract.Code.INVALID_REQUEST, "request body too large"),
+            )
             return
         }
         val body = if (contentLength > 0) {
@@ -148,15 +152,23 @@ internal class DeviceAgentServer(
 
         val expected = currentToken
         val response: Pair<Int, String> = when {
-            expected == null -> 403 to
-                """{"error":"device agent is only available while a job is running"}"""
+            expected == null -> 403 to ResultContract.error(
+                ResultContract.Code.INVALID_REQUEST,
+                "device agent is only available while a job is running",
+            )
             presentedToken == null || !constantTimeEquals(presentedToken, expected) ->
-                401 to """{"error":"missing or invalid capability token"}"""
+                401 to ResultContract.error(
+                    ResultContract.Code.INVALID_REQUEST,
+                    "missing or invalid capability token",
+                )
             method == "GET" && path == "/v1/capabilities" -> 200 to capabilitiesJson()
             method == "POST" && path == "/v1/tests/nnapi" -> nnapiTest(body)
             method == "POST" && path == "/v1/tests/conv" -> convTest(body)
             method == "POST" && path == "/v1/tests/model" -> modelTest(body)
-            else -> 404 to """{"error":"unknown endpoint"}"""
+            else -> 404 to ResultContract.error(
+                ResultContract.Code.INVALID_REQUEST,
+                "unknown endpoint",
+            )
         }
         writeResponse(client, response.first, response.second)
     }
@@ -208,13 +220,18 @@ internal class DeviceAgentServer(
      */
     private fun modelTest(body: String): Pair<Int, String> {
         val request = runCatching { JSONObject(body.ifBlank { "{}" }) }.getOrElse {
-            return 400 to """{"error":"invalid JSON body"}"""
+            return 400 to ResultContract.error(ResultContract.Code.INVALID_REQUEST, "invalid JSON body")
         }
         val path = request.optString("path").takeIf { it.isNotBlank() }
-            ?: return 400 to """{"error":"path is required"}"""
+            ?: return 400 to ResultContract.error(
+                ResultContract.Code.INVALID_REQUEST,
+                "path is required",
+            )
         val model = GuestPath.resolve(runtimeDir, path)
-            ?: return 400 to
-                """{"error":"model must be a file under /home/runner (the job workspace)"}"""
+            ?: return 400 to ResultContract.error(
+                ResultContract.Code.INVALID_REQUEST,
+                "model must be a file under /home/runner (the job workspace)",
+            )
         val device = request.optString("device").takeIf { it.isNotBlank() }
         val iterations = request.optInt("iterations", 50)
 
@@ -225,17 +242,17 @@ internal class DeviceAgentServer(
         for (index in 0 until (requested?.length() ?: 0)) {
             val path = requested!!.optString(index)
             inputs += GuestPath.resolve(runtimeDir, path)
-                ?: return 400 to JSONObject()
-                    .put("ok", false)
-                    .put("error", "input $index is not a readable file under /home/runner: $path")
-                    .toString()
+                ?: return 400 to ResultContract.error(
+                    ResultContract.Code.INVALID_REQUEST,
+                    "input $index is not a readable file under /home/runner: $path",
+                )
         }
         val outputTarget = request.optString("outputDir").takeIf { it.isNotBlank() }?.let { path ->
             val directory = GuestPath.resolveDirectory(runtimeDir, path)
-                ?: return 400 to JSONObject()
-                    .put("ok", false)
-                    .put("error", "outputDir must be a directory under /home/runner: $path")
-                    .toString()
+                ?: return 400 to ResultContract.error(
+                    ResultContract.Code.INVALID_REQUEST,
+                    "outputDir must be a directory under /home/runner: $path",
+                )
             // Both frames: this process writes to the first, the job reads the
             // second, and only the second belongs in a reply.
             TensorIo.Target(directory, path)
@@ -244,15 +261,17 @@ internal class DeviceAgentServer(
         // "qnn-htp" and friends are not NNAPI device names; they mean the
         // Qualcomm delegate in its own process, which NNAPI cannot reach.
         val backend = runCatching { QnnBackend.of(device) }.getOrElse { unknown ->
-            return 400 to JSONObject()
-                .put("ok", false)
-                .put("error", unknown.message ?: "unknown QNN backend")
-                .toString()
+            return 400 to ResultContract.error(
+                ResultContract.Code.UNKNOWN_DEVICE,
+                unknown.message ?: "unknown QNN backend",
+            )
         }
         backend?.let {
             val run = qnnModel
-                ?: return 400 to
-                    """{"ok":false,"error":"this device has no Qualcomm accelerator runtime"}"""
+                ?: return 400 to ResultContract.error(
+                    ResultContract.Code.NOT_INSTALLED,
+                    "this device has no Qualcomm accelerator runtime",
+                )
             return 200 to run(model, it, iterations, inputs, outputTarget)
         }
         return 200 to ModelRunner.run(
@@ -277,7 +296,7 @@ internal class DeviceAgentServer(
             413 -> "Payload Too Large"
             else -> "Not Found"
         }
-        val payload = json.toByteArray()
+        val payload = ResultContract.stamp(json).toByteArray()
         runCatching {
             client.getOutputStream().apply {
                 write(

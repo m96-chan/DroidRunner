@@ -16,6 +16,9 @@ jobs:
   model:
     runs-on: [self-hosted, android, "${{ inputs.label }}"]
     steps:
+      # The composite action lives in this repository, so it has to be here.
+      - uses: actions/checkout@v4
+
       # Two builds of the same network. Vendor accelerators are built for
       # quantized graphs — the MediaTek DSP and MDLA reject float32 outright —
       # so running both is what shows whether the silicon is reachable.
@@ -117,6 +120,24 @@ jobs:
             echo "=== int8 on qnn-htp ==="
             ask "{\"path\":\"$model\",\"device\":\"qnn-htp\",\"iterations\":20}"
           fi
+
+      # The contract from a consumer's seat: no wrapper, no HTTP, just inputs
+      # and outputs (#95).
+      - name: Through the composite action, as another repository would
+        uses: ./actions/run-model
+        id: device
+        with:
+          model: int8.tflite
+          iterations: "20"
+          results-path: action-result.json
+
+      - name: The action's outputs are usable without parsing anything
+        run: |
+          echo "executed=${{ steps.device.outputs.executed }}"
+          echo "by=${{ steps.device.outputs.executed-by }}"
+          echo "median=${{ steps.device.outputs.median-us }}us"
+          test -s "${{ steps.device.outputs.results-path }}"
+          grep -q '"schema":1' "${{ steps.device.outputs.results-path }}"
 
       - name: Whatever NNAPI picks for int8
         run: droidrunner-device test model int8.tflite --iterations 30
