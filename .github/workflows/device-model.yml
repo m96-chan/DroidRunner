@@ -1,0 +1,50 @@
+name: Device model benchmark
+
+# Runs a caller-supplied model on the device, which is the question a hardware
+# pool exists to answer: how does *this* model behave on *this* silicon.
+on:
+  workflow_dispatch:
+    inputs:
+      label:
+        description: "Extra runner label selecting the device"
+        required: true
+        default: "android-npu"
+  push:
+    branches:
+      - feature/model-execution
+
+permissions: {}
+
+jobs:
+  model:
+    runs-on: [self-hosted, android, "${{ inputs.label || 'npu-neuron' }}"]
+    steps:
+      # Two builds of the same network. Vendor accelerators are built for
+      # quantized graphs — the MediaTek DSP and MDLA reject float32 outright —
+      # so running both is what shows whether the silicon is reachable.
+      - name: Fetch EfficientNet-Lite0, int8 and float32
+        run: |
+          base=https://storage.googleapis.com/mediapipe-models/image_classifier/efficientnet_lite0
+          curl -fsSL -o int8.tflite "$base/int8/1/efficientnet_lite0.tflite"
+          curl -fsSL -o float32.tflite "$base/float32/1/efficientnet_lite0.tflite"
+          ls -l int8.tflite float32.tflite
+
+      - name: Drivers this device exposes
+        run: droidrunner-device devices
+
+      - name: int8 on each driver
+        run: |
+          for dev in $(droidrunner-device devices); do
+            echo "=== int8 on $dev ==="
+            droidrunner-device test model int8.tflite --device "$dev" --iterations 30 || true
+          done
+
+      - name: float32 on each driver
+        run: |
+          for dev in $(droidrunner-device devices); do
+            echo "=== float32 on $dev ==="
+            droidrunner-device test model float32.tflite --device "$dev" --iterations 20 || true
+          done
+
+      - name: Whatever NNAPI picks for int8
+        run: droidrunner-device test model int8.tflite --iterations 30
