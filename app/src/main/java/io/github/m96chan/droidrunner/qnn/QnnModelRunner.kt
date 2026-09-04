@@ -10,6 +10,7 @@
  */
 package io.github.m96chan.droidrunner.qnn
 
+import io.github.m96chan.droidrunner.npu.TensorIo
 import org.json.JSONArray
 import org.json.JSONObject
 import org.tensorflow.lite.Delegate
@@ -55,6 +56,8 @@ internal object QnnModelRunner {
         backend: String,
         iterations: Int,
         warmup: Int = 2,
+        inputs: List<File> = emptyList(),
+        outputTarget: TensorIo.Target? = null,
     ): String {
         val diagnostics = File(directory).parentFile ?: File(directory)
         breadcrumb = File(diagnostics, "qnn-last-run.txt")
@@ -103,14 +106,17 @@ internal object QnnModelRunner {
             step("allocating tensors")
             interpreter.allocateTensors()
 
-            val inputs = (0 until interpreter.inputTensorCount).map { index ->
-                ByteBuffer
-                    .allocateDirect(interpreter.getInputTensor(index).numBytes())
-                    .order(ByteOrder.nativeOrder())
-                    .apply {
+            val inputSpecs = specsOf(interpreter, input = true)
+            TensorIo.mismatch(inputSpecs, inputs)?.let { error(it) }
+            val buffers = inputSpecs.map { spec ->
+                ByteBuffer.allocateDirect(spec.bytes).order(ByteOrder.nativeOrder()).apply {
+                    if (inputs.isEmpty()) {
                         while (remaining() > 0) put((position() % 251).toByte())
                         rewind()
+                    } else {
+                        TensorIo.load(this, inputs[spec.index])
                     }
+                }
             }.toTypedArray<Any>()
             val outputs = (0 until interpreter.outputTensorCount).associate { index ->
                 index to ByteBuffer
@@ -119,9 +125,9 @@ internal object QnnModelRunner {
             }
 
             fun invoke() {
-                inputs.forEach { (it as ByteBuffer).rewind() }
+                buffers.forEach { (it as ByteBuffer).rewind() }
                 outputs.values.forEach { it.rewind() }
-                interpreter.runForMultipleInputsOutputs(inputs, outputs)
+                interpreter.runForMultipleInputsOutputs(buffers, outputs)
             }
 
             step("warmup")
@@ -168,8 +174,23 @@ internal object QnnModelRunner {
                         )
                     }
                 }
-                .put("inputs", shapes(interpreter, input = true))
-                .put("outputs", shapes(interpreter, input = false))
+                .put("inputs", JSONArray(inputSpecs.map(TensorIo::describe)))
+                .put(
+                    "outputs",
+                    JSONArray(specsOf(interpreter, input = false).map(TensorIo::describe)),
+                )
+                .apply {
+                    outputTarget?.let { target ->
+                        put(
+                            "outputFiles",
+                            JSONArray(
+                                specsOf(interpreter, input = false).map { spec ->
+                                    TensorIo.save(target, spec, outputs.getValue(spec.index))
+                                },
+                            ),
+                        )
+                    }
+                }
                 .toString()
         } catch (failed: Throwable) {
             failure(
@@ -194,22 +215,24 @@ internal object QnnModelRunner {
             .put("detail", detail)
             .toString()
 
-    private fun shapes(interpreter: Interpreter, input: Boolean): JSONArray {
+    /** What the interpreter settled on, which is only final after allocation. */
+    private fun specsOf(interpreter: Interpreter, input: Boolean): List<TensorIo.Spec> {
         val count = if (input) interpreter.inputTensorCount else interpreter.outputTensorCount
-        return JSONArray().apply {
-            for (index in 0 until count) {
-                val tensor =
-                    if (input) interpreter.getInputTensor(index)
-                    else interpreter.getOutputTensor(index)
-                put(
-                    JSONObject()
-                        .put("name", tensor.name())
-                        .put("type", tensor.dataType().name)
-                        .put("shape", JSONArray(tensor.shape().toList())),
-                )
-            }
+        return (0 until count).map { index ->
+            val tensor =
+                if (input) interpreter.getInputTensor(index) else interpreter.getOutputTensor(index)
+            TensorIo.Spec(
+                index = index,
+                name = tensor.name(),
+                type = tensor.dataType().name,
+                shape = tensor.shape().toList(),
+                bytes = tensor.numBytes(),
+                scale = tensor.quantizationParams()?.scale,
+                zeroPoint = tensor.quantizationParams()?.zeroPoint,
+            )
         }
     }
+
 
     /**
      * A `TfLiteDelegate*` in the shape TFLite expects.

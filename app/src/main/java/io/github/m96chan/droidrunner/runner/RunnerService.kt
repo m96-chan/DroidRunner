@@ -507,10 +507,10 @@ class RunnerService : Service() {
      * licences and install the runtime while the runner is up, and should not
      * have to restart it to use what they just installed (issue #82).
      */
-    private fun qnnModelRunner(): ((java.io.File, String, Int) -> String)? {
+    private fun qnnModelRunner(): ((java.io.File, String, Int, List<java.io.File>, io.github.m96chan.droidrunner.npu.TensorIo.Target?) -> String)? {
         val htpVersion = HexagonVersion.of(DeviceCapabilities.detect().soc) ?: return null
         val installer = QnnInstaller(this)
-        return { model, backend, iterations ->
+        return { model, backend, iterations, inputs, outputTarget ->
             if (installer.installed == null) {
                 org.json.JSONObject()
                     .put("ok", false)
@@ -527,6 +527,8 @@ class RunnerService : Service() {
                     model = model,
                     backend = backend,
                     iterations = iterations,
+                    inputs = inputs,
+                    outputTarget = outputTarget,
                 )
             }
         }

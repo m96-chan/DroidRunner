@@ -1,7 +1,10 @@
 package io.github.m96chan.droidrunner.npu
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -61,5 +64,44 @@ class GuestPathTest {
         File(home, "_work").mkdirs()
         assertNull(GuestPath.resolve(runtimeDir, "/home/runner/_work"))
         assertNull(GuestPath.resolve(runtimeDir, "/home/runner/absent.tflite"))
+    }
+}
+
+class GuestPathDirectoryTest {
+
+    @Rule @JvmField val temp = TemporaryFolder()
+
+    private fun runtime(): File = temp.newFolder("runtime").apply {
+        File(this, "home/runner").mkdirs()
+    }
+
+    @Test fun anOutputDirectoryIsCreatedInsideTheRunnerHome() {
+        // It is where a job wants tensors written, so by definition nothing is
+        // there yet — resolve() insists on an existing file and cannot serve.
+        val runtimeDir = runtime()
+
+        val resolved = GuestPath.resolveDirectory(runtimeDir, "/home/runner/out/tensors")
+
+        assertNotNull(resolved)
+        assertTrue(resolved!!.isDirectory)
+        assertTrue(resolved.path.startsWith(File(runtimeDir, "home/runner").canonicalPath))
+    }
+
+    @Test fun aPathOutsideTheHomeIsRefusedAndNothingIsCreated() {
+        // "write these tensors wherever I say" is a worse primitive than
+        // "read this model" if it escapes, and job code chooses the string.
+        val runtimeDir = runtime()
+
+        assertNull(GuestPath.resolveDirectory(runtimeDir, "/home/runner/../../escape"))
+        assertNull(GuestPath.resolveDirectory(runtimeDir, "/etc"))
+        assertNull(GuestPath.resolveDirectory(runtimeDir, "relative/path"))
+        assertFalse(File(runtimeDir, "escape").exists())
+    }
+
+    @Test fun anExistingFileIsNotADirectory() {
+        val runtimeDir = runtime()
+        File(runtimeDir, "home/runner/taken").writeText("x")
+
+        assertNull(GuestPath.resolveDirectory(runtimeDir, "/home/runner/taken"))
     }
 }

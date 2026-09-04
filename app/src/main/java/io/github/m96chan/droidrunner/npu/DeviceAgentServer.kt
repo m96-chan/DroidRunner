@@ -25,7 +25,7 @@ import kotlin.concurrent.thread
  * capability token delivered through the app-private runtime directory (which
  * other apps cannot read), not through the environment.
  */
-class DeviceAgentServer(
+internal class DeviceAgentServer(
     private val runtimeDir: File,
     private val requestedPort: Int = PORT,
     /**
@@ -34,7 +34,7 @@ class DeviceAgentServer(
      * and stays testable on the JVM (issue #82). Ahead of [capabilitiesJson]
      * so that one stays the trailing lambda callers already write.
      */
-    private val qnnModel: ((File, String, Int) -> String)? = null,
+    private val qnnModel: ((File, String, Int, List<File>, TensorIo.Target?) -> String)? = null,
     private val capabilitiesJson: () -> String,
 ) {
     var port: Int = requestedPort
@@ -218,6 +218,29 @@ class DeviceAgentServer(
         val device = request.optString("device").takeIf { it.isNotBlank() }
         val iterations = request.optInt("iterations", 50)
 
+        // Job code chose these paths, so each one is proven to stay inside the
+        // runner's home before anything is opened or written (issue #92).
+        val requested = request.optJSONArray("inputs")
+        val inputs = mutableListOf<File>()
+        for (index in 0 until (requested?.length() ?: 0)) {
+            val path = requested!!.optString(index)
+            inputs += GuestPath.resolve(runtimeDir, path)
+                ?: return 400 to JSONObject()
+                    .put("ok", false)
+                    .put("error", "input $index is not a readable file under /home/runner: $path")
+                    .toString()
+        }
+        val outputTarget = request.optString("outputDir").takeIf { it.isNotBlank() }?.let { path ->
+            val directory = GuestPath.resolveDirectory(runtimeDir, path)
+                ?: return 400 to JSONObject()
+                    .put("ok", false)
+                    .put("error", "outputDir must be a directory under /home/runner: $path")
+                    .toString()
+            // Both frames: this process writes to the first, the job reads the
+            // second, and only the second belongs in a reply.
+            TensorIo.Target(directory, path)
+        }
+
         // "qnn-htp" and friends are not NNAPI device names; they mean the
         // Qualcomm delegate in its own process, which NNAPI cannot reach.
         val backend = runCatching { QnnBackend.of(device) }.getOrElse { unknown ->
@@ -230,9 +253,15 @@ class DeviceAgentServer(
             val run = qnnModel
                 ?: return 400 to
                     """{"ok":false,"error":"this device has no Qualcomm accelerator runtime"}"""
-            return 200 to run(model, it, iterations)
+            return 200 to run(model, it, iterations, inputs, outputTarget)
         }
-        return 200 to ModelRunner.run(model, device, iterations)
+        return 200 to ModelRunner.run(
+            model = model,
+            deviceName = device,
+            iterations = iterations,
+            inputs = inputs,
+            outputTarget = outputTarget,
+        )
     }
 
     private fun writeResponse(client: Socket, status: Int, json: String) {

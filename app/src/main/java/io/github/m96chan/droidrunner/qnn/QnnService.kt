@@ -18,6 +18,8 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.Message
 import android.os.Messenger
+import io.github.m96chan.droidrunner.npu.TensorIo
+import java.io.File
 
 /**
  * Holds Qualcomm's runtime, in a process of its own (issue #82, stage 4).
@@ -82,11 +84,15 @@ class QnnService : Service() {
             return """{"ok":false,"error":"run request was incomplete"}"""
         }
         return QnnModelRunner.run(
-            model = java.io.File(model),
+            model = File(model),
             directory = directory,
             libraries = libraries.toList(),
             backend = request.getString(KEY_BACKEND) ?: "htp",
             iterations = request.getInt(KEY_ITERATIONS, 50),
+            inputs = request.getStringArray(KEY_INPUTS).orEmpty().map { File(it) },
+            outputTarget = request.getString(KEY_OUTPUT_DIR)?.let { dir ->
+                TensorIo.Target(File(dir), request.getString(KEY_OUTPUT_AS_SEEN).orEmpty())
+            },
         )
     }
 
@@ -108,5 +114,8 @@ class QnnService : Service() {
         const val KEY_MODEL = "model"
         const val KEY_BACKEND = "backend"
         const val KEY_ITERATIONS = "iterations"
+        const val KEY_INPUTS = "inputs"
+        const val KEY_OUTPUT_DIR = "outputDir"
+        const val KEY_OUTPUT_AS_SEEN = "outputDirAsSeen"
     }
 }

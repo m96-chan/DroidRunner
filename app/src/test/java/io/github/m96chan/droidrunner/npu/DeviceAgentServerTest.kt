@@ -35,8 +35,10 @@ class DeviceAgentServerTest {
         server = DeviceAgentServer(
             runtimeDir,
             requestedPort = 0,
-            qnnModel = { model, backend, iterations ->
-                qnnCalls += "${model.name}/$backend/$iterations"
+            qnnModel = { model, backend, iterations, inputs, outputTarget ->
+                qnnCalls += "${model.name}/$backend/$iterations" +
+                    inputs.joinToString("") { "/in:${it.name}" } +
+                    (outputTarget?.let { "/out:${it.asJobSeesIt}" } ?: "")
                 """{"ok":true,"backend":"$backend"}"""
             },
         ) { """{"stub":true}""" }

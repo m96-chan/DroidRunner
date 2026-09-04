@@ -14,6 +14,7 @@
 #   droidrunner-device test conv [--device NAME] [--iterations N]
 #                                [--size N] [--channels N] [--filters N]
 #   droidrunner-device test model <file.tflite> [--device NAME] [--iterations N]
+#                                   [--input FILE]... [--output-dir DIR]
 #   droidrunner-device bench-all [--iterations N] [--size N]
 set -euo pipefail
 
@@ -69,7 +70,7 @@ case "$cmd" in
     test)
         kind="${1:-}"; shift || true
         [ -n "$kind" ] || die "usage: droidrunner-device test add|conv|model [options]"
-        model=""
+        model=""; inputs=""; output_dir=""
         if [ "$kind" = "model" ]; then
             model="${1:-}"; shift || true
             [ -n "$model" ] || die "usage: droidrunner-device test model <file.tflite> [options]"
@@ -81,6 +82,15 @@ case "$cmd" in
         while [ $# -gt 0 ]; do
             case "$1" in
                 --device) device="$2"; shift 2 ;;
+                # Repeatable, one per input tensor, in the model's own order.
+                --input)
+                    [ -r "$2" ] || die "cannot read $2"
+                    inputs="$inputs\"$(cd "$(dirname "$2")" && pwd)/$(basename "$2")\","
+                    shift 2 ;;
+                --output-dir)
+                    mkdir -p "$2" || die "cannot create $2"
+                    output_dir="$(cd "$2" && pwd)"
+                    shift 2 ;;
                 --iterations) iterations="$2"; shift 2 ;;
                 --size) size="$2"; shift 2 ;;
                 --channels) channels="$2"; shift 2 ;;
@@ -90,6 +100,8 @@ case "$cmd" in
         done
         body="{"
         [ -n "$model" ] && body="$body\"path\":\"$model\","
+        [ -n "$inputs" ] && body="$body\"inputs\":[${inputs%,}],"
+        [ -n "$output_dir" ] && body="$body\"outputDir\":\"$output_dir\","
         [ -n "$device" ] && body="$body\"device\":\"$device\","
         [ -n "$iterations" ] && body="$body\"iterations\":$iterations,"
         [ -n "$size" ] && body="$body\"size\":$size,"

@@ -71,6 +71,8 @@ internal class QnnClient(private val context: Context) {
         model: File,
         backend: String,
         iterations: Int,
+        inputs: List<File> = emptyList(),
+        outputTarget: TensorIo.Target? = null,
         timeoutMs: Long = RUN_TIMEOUT_MS,
     ): String {
         val libraries = QnnLibraries.loadOrder(htpVersion)
@@ -83,6 +85,14 @@ internal class QnnClient(private val context: Context) {
             extras.putString(QnnService.KEY_MODEL, model.absolutePath)
             extras.putString(QnnService.KEY_BACKEND, backend)
             extras.putInt(QnnService.KEY_ITERATIONS, iterations)
+            extras.putStringArray(
+                QnnService.KEY_INPUTS,
+                inputs.map { it.absolutePath }.toTypedArray(),
+            )
+            outputTarget?.let {
+                extras.putString(QnnService.KEY_OUTPUT_DIR, it.directory.absolutePath)
+                extras.putString(QnnService.KEY_OUTPUT_AS_SEEN, it.asJobSeesIt)
+            }
         }.let { answer ->
             when (answer) {
                 null -> refusal(
