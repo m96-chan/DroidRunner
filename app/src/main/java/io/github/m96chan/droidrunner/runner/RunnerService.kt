@@ -153,6 +153,13 @@ class RunnerService : Service() {
                 reportedFor = step.reportedFor
                 held = step.held
 
+                // An app update leaves GitHub holding the old session, and the
+                // replacement listener can spend minutes being refused. The
+                // entry that owns that session is the one re-registering
+                // replaces, so once the wait has outlasted its welcome, end it
+                // rather than sit through it (issue #79).
+                if (releaseHeldSessionIfStuck(runtimeDir)) continue
+
                 step.actions.forEach { action ->
                     when (action) {
                         SupervisorStep.Action.Resume -> {
@@ -258,6 +265,58 @@ class RunnerService : Service() {
             }
         }
         startListener(runtimeDir)
+    }
+
+    /**
+     * Replaces the runner when GitHub is still holding a session the previous
+     * process never got to release.
+     *
+     * Returns true when it acted, so the caller starts the loop again against
+     * a listener that no longer exists.
+     *
+     * Deliberately conservative. It waits out [SessionConflict.PATIENCE_MS]
+     * first, because the listener usually gets through on its own and a
+     * needless re-registration costs a registration token and a new runner id.
+     * It does nothing at all without a user sign-in — a hand-entered PAT is
+     * not assumed to carry the scope, the same stance [reconcileLabels] takes
+     * — and nothing while a job is running, which would be a worse cure than
+     * the disease.
+     */
+    private fun releaseHeldSessionIfStuck(runtimeDir: File): Boolean {
+        val heldSince = RunnerStatus.snapshot.value.sessionHeldSince ?: return false
+        if (!SessionConflict.shouldReplaceRunner(heldSince, System.currentTimeMillis())) return false
+        if (jobRunning.get()) return false
+
+        val config = RunnerRegistration.load(runtimeDir) ?: return false
+        val token = UserSession(SecretStore(this), BuildConfig.GITHUB_APP_CLIENT_ID).accessToken()
+        if (token == null) {
+            RunnerStatus.onAppLine(
+                "session: GitHub still holds the previous session; sign in to replace the " +
+                    "runner rather than wait it out",
+            )
+            // Said once. Clearing the marker stops this repeating every poll,
+            // and the listener is still retrying underneath.
+            RunnerStatus.onSessionWaitAcknowledged()
+            return false
+        }
+
+        RunnerStatus.onAppLine("session: still held after a minute — replacing the runner")
+        stopListener()
+        val replaced = runCatching {
+            RunnerRegistration.register(
+                this,
+                runtimeDir,
+                config,
+                RunnerRegistration.ephemeralEnabled(this),
+            ) { line -> RunnerStatus.onRunnerLine(line) }
+        }
+        RunnerStatus.onSessionWaitAcknowledged()
+        if (replaced.isFailure) {
+            RunnerStatus.onAppLine(
+                "session: could not replace the runner (${replaced.exceptionOrNull()?.message})",
+            )
+        }
+        return true
     }
 
     /** Delays the next start attempt, growing the wait while failures repeat. */
