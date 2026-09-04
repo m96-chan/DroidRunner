@@ -30,6 +30,9 @@ jobs:
           RUNNER_VERSION: ${{ inputs.runner_version }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          # Resolving the latest actions/runner release is an API call, and an
+          # unauthenticated one shares a rate limit with every other runner.
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           sudo -E runtime/build-bundle.sh
           # The bundle build chroots, so it runs as root and leaves its output
