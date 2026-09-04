@@ -13,6 +13,7 @@
 #   droidrunner-device test add  [--device NAME] [--iterations N]
 #   droidrunner-device test conv [--device NAME] [--iterations N]
 #                                [--size N] [--channels N] [--filters N]
+#   droidrunner-device test model <file.tflite> [--device NAME] [--iterations N]
 #   droidrunner-device bench-all [--iterations N] [--size N]
 set -euo pipefail
 
@@ -67,7 +68,15 @@ case "$cmd" in
 
     test)
         kind="${1:-}"; shift || true
-        [ -n "$kind" ] || die "usage: droidrunner-device test add|conv [options]"
+        [ -n "$kind" ] || die "usage: droidrunner-device test add|conv|model [options]"
+        model=""
+        if [ "$kind" = "model" ]; then
+            model="${1:-}"; shift || true
+            [ -n "$model" ] || die "usage: droidrunner-device test model <file.tflite> [options]"
+            [ -r "$model" ] || die "cannot read $model"
+            # The agent needs the path as the job sees it, absolute.
+            model="$(cd "$(dirname "$model")" && pwd)/$(basename "$model")"
+        fi
         device=""; iterations=""; size=""; channels=""; filters=""
         while [ $# -gt 0 ]; do
             case "$1" in
@@ -80,6 +89,7 @@ case "$cmd" in
             esac
         done
         body="{"
+        [ -n "$model" ] && body="$body\"path\":\"$model\","
         [ -n "$device" ] && body="$body\"device\":\"$device\","
         [ -n "$iterations" ] && body="$body\"iterations\":$iterations,"
         [ -n "$size" ] && body="$body\"size\":$size,"
@@ -89,7 +99,8 @@ case "$cmd" in
         case "$kind" in
             add) api POST /v1/tests/nnapi "$body" ;;
             conv) api POST /v1/tests/conv "$body" ;;
-            *) die "unknown test: $kind (expected add or conv)" ;;
+            model) api POST /v1/tests/model "$body" ;;
+            *) die "unknown test: $kind (expected add, conv or model)" ;;
         esac
         echo
         ;;

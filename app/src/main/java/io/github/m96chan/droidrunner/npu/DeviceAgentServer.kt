@@ -148,6 +148,7 @@ class DeviceAgentServer(
             method == "GET" && path == "/v1/capabilities" -> 200 to capabilitiesJson()
             method == "POST" && path == "/v1/tests/nnapi" -> nnapiTest(body)
             method == "POST" && path == "/v1/tests/conv" -> convTest(body)
+            method == "POST" && path == "/v1/tests/model" -> modelTest(body)
             else -> 404 to """{"error":"unknown endpoint"}"""
         }
         writeResponse(client, response.first, response.second)
@@ -190,6 +191,27 @@ class DeviceAgentServer(
             request.optInt("size", 64),
             request.optInt("channels", 16),
             request.optInt("filters", 16),
+        )
+    }
+
+    /**
+     * Runs a model the job already has on disk. The path is the job's own view
+     * of it; [GuestPath] proves it stays inside the runner home before the file
+     * is opened, since the path comes from untrusted workflow code.
+     */
+    private fun modelTest(body: String): Pair<Int, String> {
+        val request = runCatching { JSONObject(body.ifBlank { "{}" }) }.getOrElse {
+            return 400 to """{"error":"invalid JSON body"}"""
+        }
+        val path = request.optString("path").takeIf { it.isNotBlank() }
+            ?: return 400 to """{"error":"path is required"}"""
+        val model = GuestPath.resolve(runtimeDir, path)
+            ?: return 400 to
+                """{"error":"model must be a file under /home/runner (the job workspace)"}"""
+        return 200 to ModelRunner.run(
+            model,
+            request.optString("device").takeIf { it.isNotBlank() },
+            request.optInt("iterations", 50),
         )
     }
 
