@@ -21,8 +21,8 @@ cannot produce, and the reason this exists.
 > [!WARNING]
 > A self-hosted runner executes whatever code a workflow contains, on your phone.
 > Use a device dedicated to CI, and never let it pick up pull requests from forks
-> of a public repository. Qualcomm NPUs are not reachable yet ([#82](https://github.com/m96-chan/DroidRunner/issues/82));
-> MediaTek and Google Tensor are.
+> of a public repository. Qualcomm NPUs need an opt-in, because reaching them means
+> accepting Qualcomm's terms; MediaTek and Google Tensor work out of the box.
 
 ## Goals
 
@@ -39,7 +39,7 @@ cannot produce, and the reason this exists.
 - **Official runner** — uses GitHub's official Linux ARM64 Actions Runner
 - **Repository or organization scope** — serve one repository, or every repository in an organization from a single device
 - **GitHub App login** — device-flow sign-in with a repository picker; no manual PAT handling
-- **Automatic device classification** — generates runner labels from Android API level, SoC, and NPU hints
+- **Automatic device classification** — generates runner labels from Android API level, SoC, and what the accelerators actually answer
 - **Safe credential handling** — encrypts the PAT with the Android Keystore
 - **Background standby** — keeps the runner alive with a Foreground Service and a wake lock
 - **Tamper detection** — verifies the runtime bundle's SHA-256 before extracting it
@@ -129,7 +129,6 @@ MediaTek MT6899, a Google Tensor G4, and two Snapdragons.
 
 | | |
 | --- | --- |
-| Qualcomm NPUs | [#82](https://github.com/m96-chan/DroidRunner/issues/82) — no NNAPI accelerator exists on these devices; needs the vendor delegate |
 | MediaTek Neuron SDK | [#83](https://github.com/m96-chan/DroidRunner/issues/83) — NNAPI reaches this hardware today, so this is for when it stops |
 | Fleet dashboard | [#7](https://github.com/m96-chan/DroidRunner/issues/7) |
 | Runtime bundle updates | [#14](https://github.com/m96-chan/DroidRunner/issues/14) |
@@ -148,20 +147,58 @@ custom labels.
 | `nnapi` | NNAPI is usable on this device |
 | `nnapi-accelerator` | **An accelerator answered the probe** — the label to select on for model work |
 | `android-npu` | The SoC family is known to have an NPU. A hint, not a promise |
-| `npu-qnn` | Qualcomm QNN candidate |
+| `npu-qnn` | **A model has run on this phone's Hexagon** — measured, not guessed |
 | `npu-tflite` | Google Tensor / LiteRT candidate |
 | `npu-neuron` | MediaTek Neuron candidate |
 | `npu-enn` | Samsung ENN candidate |
 
-The vendor labels come from the SoC name and are **hints**; `nnapi` and
-`nnapi-accelerator` come from probing the device and are measurements. The two can
-disagree, and on Qualcomm they do: those phones have an NPU that NNAPI cannot reach,
-so they carry `android-npu` and `npu-qnn` without `nnapi-accelerator`. Select on
-`nnapi-accelerator` when a job needs acceleration, or it may quietly get a CPU.
+`npu-tflite`, `npu-neuron` and `npu-enn` come from the SoC name and are **hints**;
+`nnapi`, `nnapi-accelerator` and `npu-qnn` come from asking the device and are
+measurements. Hints and measurements can disagree, so select on a measurement when a
+job needs acceleration or it may quietly get a CPU.
+
+Qualcomm is the case where they disagreed most. Those phones have a Hexagon that
+NNAPI cannot reach at all — Qualcomm ships no NNAPI driver, and a Snapdragon
+enumerates only `nnapi-reference`, the CPU. `npu-qnn` used to come from the SoC name,
+so a job selecting it landed on a device that ran everything on its CPU and said
+nothing. It is now emitted only after a model has demonstrably executed on the
+Hexagon, which needs the opt-in below.
 
 Labels are recomputed when the app starts and corrected on GitHub if they have
 drifted — they used to be frozen at registration, which left one phone announcing
 what a much older build believed about it.
+
+### Qualcomm NPU: opt in first
+
+The Hexagon needs Qualcomm's own runtime, which DroidRunner fetches rather than
+ships. On a Snapdragon the setup screen offers it:
+
+1. **Review Qualcomm's terms.** Two licences, from two Qualcomm entities, with
+   field-of-use restrictions that bind whoever runs the device — so they are yours
+   to accept, not ours. The documents are fetched and opened in a PDF reader; what
+   is recorded is their digests, so terms that change ask again and a release that
+   leaves them alone does not.
+2. **Install.** 38MB to download, 102MB on disk, and only the Hexagon generation
+   this phone has.
+3. **Check the NPU.** Runs a model and reports the split — `all 64 operators on the
+   Hexagon, 1.24ms`. Only this earns `npu-qnn`.
+
+Nothing is fetched before step 1, and a phone that never opts in behaves exactly as
+before. Devices without a Snapdragon never see the panel.
+
+Measured on a nubia NX769J (Snapdragon 8 Gen 3), EfficientNet-Lite0:
+
+| model | route | median |
+| --- | --- | --- |
+| int8 | `nnapi-reference` (NNAPI's only option here) | 113.2 ms |
+| int8 | CPU | 4.46 ms |
+| int8 | **Hexagon** | **1.22 ms** |
+| float32 | `nnapi-reference` | 39.8 ms |
+| float32 | **Hexagon** | **2.78 ms** |
+
+A job asking for `qnn-htp` is refused rather than quietly run on the CPU:
+`droidrunner-device test model x.tflite --device qnn-htp` fails unless the delegate
+says how much of the graph it took.
 
 ## Example workflows
 
@@ -502,7 +539,7 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 - [x] Device Agent with per-job capability tokens
 - [x] NNAPI capability probe and smoke test — run on every CI build against a real device
 - [x] Run a caller-supplied model rather than the built-in benchmarks
-- [ ] Reach Qualcomm NPUs, which NNAPI cannot ([#82](https://github.com/m96-chan/DroidRunner/issues/82))
+- [x] Reach Qualcomm NPUs, which NNAPI cannot ([#82](https://github.com/m96-chan/DroidRunner/issues/82)) — 1.22ms against the CPU's 4.46ms
 - [ ] MediaTek Neuron SDK, for when the NNAPI shims run out ([#83](https://github.com/m96-chan/DroidRunner/issues/83))
 - [ ] Samsung Exynos — deprioritised: few devices, and those that exist are either
       flagship-priced or bargain oddities, so a test phone is hard to justify

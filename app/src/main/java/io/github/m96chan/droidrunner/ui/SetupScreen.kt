@@ -65,6 +65,8 @@ import io.github.m96chan.droidrunner.npu.QnnClient
 import io.github.m96chan.droidrunner.npu.QnnConsent
 import io.github.m96chan.droidrunner.npu.QnnInstaller
 import io.github.m96chan.droidrunner.npu.QnnLicences
+import io.github.m96chan.droidrunner.npu.QnnVerificationStore
+import io.github.m96chan.droidrunner.npu.verdictFrom
 import io.github.m96chan.droidrunner.runner.RunnerState
 import io.github.m96chan.droidrunner.runner.RunnerStatus
 import io.github.m96chan.droidrunner.runtime.RuntimeInstaller
@@ -108,7 +110,9 @@ fun SetupScreen(
     var licenceBusy by remember { mutableStateOf(false) }
     var licenceFailure by remember { mutableStateOf<String?>(null) }
     // What the isolated process said last time it was asked (issue #82).
-    var qnnProbe by remember { mutableStateOf<String?>(null) }
+    var qnnProbe by remember {
+        mutableStateOf(QnnVerificationStore(context).read()?.detail)
+    }
     // Long-running setup runs behind a modal, so nobody wanders off mid-flight.
     var progress by remember { mutableStateOf<SetupProgress?>(null) }
     var setupJob by remember { mutableStateOf<Job?>(null) }
@@ -359,16 +363,33 @@ fun SetupScreen(
     }
 
     /**
-     * Asks the ":qnn" process whether Qualcomm's runtime actually works here.
-     * Installing proves the files are on disk; only this proves the delegate
-     * loads and the device reports a DSP.
+     * Runs a model on the Hexagon and records what happened.
+     *
+     * Installing proves the files are on disk; every failure on the way to
+     * making this work had the files on disk. Only a model that demonstrably
+     * executed on the accelerator earns the label, so that is what this does —
+     * and it is one button press, because a check nobody runs is a check that
+     * does not exist.
      */
     fun checkQnn(htpVersion: Int) {
-        qnnProbe = "checking…"
+        qnnProbe = "checking the NPU…"
         scope.launch {
-            qnnProbe = withContext(Dispatchers.IO) {
-                QnnClient(context).probe(qnn.installDir, htpVersion).summary()
+            val verdict = withContext(Dispatchers.IO) {
+                runCatching {
+                    val client = QnnClient(context)
+                    val loaded = client.probe(qnn.installDir, htpVersion)
+                    if (!loaded.htpUsable) return@runCatching QnnVerdictOf.stopped(loaded.summary())
+                    val model = qnn.verificationModel { phase, fraction ->
+                        progress = SetupProgress(phase, fraction)
+                    }
+                    QnnVerdictOf(
+                        client.runModel(qnn.installDir, htpVersion, model, "htp", 20),
+                    )
+                }.getOrElse { QnnVerdictOf.failed(it.message.orEmpty()) }
             }
+            progress = null
+            QnnVerificationStore(context).write(verdict.value)
+            qnnProbe = verdict.value.detail
         }
     }
 
@@ -409,7 +430,8 @@ fun SetupScreen(
         val config = RunnerConfig(
             target,
             "android-${android.os.Build.MODEL}-$deviceId",
-            capabilities.labels() + NpuLabels.refresh(context),
+            capabilities.labels() + NpuLabels.refresh(context) +
+                QnnVerificationStore(context).labels(),
         )
         progress = SetupProgress("preparing")
         setupJob = scope.launch {
@@ -738,7 +760,7 @@ fun SetupScreen(
                             Spacer(Modifier.padding(top = 6.dp))
                             Text(
                                 it,
-                                color = if (it.contains("HTP available")) {
+                                color = if (it.startsWith("verified:")) {
                                     BtopColors.Green
                                 } else {
                                     BtopColors.Yellow

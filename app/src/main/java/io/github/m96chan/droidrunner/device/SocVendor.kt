@@ -10,8 +10,19 @@ package io.github.m96chan.droidrunner.device
  * These labels remain hints. The probe-verified NNAPI labels are what a
  * workflow should target; see [io.github.m96chan.droidrunner.npu.NpuLabels].
  */
-enum class SocVendor(val npuLabel: String) {
-    QUALCOMM("npu-qnn"),
+enum class SocVendor(val npuLabel: String?) {
+    /**
+     * Deliberately without a hint label.
+     *
+     * A Snapdragon's Hexagon is not reachable through NNAPI at all — Qualcomm
+     * ships no NNAPI driver, and these phones enumerate only
+     * `nnapi-reference`, the CPU. So `npu-qnn` from the SoC name promised
+     * something no job could use, and a workflow selecting it landed on a
+     * device that ran everything on its CPU and said nothing (#80). The label
+     * is now emitted only where it has been earned: after a model has been
+     * shown to execute on the Hexagon (#82).
+     */
+    QUALCOMM(null),
     MEDIATEK("npu-neuron"),
     GOOGLE_TENSOR("npu-tflite"),
     SAMSUNG_EXYNOS("npu-enn"),

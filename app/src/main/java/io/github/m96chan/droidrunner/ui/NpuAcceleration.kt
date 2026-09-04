@@ -2,6 +2,8 @@ package io.github.m96chan.droidrunner.ui
 
 import io.github.m96chan.droidrunner.device.HexagonVersion
 import io.github.m96chan.droidrunner.npu.QnnArtifacts
+import io.github.m96chan.droidrunner.npu.QnnVerdict
+import io.github.m96chan.droidrunner.npu.verdictFrom
 
 /**
  * What the setup screen offers a Snapdragon about its NPU (issue #82, stage 3).
@@ -87,3 +89,20 @@ internal fun downloadSummary(downloadBytes: Long, installBytes: Long): String =
     "${megabytes(downloadBytes)} to download, ${megabytes(installBytes)} on disk"
 
 private fun megabytes(bytes: Long): String = "%.0f MB".format(bytes / 1024.0 / 1024.0)
+
+/**
+ * Wraps whichever answer the check produced, so the screen has one thing to
+ * store whether the run happened, failed, or never got as far as a model.
+ */
+internal class QnnVerdictOf private constructor(val value: QnnVerdict) {
+    companion object {
+        operator fun invoke(runJson: String) = QnnVerdictOf(verdictFrom(runJson))
+
+        fun failed(message: String) = QnnVerdictOf(
+            QnnVerdict(verified = false, detail = "the NPU check failed: $message"),
+        )
+
+        /** For a check that stopped before there was a run to read. */
+        fun stopped(detail: String) = QnnVerdictOf(QnnVerdict(verified = false, detail = detail))
+    }
+}

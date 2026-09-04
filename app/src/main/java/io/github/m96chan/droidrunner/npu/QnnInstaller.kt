@@ -127,6 +127,47 @@ class QnnInstaller(private val context: Context) {
         return true
     }
 
+    /**
+     * The model this device proves itself with, fetched if it is not already
+     * here (issue #82, stage 6).
+     *
+     * Kept beside the licences rather than inside the runtime directory, which
+     * gets replaced wholesale on an update; there is no reason to fetch it
+     * again because Qualcomm published a new library.
+     */
+    fun verificationModel(progress: (String, Float?) -> Unit = { _, _ -> }): File {
+        licenceDir.mkdirs()
+        val target = File(licenceDir, QnnArtifacts.Verification.FILE_NAME)
+        if (target.length() == QnnArtifacts.Verification.BYTES &&
+            sha256(target).equals(QnnArtifacts.Verification.SHA256, ignoreCase = true)
+        ) {
+            return target
+        }
+        progress("fetching the verification model", 0f)
+        val url = URL(QnnArtifacts.Verification.URL)
+        RuntimeDownload.fetch(
+            target = target,
+            source = { offset ->
+                val connection = url.openConnection() as HttpURLConnection
+                if (offset > 0) connection.setRequestProperty("Range", "bytes=$offset-")
+                val resumed = offset > 0 &&
+                    connection.responseCode == HttpURLConnection.HTTP_PARTIAL
+                val length = connection.contentLengthLong
+                RuntimeDownload.Chunk(
+                    stream = connection.inputStream,
+                    resumed = resumed,
+                    totalBytes = if (length > 0) length + (if (resumed) offset else 0L) else -1L,
+                )
+            },
+            progress = { progress("fetching the verification model", it) },
+        )
+        check(sha256(target).equals(QnnArtifacts.Verification.SHA256, ignoreCase = true)) {
+            target.delete()
+            "the verification model does not match its pinned SHA-256"
+        }
+        return target
+    }
+
     /** Removes the runtime, for a device that no longer wants it on disk. */
     fun uninstall() {
         installDir.deleteRecursively()

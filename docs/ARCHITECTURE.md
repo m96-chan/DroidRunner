@@ -19,13 +19,15 @@ Use labels to make heterogeneous phones schedulable:
 | --- | --- |
 | Any phone | `self-hosted, android, arm64` |
 | Any NPU candidate | `self-hosted, android, android-npu` |
-| Qualcomm | `android-npu, npu-qnn` |
+| Qualcomm, verified | `android-npu, npu-qnn` |
 | Google Tensor | `android-npu, npu-tflite` |
 | MediaTek | `android-npu, npu-neuron` |
 | Samsung Exynos | `android-npu, npu-enn` |
 
-SoC name detection is only a hint. The Device Agent must run a real backend probe before
-advertising a backend as usable in the final design.
+SoC name detection is only a hint, and `npu-qnn` no longer comes from it: a Snapdragon
+earns that label by running a model on its Hexagon, because NNAPI cannot reach one and a
+name-derived label sent jobs to a device that quietly used its CPU. The remaining vendor
+labels are still hints; `nnapi`, `nnapi-accelerator` and `npu-qnn` are measurements.
 
 ## Device Agent protocol (next milestone)
 

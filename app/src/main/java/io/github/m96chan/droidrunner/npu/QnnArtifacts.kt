@@ -63,6 +63,22 @@ internal object QnnArtifacts {
     fun downloadBytes(htpVersion: Int): Long =
         entriesFor(htpVersion)?.sumOf { it.downloadBytes } ?: 0L
 
+    /**
+     * The model a device proves itself with (issue #82, stage 6).
+     *
+     * Google's EfficientNet-Lite0, quantised — the same network the fleet is
+     * already benchmarked on, so a device's proof and its published number are
+     * about the same work. Fetched rather than shipped, like everything else
+     * here, and pinned the same way; it is 5MB against the runtime's 102MB.
+     */
+    object Verification {
+        const val URL = "https://storage.googleapis.com/mediapipe-models/" +
+            "image_classifier/efficientnet_lite0/int8/1/efficientnet_lite0.tflite"
+        const val SHA256 = "bc2ffe19c1118de0c0c2a9088992da5589722656e0fba81421385300a4a34b16"
+        const val BYTES = 5_434_517L
+        const val FILE_NAME = "verification.tflite"
+    }
+
     /** What marks an install as complete and identifies what it holds. */
     fun stamp(htpVersion: Int): String = "$VERSION v$htpVersion"
 
