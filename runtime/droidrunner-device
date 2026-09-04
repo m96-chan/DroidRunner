@@ -15,6 +15,7 @@
 #                                [--size N] [--channels N] [--filters N]
 #   droidrunner-device test model <file.tflite> [--device NAME] [--iterations N]
 #                                   [--input FILE]... [--output-dir DIR] [--baseline]
+#   droidrunner-device test batch <manifest.json> [--budget-ms N]
 #   droidrunner-device bench-all [--iterations N] [--size N] [--json]
 #
 # Everywhere: --output FILE writes the machine-readable result to FILE as well
@@ -142,7 +143,33 @@ case "$cmd" in
 
     test)
         kind="${1:-}"; shift || true
-        [ -n "$kind" ] || die "usage: droidrunner-device test add|conv|model [options]"
+        [ -n "$kind" ] || die "usage: droidrunner-device test add|conv|model|batch [options]"
+
+        # A whole sweep in one request: a few hundred single-op models cost a
+        # few hundred workflow steps otherwise, which is the expensive part.
+        if [ "$kind" = "batch" ]; then
+            manifest="${1:-}"; shift || true
+            [ -n "$manifest" ] || die "usage: droidrunner-device test batch <manifest.json>"
+            [ -r "$manifest" ] || die "cannot read $manifest"
+            budget=""
+            while [ $# -gt 0 ]; do
+                case "$1" in
+                    --budget-ms) budget="$2"; shift 2 ;;
+                    --output) output_file="$2"; shift 2 ;;
+                    --json) shift ;;
+                    *) die "unknown option: $1" ;;
+                esac
+            done
+            models="$(tr -d '\n' < "$manifest")"
+            case "$models" in
+                \[*) models="{\"models\":$models" ;;   # a bare array is the natural manifest
+                *) die "$manifest must be a JSON array of model entries" ;;
+            esac
+            [ -n "$budget" ] && models="$models,\"budgetMs\":$budget"
+            emit "$(ask POST /v1/tests/models "$models}")"
+            exit 0
+        fi
+
         model=""; inputs=""; output_dir=""; baseline=""
         if [ "$kind" = "model" ]; then
             model="${1:-}"; shift || true

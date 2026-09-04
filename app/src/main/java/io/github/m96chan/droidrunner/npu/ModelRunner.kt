@@ -55,7 +55,11 @@ internal object ModelRunner {
         baseline: Boolean = false,
         diagnosticsDir: File? = null,
     ): String {
-        val runs = iterations.coerceIn(1, 500)
+        // Zero is a real answer, not a mistake: "was this graph accepted" is
+        // complete once tensors are allocated, and perhaps half of a sweep asks
+        // nothing else (#94). Timing it anyway is what turns a sweep that fits
+        // in a CI job into one that needs its own evening.
+        val runs = iterations.coerceIn(0, 500)
         var delegate: NnApiDelegate? = null
         var interpreter: Interpreter? = null
         return try {
@@ -117,8 +121,9 @@ internal object ModelRunner {
                 interpreter.runForMultipleInputsOutputs(buffers, outputs)
             }
 
-            repeat(warmup) { invoke() }
-
+            if (runs > 0) {
+                repeat(warmup) { invoke() }
+            }
             val timings = LongArray(runs)
             repeat(runs) { run ->
                 val started = System.nanoTime()
@@ -169,10 +174,14 @@ internal object ModelRunner {
                     if (refused.isNotEmpty()) put("unsupportedOps", JSONArray(refused))
                 }
                 .put("iterations", runs)
-                .put("avgUs", timings.average() / 1000.0)
-                .put("medianUs", timings[runs / 2] / 1000.0)
-                .put("minUs", timings.first() / 1000.0)
-                .put("maxUs", timings.last() / 1000.0)
+                .apply {
+                    if (runs > 0) {
+                        put("avgUs", timings.average() / 1000.0)
+                        put("medianUs", timings[runs / 2] / 1000.0)
+                        put("minUs", timings.first() / 1000.0)
+                        put("maxUs", timings.last() / 1000.0)
+                    }
+                }
                 .put("inputs", JSONArray(inputSpecs.map(TensorIo::describe)))
                 .put(
                     "outputs",

@@ -139,5 +139,28 @@ jobs:
           test -s "${{ steps.device.outputs.results-path }}"
           grep -q '"schema":1' "${{ steps.device.outputs.results-path }}"
 
+      # #94: the shape a compiler's sweep has — many models, one request, and
+      # a rejection recorded rather than aborting the rest.
+      - name: A sweep in one request
+        run: |
+          token="$(cat "$DROIDRUNNER_DEVICE_TOKEN_FILE")"
+          cat > manifest.json <<JSON
+          [{"id":"int8-timed","path":"$PWD/int8.tflite","iterations":5},
+           {"id":"int8-accepted-only","path":"$PWD/int8.tflite","iterations":0},
+           {"id":"float32-accepted-only","path":"$PWD/float32.tflite","iterations":0},
+           {"id":"missing","path":"$PWD/not-here.tflite"},
+           {"id":"no-path"}]
+          JSON
+          droidrunner-device test batch manifest.json --output sweep.json
+          echo "--- ids, in order:"
+          grep -o '"id":"[^"]*"' sweep.json
+          echo "--- one row per entry:"
+          # grep -c counts lines, and this is one line of JSON.
+          test "$(grep -o '"id":"' sweep.json | wc -l)" = 5
+          echo "--- a rejection did not end the sweep:"
+          grep -q '"id":"missing"' sweep.json && grep -q '"id":"no-path"' sweep.json
+          echo "--- iterations 0 reports acceptance without timings:"
+          grep -q '"iterations":0' sweep.json
+
       - name: Whatever NNAPI picks for int8
         run: droidrunner-device test model int8.tflite --iterations 30
