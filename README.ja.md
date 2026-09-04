@@ -43,6 +43,8 @@ CPUでは 141ms — 仮想マシンのARM64ランナーには出せない数字�
 - **安全な資格情報管理** — PATをAndroid Keystoreで暗号化
 - **バックグラウンド待機** — Foreground ServiceとWakeLockでRunnerを維持
 - **改ざん検出** — runtime bundleを展開する前にSHA-256を検証
+- **他リポジトリから使える** — composite action、文書化された結果契約、そして
+  「拒否」と「端末が応答しない」を区別できる終了コード
 - **btop風ダッシュボード** — CPU・メモリ・バッテリー・温度・ディスク・ネットワークの
   リソースモニターとRunner稼働状況をリアルタイム表示
 - **自己防衛** — 非充電・残量低下・高温・容量不足のあいだはジョブを保留し、
@@ -128,7 +130,7 @@ Snapdragon 2台です。
 
 | | |
 | --- | --- |
-| MediaTek Neuron SDK | [#83](https://github.com/m96-chan/DroidRunner/issues/83) — 今はNNAPIで到達できているので、それが尽きたとき用 |
+| MediaTek Neuron | [#83](https://github.com/m96-chan/DroidRunner/issues/83) — 保留:公開ランタイムは`.dla`しか受けず、それを作れる者がいない。NNAPI経由は今も動く |
 | 複数端末ダッシュボード | [#7](https://github.com/m96-chan/DroidRunner/issues/7) |
 | runtime bundleの更新 | [#14](https://github.com/m96-chan/DroidRunner/issues/14) |
 
@@ -238,25 +240,79 @@ EfficientNet-Lite0、中央値(int8は30回、float32は20回)。**同じモデ�
 | 端末 | ドライバ | int8 | float32 |
 | --- | --- | --- | --- |
 | Tensor G4 | `google-edgetpu` | **0.65 ms** | 16.7 ms |
-| MT6899 | `mtk-mdla_shim` | 2.29 ms | 35.0 ms |
-| MT6899 | `mtk-neuron_shim` | 2.96 ms | **8.6 ms** |
+| SM8650 | `qnn-htp`(Hexagon) | 1.22 ms | **2.78 ms** |
+| MT6899 | `mtk-neuron_shim` | 2.12 ms | 7.29 ms |
+| MT6899 | `mtk-mdla_shim` | 2.69 ms | *CPUに落ちた* |
 | Tensor G4 | *NNAPI任せ* | 5.65 ms | — |
-| MT6899 | *NNAPI任せ* | 14.2 ms | — |
-| MT6899 | `mtk-dsp_shim` | 17.8 ms | 44.7 ms |
+| MT6899 | `mtk-dsp_shim` | *CPUに落ちた* | *CPUに落ちた* |
+| SM8650 | `nnapi-reference`(CPU) | 113 ms | 39.8 ms |
 | Tensor G4 | `nnapi-reference`(CPU) | 141 ms | 64.1 ms |
-| MT6899 | `nnapi-reference`(CPU) | 357 ms | 106 ms |
+| MT6899 | `nnapi-reference`(CPU) | 257 ms | 106 ms |
 
-スペック表からは分からないことが3つ読めます。
+スペック表からは分からないことが4つ読めます。
 
-- **量子化によって、ベンダーをまたいで勝者が入れ替わります。** int8はEdgeTPUが3.5倍速く、
-  float32はNeuronが2倍近く速い。**どちらが速い端末かという問いに答えは無く**、
+- **量子化によって、ベンダーをまたいで勝者が入れ替わります。** int8はEdgeTPU、
+  float32はHexagonが2.6倍の差で最速。**どちらが速い端末かという問いに答えは無く**、
   出荷するモデル次第です。
-- **NNAPI任せにすると高速化のほとんどを失います。** アクセラレータを名指しすれば
-  Tensorで0.65msのところ、NNAPIの自動選択は5.65ms。MediaTekでも2.29ms対14.2ms。
-  両機とも6〜9倍を取りこぼしています。
-- **CPUベースラインすら2.5倍違います。** フォールバック経路の性能も端末固有です。
+- **この表のいくつかのセルは、そもそもアクセラレータの計測ではありませんでした。**
+  以前の版はMediaTekのMDLAにfloat32の数値を載せていましたが、そこでは動いていません
+  — ドライバが断り、CPUが拾っていました。現在は毎回
+  [誰が実行したか](docs/RESULT-CONTRACT.md#executed--the-field-most-consumers-branch-on)
+  を報告し、フォールバックはもっともらしい数値ではなくフォールバックとして出ます。
+- **量子化は速さだけでなく、到達できるかどうかを決めることがあります。**
+  MediaTekのMDLAはint8を受け、float32は断ります。
+- **NNAPI任せにすると高速化のほとんどを失い**、そもそもNNAPIはHexagonに到達できません。
+  Snapdragonが列挙するのはCPUだけで、だからその行には下記のopt-inが必要です。
 
 これが実機プールの存在理由で、仮想マシンのARM64ランナーには答えられない問いです。
+
+### 速さではなく、正しさを確かめる
+
+レイテンシは「グラフが受理された」ことしか言いません。**正しく計算されたか**は別の問いで、
+コンパイラが気にするのはそちらです — ベンダーのシリコン上でだけ出る lowering のバグは、
+x86の参照実装で検査している限り、正しいコンパイラと見分けがつきません。
+
+```yaml
+      - uses: m96-chan/DroidRunner/actions/run-model@main
+        id: device
+        with:
+          model: build/model.tflite
+          device: qnn-htp
+          inputs: fixtures/input-0.bin      # 生バイト・リトルエンディアン・テンソル1つに1ファイル
+          output-dir: out
+      - run: test "${{ steps.device.outputs.executed }}" = accelerator
+      - run: cmp out/output-0.bin fixtures/golden-0.bin
+```
+
+**ベンダーのNPUと参照実装の差分テストが、pushのたびに走ります**。クラウドのランナーには
+一切できないことです。出力には量子化パラメータが付くので、int8のバイト列から
+スケールを逆算する必要はありません。
+
+### 作業単位が1モデルでないとき
+
+数百個の単一opモデルは、そのままでは数百個のワークフローステップになります。そこが高コストです。
+
+```sh
+droidrunner-device test batch manifest.json --output sweep.json
+```
+
+送った数だけ、順序どおり返ります。**1件の失敗がsweepを終わらせません** — sweepは大部分が
+拒否でできており、その拒否こそがデータだからです。`iterations: 0` は「ロード・委譲・確保まで、
+計測はしない」で、受理されたかだけを問う行に使います。
+
+### 他リポジトリが依存する先
+
+[`docs/RESULT-CONTRACT.md`](docs/RESULT-CONTRACT.md) — 全応答の `schema`、失敗時の
+閉じた集合の `code`、そしてsweepが区別しなければならない場合を分ける終了コード:
+
+| 終了コード | 意味 |
+| --- | --- |
+| `0` | 実行された |
+| `2` | ドライバが断った — 記録して続行 |
+| `3` | この端末にそのデバイスは無い |
+| `4` | エージェントに到達できない — 中断 |
+
+`error` の文章は人間向けで書き換わります。`code` はプログラム向けで、変わりません。
 
 ## 必要環境
 
@@ -519,7 +575,12 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 - [x] NNAPI capability probeとsmoke test — CIビルドごとに実機で実行
 - [x] 組み込みベンチマークではなく任意のモデルを実行する
 - [x] NNAPIから到達できないQualcommのNPUに届く([#82](https://github.com/m96-chan/DroidRunner/issues/82)) — CPUの4.46msに対し1.22ms
-- [ ] MediaTek Neuron SDK — NNAPIのshimが尽きたとき用([#83](https://github.com/m96-chan/DroidRunner/issues/83))
+- [x] 呼び出し側の入力でモデルを走らせ、出力を返す([#92](https://github.com/m96-chan/DroidRunner/issues/92))
+- [x] 依頼したドライバではなく、実際に実行したドライバを報告([#93](https://github.com/m96-chan/DroidRunner/issues/93))
+- [x] 文書化された結果契約と、他リポジトリが使えるcomposite action([#95](https://github.com/m96-chan/DroidRunner/issues/95))
+- [x] マニフェストで複数モデルを1リクエストで実行([#94](https://github.com/m96-chan/DroidRunner/issues/94))
+- [ ] MediaTek Neuron — 保留:公開ランタイムは`.dla`しか受けず、それを作れる者がいない([#83](https://github.com/m96-chan/DroidRunner/issues/83))
+- [ ] データシートではなくシリコンで測ったオペレータ対応表([#96](https://github.com/m96-chan/DroidRunner/issues/96))
 - [ ] Samsung Exynos — **優先度を下げる**。採用機種が少なく、あるものは超高価格帯か
       激安のキワモノに寄っていて、検証機の確保が正当化しにくい
 - [x] runtime manifestの署名検証
