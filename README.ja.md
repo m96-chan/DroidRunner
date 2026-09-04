@@ -214,12 +214,18 @@ MDLA)は量子化モデル向けで、SoC名ではなくprobeでラベルを決�
 **手動**: 最新リリースからAPKをダウンロードしてインストールします。
 
 > [!NOTE]
-> 上書き更新できるのは署名鍵が同じ場合だけです。別の署名(将来のF-Droid版や自前ビルド)へ
+> 上書き更新できるのは署名鍵が同じ場合だけです。別の署名(自前ビルドなど)へ
 > 移る場合は一度アンインストールが必要で、**Runnerの登録と保存済みGitHub認証情報は失われます**
 > (端末の再登録が必要になります)。
 
 Google Playは配布先として想定していません。ストア外から取得したコードを実行することが
 アプリの目的そのもので、Device & Network Abuseポリシーの動的コード実行に該当するためです。
+
+F-Droidも同様です。F-Droidの約束は「端末で動くものはすべてソースからビルドされている」
+ことですが、このアプリはそれを守れません。初回セットアップで約200MBのUbuntu rootfsと
+GitHub製のビルド済みRunnerを取得し、その中でWorkflowに書かれた任意のコードを実行する
+からです。APKをソースからビルドしても、**実際に走るもののうち一番危険でない部分**しか
+保証できません。GitHub ReleasesとObtainiumが、同じ利用者にその齟齬なく届きます。
 
 ## ビルド環境
 
@@ -450,7 +456,6 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 - [ ] GitHub応答の読めない要素を飛ばし、古いruntimeを選んだときは黙らない([#58](https://github.com/m96-chan/DroidRunner/issues/58))
 - [ ] runtime bundleの更新通知・自動導入([#14](https://github.com/m96-chan/DroidRunner/issues/14))
 - [ ] 複数端末の状態を表示する管理画面([#7](https://github.com/m96-chan/DroidRunner/issues/7))
-- [ ] F-Droidでの公開([#18](https://github.com/m96-chan/DroidRunner/issues/18))
 - [ ] GPL対応のruntime source archiveとSBOMを生成
 
 ## 参考プロジェクト
