@@ -96,13 +96,18 @@ case "$cmd" in
         [ -n "$channels" ] && body="$body\"channels\":$channels,"
         [ -n "$filters" ] && body="$body\"filters\":$filters,"
         body="${body%,}}"
-        case "$kind" in
+        response="$(case "$kind" in
             add) api POST /v1/tests/nnapi "$body" ;;
             conv) api POST /v1/tests/conv "$body" ;;
             model) api POST /v1/tests/model "$body" ;;
             *) die "unknown test: $kind (expected add, conv or model)" ;;
-        esac
-        echo
+        esac)"
+        printf '%s\n' "$response"
+        # A test the device refused is a failed test. curl succeeded, so
+        # without this the step passes while the phone is saying it could not
+        # run the thing being asked about -- which is exactly how a refusal
+        # ends up read as a result (issue #82).
+        [ "$(json_field "$response" ok)" = "true" ] || exit 1
         ;;
 
     bench-all)

@@ -22,6 +22,9 @@ import kotlin.concurrent.thread
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import io.github.m96chan.droidrunner.device.HexagonVersion
+import io.github.m96chan.droidrunner.npu.QnnClient
+import io.github.m96chan.droidrunner.npu.QnnInstaller
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -109,6 +112,7 @@ class RunnerService : Service() {
         agent = DeviceAgentServer(
             runtimeDir = runtimeDir,
             capabilitiesJson = { DeviceCapabilitiesJson.build(this) },
+            qnnModel = qnnModelRunner(),
         ).also { server ->
             server.start()
             RunnerStatus.setJobBoundaryListener { active ->
@@ -489,4 +493,38 @@ class RunnerService : Service() {
         private const val GRACEFUL_STOP_MS = 20_000L
         private const val FORCED_STOP_MS = 5_000L
     }
+
+    /**
+     * Hands jobs the Qualcomm accelerator, or null on a device that has none
+     * or has not installed the runtime.
+     *
+     * Resolved per request rather than once at start: someone can accept the
+     * licences and install the runtime while the runner is up, and should not
+     * have to restart it to use what they just installed (issue #82).
+     */
+    private fun qnnModelRunner(): ((java.io.File, String, Int) -> String)? {
+        val htpVersion = HexagonVersion.of(DeviceCapabilities.detect().soc) ?: return null
+        val installer = QnnInstaller(this)
+        return { model, backend, iterations ->
+            if (installer.installed == null) {
+                org.json.JSONObject()
+                    .put("ok", false)
+                    .put(
+                        "error",
+                        "the Qualcomm NPU runtime is not installed on this device; " +
+                            "accept the licences in setup to install it",
+                    )
+                    .toString()
+            } else {
+                QnnClient(this).runModel(
+                    installDir = installer.installDir,
+                    htpVersion = htpVersion,
+                    model = model,
+                    backend = backend,
+                    iterations = iterations,
+                )
+            }
+        }
+    }
+
 }

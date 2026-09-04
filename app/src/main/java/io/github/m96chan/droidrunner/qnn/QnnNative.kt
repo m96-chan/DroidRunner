@@ -43,6 +43,54 @@ internal object QnnNative {
             """{"ok":false,"error":"qnn_probe library not loaded"}"""
         }
 
+    /**
+     * Creates a delegate for [backend], returning the `TfLiteDelegate*` as a
+     * handle, or 0 with [lastError] set.
+     *
+     * [skelDir] is where the DSP should look for the Hexagon half of the
+     * runtime; null leaves the library's own default alone.
+     */
+    fun createDelegate(backend: Int, skelDir: String?): Long =
+        if (ensureLoaded()) createDelegate2(backend, skelDir) else 0L
+
+    fun destroy(handle: Long) {
+        if (loaded == true) destroyDelegate(handle)
+    }
+
+    /**
+     * Bytes of profiling the backend recorded. Nothing is recorded unless a QNN
+     * graph actually ran, which makes this a second opinion on whether the work
+     * reached the accelerator. -1 when it cannot be asked.
+     */
+    fun profiling(handle: Long): Int = if (loaded == true) profilingBytes(handle) else -1
+
+    /** Whatever the delegate last complained about, or blank. */
+    fun error(): String = if (loaded == true) lastError() else "qnn_probe library not loaded"
+
+    /**
+     * Points this process's stdout and stderr at [path].
+     *
+     * QNN writes its diagnostics with printf, and at least one phone in the
+     * fleet has a ROM whose logcat returns nothing at all. Without somewhere
+     * to put that output, a backend refusing a graph is unexplainable.
+     */
+    fun captureOutput(path: String): Boolean = ensureLoaded() && redirectOutput(path)
+
+    @JvmStatic
+    private external fun redirectOutput(path: String): Boolean
+
     @JvmStatic
     private external fun loadLibraries(directory: String, libraries: Array<String>): String
+
+    @JvmStatic
+    private external fun createDelegate2(backend: Int, skelDir: String?): Long
+
+    @JvmStatic
+    private external fun destroyDelegate(handle: Long)
+
+    @JvmStatic
+    private external fun profilingBytes(handle: Long): Int
+
+    @JvmStatic
+    private external fun lastError(): String
 }

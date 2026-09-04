@@ -47,6 +47,67 @@ internal class QnnClient(private val context: Context) {
         if (!installDir.isDirectory) {
             return QnnProbeResult.unavailable("the QNN runtime is not installed")
         }
+        val answer = ask(QnnService.WHAT_PROBE, timeoutMs) { extras ->
+            extras.putString(QnnService.KEY_DIRECTORY, installDir.absolutePath)
+            extras.putStringArray(QnnService.KEY_LIBRARIES, libraries.toTypedArray())
+        }
+        return when (answer) {
+            null -> QnnProbeResult.unavailable(
+                "the QNN process did not answer within ${timeoutMs}ms",
+            )
+            DIED -> QnnProbeResult.unavailable("the QNN process died while loading")
+            else -> QnnProbeResult.parse(answer)
+        }
+    }
+
+    /**
+     * Runs [model] on the accelerator and returns the runner's JSON verbatim,
+     * refusals included — the caller reports what happened, it does not decide
+     * what happened.
+     */
+    fun runModel(
+        installDir: File,
+        htpVersion: Int,
+        model: File,
+        backend: String,
+        iterations: Int,
+        timeoutMs: Long = RUN_TIMEOUT_MS,
+    ): String {
+        val libraries = QnnLibraries.loadOrder(htpVersion)
+            ?: return refusal("no QNN runtime for Hexagon v$htpVersion")
+        if (!installDir.isDirectory) return refusal("the QNN runtime is not installed")
+
+        return ask(QnnService.WHAT_RUN, timeoutMs) { extras ->
+            extras.putString(QnnService.KEY_DIRECTORY, installDir.absolutePath)
+            extras.putStringArray(QnnService.KEY_LIBRARIES, libraries.toTypedArray())
+            extras.putString(QnnService.KEY_MODEL, model.absolutePath)
+            extras.putString(QnnService.KEY_BACKEND, backend)
+            extras.putInt(QnnService.KEY_ITERATIONS, iterations)
+        }.let { answer ->
+            when (answer) {
+                null -> refusal(
+                    "the QNN process did not answer within ${timeoutMs}ms",
+                )
+                DIED -> refusal(
+                    "the QNN process died while loading or running the model; " +
+                        "see qnn-last-run.txt for how far it got",
+                )
+                else -> answer
+            }
+        }
+    }
+
+    private fun refusal(reason: String) =
+        org.json.JSONObject().put("ok", false).put("error", reason).toString()
+
+    /**
+     * Binds, sends one message, waits for the answer and unbinds.
+     *
+     * Every failure returns null rather than throwing: a process holding vendor
+     * code that dies is not an exceptional case here, it is the case this
+     * boundary exists for.
+     */
+    private fun ask(what: Int, timeoutMs: Long, fill: (Bundle) -> Unit): String? {
 
         val answers = ArrayBlockingQueue<String>(1)
         val replyThread = HandlerThread("qnn-reply").apply { start() }
@@ -61,11 +122,8 @@ internal class QnnClient(private val context: Context) {
         try {
             connection = object : ServiceConnection {
                 override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-                    val request = Message.obtain(null, QnnService.WHAT_PROBE).apply {
-                        data = Bundle().apply {
-                            putString(QnnService.KEY_DIRECTORY, installDir.absolutePath)
-                            putStringArray(QnnService.KEY_LIBRARIES, libraries.toTypedArray())
-                        }
+                    val request = Message.obtain(null, what).apply {
+                        data = Bundle().apply(fill)
                         this.replyTo = replyTo
                     }
                     // A send that throws means the far side has already gone;
@@ -73,7 +131,15 @@ internal class QnnClient(private val context: Context) {
                     runCatching { Messenger(binder).send(request) }
                 }
 
-                override fun onServiceDisconnected(name: ComponentName?) = Unit
+                /**
+                 * The far side died. Vendor code segfaults, and when it does
+                 * there is no reply coming — waiting out the timeout would
+                 * turn a two-second answer into a five-minute one, and the
+                 * job would learn nothing extra by waiting.
+                 */
+                override fun onServiceDisconnected(name: ComponentName?) {
+                    answers.offer(DIED)
+                }
             }
 
             val bound = context.bindService(
@@ -81,13 +147,9 @@ internal class QnnClient(private val context: Context) {
                 connection,
                 Context.BIND_AUTO_CREATE,
             )
-            if (!bound) return QnnProbeResult.unavailable("the QNN process would not start")
+            if (!bound) return null
 
-            val answer = answers.poll(timeoutMs, TimeUnit.MILLISECONDS)
-                ?: return QnnProbeResult.unavailable(
-                    "the QNN process did not answer within ${timeoutMs}ms",
-                )
-            return QnnProbeResult.parse(answer)
+            return answers.poll(timeoutMs, TimeUnit.MILLISECONDS)
         } finally {
             connection?.let { runCatching { context.unbindService(it) } }
             replyThread.quitSafely()
@@ -100,5 +162,14 @@ internal class QnnClient(private val context: Context) {
          * not fast, and a timeout here reads as "this device cannot do it".
          */
         const val TIMEOUT_MS = 30_000L
+
+        /**
+         * A model of any size, compiled for the Hexagon and run many times.
+         * Graph preparation alone can take tens of seconds the first time.
+         */
+        const val RUN_TIMEOUT_MS = 300_000L
+
+        /** Not a reply: the marker that the far side went away. */
+        const val DIED = "\u0000died"
     }
 }
