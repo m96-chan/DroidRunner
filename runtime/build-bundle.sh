@@ -23,6 +23,8 @@ WORK_DIR="$OUT_DIR/bundle"
 UBUNTU_VERSION="${UBUNTU_VERSION:-24.04.3}"
 UBUNTU_SERIES="${UBUNTU_VERSION%.*}"
 BUNDLE_NAME="droidrunner-runtime-arm64.tar.gz"
+# Written offer plus the package list; see SOURCE-OFFER.txt below.
+OFFER_NAME="SOURCE-OFFER.txt"
 
 die() {
     echo "ERROR: $*" >&2
@@ -89,6 +91,14 @@ apt-get install -y -qq --no-install-recommends \
 apt-get clean
 rm -rf /var/lib/apt/lists/*
 EOF
+# Every package name and version in the rootfs, so anyone we hand this to can
+# fetch the corresponding source with `apt-get source <name>=<version>`.
+# Redistributing a Ubuntu rootfs makes us the distributor for the GPL software
+# inside it; Canonical's obligation does not travel with the bytes (issue #116).
+chroot "$WORK_DIR/rootfs" dpkg-query -W -f='${Package}\t${Version}\t${binary:Package}\n' \
+    > "$WORK_DIR/PACKAGES.txt" || die "Unable to list rootfs packages"
+echo "==> $(wc -l < "$WORK_DIR/PACKAGES.txt") packages recorded in PACKAGES.txt"
+
 cleanup
 trap - EXIT
 
@@ -114,10 +124,34 @@ tar -xzf "$OUT_DIR/actions-runner.tar.gz" -C "$WORK_DIR/home/runner"
 ## them), SHA-256, manifest
 ##
 
+# The offer travels with the bundle, since whoever holds the tarball is who
+# the obligation is owed to.
+cat > "$WORK_DIR/$OFFER_NAME" <<OFFER
+This bundle contains an Ubuntu ARM64 rootfs. Most of the software in it is
+covered by the GPL, the LGPL or similar licences, and redistributing it carries
+the obligation to make the corresponding source available.
+
+PACKAGES.txt beside this file lists every package and its exact version. For
+any of them, the corresponding source is obtainable with:
+
+    apt-get source <package>=<version>
+
+against Ubuntu's archive, which is where these binaries came from unmodified.
+
+If that archive no longer carries a version listed here, write to the address
+on https://github.com/m96-chan/DroidRunner and the source for any package in
+this bundle will be provided, at no more than the cost of distribution, for at
+least three years from the date this bundle was published.
+
+Nothing in this rootfs was modified: it is Ubuntu's own binaries, installed
+with apt. The parts DroidRunner builds itself are the app and proot, whose
+source ships with the app release as droidrunner-<tag>-source.tar.gz.
+OFFER
+
 echo "==> Packaging $BUNDLE_NAME"
 tar -C "$WORK_DIR" --hard-dereference --numeric-owner --owner=0 --group=0 \
     --exclude='./rootfs/dev/*' --exclude='./rootfs/proc/*' --exclude='./rootfs/sys/*' \
-    -czf "$OUT_DIR/$BUNDLE_NAME" rootfs home
+    -czf "$OUT_DIR/$BUNDLE_NAME" rootfs home "$OFFER_NAME" PACKAGES.txt
 
 SHA256="$(sha256sum "$OUT_DIR/$BUNDLE_NAME" | cut -d' ' -f1)"
 VERSION="runner-$RUNNER_VERSION-ubuntu-$UBUNTU_VERSION"

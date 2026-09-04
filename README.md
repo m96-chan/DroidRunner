@@ -619,7 +619,7 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 - [x] Skip unreadable entries in GitHub responses rather than losing the whole list
 - [ ] Notify or auto-install when the runtime bundle is out of date ([#14](https://github.com/m96-chan/DroidRunner/issues/14))
 - [ ] Fleet dashboard showing the state of multiple devices ([#7](https://github.com/m96-chan/DroidRunner/issues/7))
-- [ ] Generate a GPL-compliant runtime source archive and SBOM
+- [x] Ship the corresponding source for the GPL binaries we distribute ([#116](https://github.com/m96-chan/DroidRunner/issues/116))
 
 ## Related projects
 
@@ -640,8 +640,9 @@ The APK also ships third-party components under their own licenses:
 
 | Component | License | Corresponding source |
 | --- | --- | --- |
-| [PRoot](https://github.com/termux/proot) (`libproot.so`, loaders) | GPL-2.0 | commit pinned in [`runtime/build-proot.sh`](runtime/build-proot.sh), patches in [`runtime/patches/`](runtime/patches) |
-| [talloc](https://talloc.samba.org/) (statically linked into proot) | LGPL-3.0 | version pinned in `runtime/build-proot.sh` |
+| [PRoot](https://github.com/termux/proot) (`libproot.so`, loaders) | GPL-2.0 | source ships beside every release as `droidrunner-<tag>-source.tar.gz`; commit pinned in [`runtime/build-proot.sh`](runtime/build-proot.sh), patches in [`runtime/patches/`](runtime/patches) |
+| [talloc](https://talloc.samba.org/) (statically linked into proot) | LGPL-3.0 | in the same archive, with the script to rebuild and relink |
+| The runtime bundle's Ubuntu rootfs | GPL / LGPL / various | `PACKAGES.txt` and `SOURCE-OFFER.txt` inside the bundle name every package and version, and how to get its source |
 
 The runtime bundle carries more: the [GitHub Actions Runner](https://github.com/actions/runner)
 (MIT) and an Ubuntu rootfs whose packages keep their own licenses. If you distribute a
