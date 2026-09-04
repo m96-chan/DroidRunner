@@ -72,6 +72,18 @@ internal object QnnNative {
     /** Whatever the delegate last complained about, or blank. */
     fun error(): String = if (loaded == true) lastError() else "qnn_probe library not loaded"
 
+    /**
+     * Points this process's stdout and stderr at [path].
+     *
+     * QNN writes its diagnostics with printf, and at least one phone in the
+     * fleet has a ROM whose logcat returns nothing at all. Without somewhere
+     * to put that output, a backend refusing a graph is unexplainable.
+     */
+    fun captureOutput(path: String): Boolean = ensureLoaded() && redirectOutput(path)
+
+    @JvmStatic
+    private external fun redirectOutput(path: String): Boolean
+
     @JvmStatic
     private external fun loadLibraries(directory: String, libraries: Array<String>): String
 

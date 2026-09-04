@@ -10,8 +10,6 @@
  */
 package io.github.m96chan.droidrunner.qnn
 
-import io.github.m96chan.droidrunner.npu.QnnDelegation
-import io.github.m96chan.droidrunner.npu.refuseUnattributable
 import org.json.JSONArray
 import org.json.JSONObject
 import org.tensorflow.lite.Delegate
@@ -35,6 +33,20 @@ import java.nio.ByteOrder
  */
 internal object QnnModelRunner {
 
+    /**
+     * Where this process says how far it got.
+     *
+     * A vendor library that segfaults takes the process with it, and there is
+     * no reply, no stack and — on a phone whose ROM has no working logcat, as
+     * the nubia's has not — no log either. A breadcrumb on disk is what is left
+     * to say which step was in progress, and it costs one small write.
+     */
+    private var breadcrumb: File? = null
+
+    private fun step(name: String) {
+        runCatching { breadcrumb?.writeText(name) }
+    }
+
     fun run(
         model: File,
         directory: String,
@@ -43,23 +55,20 @@ internal object QnnModelRunner {
         iterations: Int,
         warmup: Int = 2,
     ): String {
+        breadcrumb = File(directory).parentFile?.let { File(it, "qnn-last-run.txt") }
+        File(directory).parentFile?.let { QnnNative.captureOutput(File(it, "qnn-output.txt").path) }
+        step("starting $backend on ${model.name}")
         val runs = iterations.coerceIn(1, 500)
+        step("loading libraries")
         val loading = QnnNative.load(directory, libraries)
         if (!JSONObject(loading).optBoolean("ok")) {
             return failure(model, backend, "QNN did not load", loading)
         }
 
-        val handle = QnnNative.createDelegate(
-            mapOf(
-                "backend_type" to backend,
-                // Its own account of what it took is the only trustworthy
-                // source for that, and it only says so when logging is on.
-                "log_level" to "info",
-                // Nothing is recorded unless a graph really ran on the backend,
-                // which is a second opinion independent of the log.
-                "profiling" to "basic",
-            ),
-        )
+        val options = QnnOptions.forRun(backend)
+            ?: return failure(model, backend, "'$backend' is not a QNN backend", "")
+        step("creating the delegate")
+        val handle = QnnNative.createDelegate(options)
         if (handle == 0L) {
             return failure(model, backend, "the delegate would not start", QnnNative.error())
         }
@@ -69,6 +78,7 @@ internal object QnnModelRunner {
             // The delegate's account of the split is printed while the graph is
             // being applied, so the log is read from just before that point.
             val logFrom = DelegateLog.mark()
+            step("building the interpreter")
             interpreter = Interpreter(
                 model,
                 Interpreter.Options().addDelegate(Handle(handle)),
@@ -76,6 +86,7 @@ internal object QnnModelRunner {
             // Sizes are only final after allocation, and a delegate can change
             // them — sizing buffers before this is how the NNAPI path first
             // went wrong.
+            step("allocating tensors")
             interpreter.allocateTensors()
 
             val inputs = (0 until interpreter.inputTensorCount).map { index ->
@@ -99,7 +110,9 @@ internal object QnnModelRunner {
                 interpreter.runForMultipleInputsOutputs(inputs, outputs)
             }
 
+            step("warmup")
             repeat(warmup) { invoke() }
+            step("timing $runs runs")
             val timings = LongArray(runs)
             repeat(runs) { run ->
                 val started = System.nanoTime()
@@ -108,7 +121,9 @@ internal object QnnModelRunner {
             }
             timings.sort()
 
+            step("reading what the delegate reported")
             val delegation = QnnDelegation.parse(DelegateLog.since(logFrom))
+            step("reading profiling")
             val profiling = QnnNative.profiling(handle)
             refuseUnattributable(delegation, profiling)?.let { reason ->
                 return failure(model, backend, reason, DelegateLog.since(logFrom).takeLast(600))
@@ -150,6 +165,7 @@ internal object QnnModelRunner {
                 QnnNative.error(),
             )
         } finally {
+            step("done")
             runCatching { interpreter?.close() }
             QnnNative.destroy(handle)
         }

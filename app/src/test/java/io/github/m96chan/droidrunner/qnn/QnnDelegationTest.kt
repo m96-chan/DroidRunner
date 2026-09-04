@@ -1,4 +1,4 @@
-package io.github.m96chan.droidrunner.npu
+package io.github.m96chan.droidrunner.qnn
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -81,5 +81,44 @@ class QnnDelegationTest {
     @Test fun logsWithNoSuchLineParseToNothing() {
         assertNull(QnnDelegation.parse(""))
         assertNull(QnnDelegation.parse("INFO: [Qnn Delegate] initialising HTP backend"))
+    }
+}
+
+class QnnOptionsTest {
+
+    @Test fun theDelegateIsGivenNumbersBecauseThatIsWhatItParses() {
+        // The plugin entry point parses each value as the integer of the
+        // matching enum. "htp" becomes atoi("htp") — zero, kUndefinedBackend —
+        // and the delegate then walks into a backend that does not exist and
+        // takes the process down with it. That is not hypothetical: it is what
+        // the first attempt did, and a native crash was the only symptom.
+        val options = QnnOptions.forRun("htp")!!
+
+        assertEquals("2", options["backend_type"])
+        options.values.forEach { assertTrue(it, it.toIntOrNull() != null) }
+    }
+
+    @Test fun logLevelIsNeverSentBecauseItLosesTheBackend() {
+        // Bisected on hardware: backend_type alone works, and with profiling or
+        // htp_performance_mode it still works. Add log_level and the delegate
+        // answers "requires valid backend". The delegate logs at INFO anyway.
+        assertNull(QnnOptions.forRun("htp")!!["log_level"])
+    }
+
+    @Test fun profilingIsOnAsTheSecondOpinion() {
+        // kBasicProfiling. Nothing is recorded unless a graph really ran on
+        // the backend, which is what attributes a run on a device whose ROM
+        // has no working logcat.
+        assertEquals("1", QnnOptions.forRun("htp")!!["profiling"])
+    }
+
+    @Test fun onlyTheHtpGetsAnHtpPerformanceMode() {
+        assertEquals("2", QnnOptions.forRun("htp")!!["htp_performance_mode"])
+        assertNull(QnnOptions.forRun("gpu")!!["htp_performance_mode"])
+    }
+
+    @Test fun somethingThatIsNotAQnnBackendGetsNoOptions() {
+        assertNull(QnnOptions.forRun("edgetpu"))
+        assertNull(QnnOptions.backendCode("edgetpu"))
     }
 }

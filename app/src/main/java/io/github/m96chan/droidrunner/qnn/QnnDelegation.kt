@@ -1,4 +1,14 @@
-package io.github.m96chan.droidrunner.npu
+/*
+ * Part of DroidRunner. GPL-2.0-only, with the additional permission below.
+ *
+ * Additional permission under GNU GPL version 2, as a special exception:
+ *
+ * The copyright holders of this file give you permission to combine it with
+ * Qualcomm's QNN runtime and LiteRT delegate libraries, and to convey the
+ * resulting work. This permission covers this file only; it does not extend to
+ * any other part of DroidRunner, which remains GPL-2.0-only.
+ */
+package io.github.m96chan.droidrunner.qnn
 
 /**
  * How much of a model actually reached the Hexagon (issue #82, stage 5).
@@ -77,4 +87,51 @@ internal fun refuseUnattributable(
     delegation != null && delegation.none ->
         "the delegate took no operators: ${delegation.describe()}"
     else -> null
+}
+
+
+/**
+ * The delegate's options, as it actually reads them (issue #82, stage 5).
+ *
+ * They are numbers, not names. The plugin entry point takes strings and parses
+ * each one as the integer of the matching enum, so `backend_type=htp` becomes
+ * `atoi("htp")` — zero, `kUndefinedBackend` — and the delegate then walks into
+ * a backend that does not exist and takes the process with it. That is what the
+ * first attempt at this did, and the only visible symptom was a native crash in
+ * a process with no working logcat.
+ *
+ * `log_level` is deliberately absent, and that is not an oversight. Passing it
+ * alongside `backend_type` makes the delegate lose the backend entirely —
+ * `backend_type` alone is accepted, `backend_type` with `profiling` or
+ * `htp_performance_mode` is accepted, and only adding `log_level` produces
+ * "Qnn delegate requires valid backend". Bisected on hardware, one option at a
+ * time. The delegate logs at INFO without being asked, so nothing is lost.
+ */
+internal object QnnOptions {
+
+    /** `TfLiteQnnDelegateBackendType`. */
+    private val BACKENDS = mapOf("gpu" to 1, "htp" to 2, "dsp" to 3, "ir" to 4)
+
+    /** `kBasicProfiling`: enough to prove a graph ran, without per-op cost. */
+    private const val PROFILING_BASIC = 1
+
+    /** `kHtpBurst` — a benchmark should measure the hardware, not its idle governor. */
+    private const val HTP_BURST = 2
+
+    /** The numeric code for [backend], or null when it is not one QNN has. */
+    fun backendCode(backend: String): Int? = BACKENDS[backend.lowercase()]
+
+    /**
+     * Options for a benchmark run, or null when [backend] is not a QNN backend.
+     */
+    fun forRun(backend: String): Map<String, String>? {
+        val code = backendCode(backend) ?: return null
+        return buildMap {
+            put("backend_type", code.toString())
+            put("profiling", PROFILING_BASIC.toString())
+            if (backend.equals("htp", ignoreCase = true)) {
+                put("htp_performance_mode", HTP_BURST.toString())
+            }
+        }
+    }
 }

@@ -50,10 +50,14 @@ internal class QnnClient(private val context: Context) {
         val answer = ask(QnnService.WHAT_PROBE, timeoutMs) { extras ->
             extras.putString(QnnService.KEY_DIRECTORY, installDir.absolutePath)
             extras.putStringArray(QnnService.KEY_LIBRARIES, libraries.toTypedArray())
-        } ?: return QnnProbeResult.unavailable(
-            "the QNN process did not answer within ${timeoutMs}ms",
-        )
-        return QnnProbeResult.parse(answer)
+        }
+        return when (answer) {
+            null -> QnnProbeResult.unavailable(
+                "the QNN process did not answer within ${timeoutMs}ms",
+            )
+            DIED -> QnnProbeResult.unavailable("the QNN process died while loading")
+            else -> QnnProbeResult.parse(answer)
+        }
     }
 
     /**
@@ -79,10 +83,18 @@ internal class QnnClient(private val context: Context) {
             extras.putString(QnnService.KEY_MODEL, model.absolutePath)
             extras.putString(QnnService.KEY_BACKEND, backend)
             extras.putInt(QnnService.KEY_ITERATIONS, iterations)
-        } ?: refusal(
-            "the QNN process did not answer within ${timeoutMs}ms — it may have died " +
-                "loading or running the model",
-        )
+        }.let { answer ->
+            when (answer) {
+                null -> refusal(
+                    "the QNN process did not answer within ${timeoutMs}ms",
+                )
+                DIED -> refusal(
+                    "the QNN process died while loading or running the model; " +
+                        "see qnn-last-run.txt for how far it got",
+                )
+                else -> answer
+            }
+        }
     }
 
     private fun refusal(reason: String) =
@@ -119,7 +131,15 @@ internal class QnnClient(private val context: Context) {
                     runCatching { Messenger(binder).send(request) }
                 }
 
-                override fun onServiceDisconnected(name: ComponentName?) = Unit
+                /**
+                 * The far side died. Vendor code segfaults, and when it does
+                 * there is no reply coming — waiting out the timeout would
+                 * turn a two-second answer into a five-minute one, and the
+                 * job would learn nothing extra by waiting.
+                 */
+                override fun onServiceDisconnected(name: ComponentName?) {
+                    answers.offer(DIED)
+                }
             }
 
             val bound = context.bindService(
@@ -148,5 +168,8 @@ internal class QnnClient(private val context: Context) {
          * Graph preparation alone can take tens of seconds the first time.
          */
         const val RUN_TIMEOUT_MS = 300_000L
+
+        /** Not a reply: the marker that the far side went away. */
+        const val DIED = "\u0000died"
     }
 }

@@ -27,6 +27,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 // From QnnTFLiteDelegate.h. Only the scalar ABI is used: an int in, an int
 // out. Nothing here reproduces Qualcomm's structures, so there is no header of
@@ -89,6 +90,27 @@ static size_t append_escaped(char *out, size_t at, const char *text) {
     return at;
 }
 
+// Sends this process's stdout and stderr to a file.
+//
+// QNN writes its diagnostics with printf, and the phones this runs on include
+// one whose ROM has no working logcat at all — logd runs, logcat returns
+// nothing. Without this there is no way to learn why a backend refused a
+// graph, which turns every failure into guesswork.
+JNIEXPORT jboolean JNICALL
+Java_io_github_m96chan_droidrunner_qnn_QnnNative_redirectOutput(
+        JNIEnv *env, jclass clazz, jstring path) {
+    (void) clazz;
+    const char *file = (*env)->GetStringUTFChars(env, path, NULL);
+    int fd = open(file, O_WRONLY | O_CREAT | O_APPEND, 0600);
+    (*env)->ReleaseStringUTFChars(env, path, file);
+    if (fd < 0) return JNI_FALSE;
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
+    int ok = dup2(fd, STDOUT_FILENO) >= 0 && dup2(fd, STDERR_FILENO) >= 0;
+    close(fd);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT jstring JNICALL
 Java_io_github_m96chan_droidrunner_qnn_QnnNative_loadLibraries(
         JNIEnv *env, jclass clazz, jstring directory, jobjectArray libraries) {
@@ -100,7 +122,15 @@ Java_io_github_m96chan_droidrunner_qnn_QnnNative_loadLibraries(
 
     // The skel runs on the DSP itself and is loaded by the DSP loader, not by
     // us, so it is found through this variable rather than through dlopen.
-    setenv("ADSP_LIBRARY_PATH", dir, 1);
+    //
+    // The platform's own directories stay on the path behind ours. Overriding
+    // them outright was the first attempt, and it hid the vendor's
+    // libQnnHtpV75Skel.so — which the DSP can read, while nothing outside this
+    // app can read app-private storage. Ours first, theirs as the fallback.
+    char adsp[2048];
+    snprintf(adsp, sizeof(adsp),
+             "%s;/vendor/lib/rfsa/adsp;/vendor/dsp/cdsp;/system/vendor/lib/rfsa/adsp", dir);
+    setenv("ADSP_LIBRARY_PATH", adsp, 1);
 
     char pid[64];
     snprintf(pid, sizeof(pid), "{\"pid\":%d,\"libraries\":[", (int) getpid());
@@ -189,22 +219,26 @@ Java_io_github_m96chan_droidrunner_qnn_QnnNative_createDelegate(
         record_error("out of memory building delegate options");
         return 0;
     }
+    // Copied, and deliberately never freed. The delegate is applied long after
+    // this call returns, and handing it pointers into JNI-owned memory that we
+    // release on the way out would leave it reading whatever took their place.
+    // A handful of short strings for the life of the process is the cheaper
+    // mistake.
     for (jsize i = 0; i < count; i++) {
         key_refs[i] = (jstring) (*env)->GetObjectArrayElement(env, keys, i);
         value_refs[i] = (jstring) (*env)->GetObjectArrayElement(env, values, i);
-        key_strings[i] = (char *) (*env)->GetStringUTFChars(env, key_refs[i], NULL);
-        value_strings[i] = (char *) (*env)->GetStringUTFChars(env, value_refs[i], NULL);
-    }
-
-    void *handle = create(key_strings, value_strings, (size_t) count, record_error);
-
-    for (jsize i = 0; i < count; i++) {
-        (*env)->ReleaseStringUTFChars(env, key_refs[i], key_strings[i]);
-        (*env)->ReleaseStringUTFChars(env, value_refs[i], value_strings[i]);
+        const char *key = (*env)->GetStringUTFChars(env, key_refs[i], NULL);
+        const char *value = (*env)->GetStringUTFChars(env, value_refs[i], NULL);
+        key_strings[i] = strdup(key);
+        value_strings[i] = strdup(value);
+        (*env)->ReleaseStringUTFChars(env, key_refs[i], key);
+        (*env)->ReleaseStringUTFChars(env, value_refs[i], value);
         (*env)->DeleteLocalRef(env, key_refs[i]);
         (*env)->DeleteLocalRef(env, value_refs[i]);
     }
-    free(key_strings); free(value_strings); free(key_refs); free(value_refs);
+    free(key_refs); free(value_refs);
+
+    void *handle = create(key_strings, value_strings, (size_t) count, record_error);
 
     if (handle == NULL && g_last_error[0] == '\0') {
         record_error("the delegate refused these options without saying why");
