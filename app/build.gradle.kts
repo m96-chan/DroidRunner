@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
@@ -99,7 +98,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions.jvmTarget = "17"
     buildFeatures.compose = true
     buildFeatures.buildConfig = true
     packaging.resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -108,16 +106,25 @@ android {
     packaging.jniLibs.useLegacyPackaging = true
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
 // Single source of truth for the CLI: the copy the app installs into the
 // guest is generated from runtime/droidrunner-device at build time.
 val generatedAssets = layout.buildDirectory.dir("generated/deviceCliAsset")
 
-val copyDeviceCli by tasks.registering(Copy::class) {
+val copyDeviceCli = tasks.register<Copy>("copyDeviceCli") {
     from(rootProject.file("runtime/droidrunner-device"))
     into(generatedAssets)
 }
 
-android.sourceSets.getByName("main").assets.srcDir(generatedAssets)
+// AGP 9 refuses a Provider here — it cannot tell generated from static
+// sources through one — so the path is resolved eagerly. It is a build
+// directory, so the value does not depend on anything configured later.
+android.sourceSets.getByName("main").assets.srcDir(generatedAssets.get().asFile)
 
 tasks.named("preBuild") { dependsOn(copyDeviceCli) }
 
@@ -129,7 +136,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
-    implementation("org.apache.commons:commons-compress:1.27.1")
+    implementation("org.apache.commons:commons-compress:1.28.0")
 
     testImplementation("junit:junit:4.13.2")
     // Android's org.json is a stub in unit tests; use the real implementation.
