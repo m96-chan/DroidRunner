@@ -147,6 +147,7 @@ fun SetupScreen(
     var reposLoaded by remember { mutableStateOf(false) }
     var loadingRepos by remember { mutableStateOf(false) }
     var selectedRepo by remember { mutableStateOf<RepositoryRef?>(null) }
+    var confirming by remember { mutableStateOf<RegistrationWarning?>(null) }
     // Organization scope serves every repository in the org, so it is opt-in.
     var organizationScope by remember { mutableStateOf(prefs.getBoolean("org_scope", false)) }
     var organizations by remember { mutableStateOf<List<RunnerTarget.Organization>>(emptyList()) }
@@ -392,6 +393,23 @@ fun SetupScreen(
             setupJob?.cancel()
             setupJob = null
         }
+    }
+
+    confirming?.let { warning ->
+        val target = if (organizationScope) {
+            selectedOrg
+        } else {
+            selectedRepo?.let { RunnerTarget.Repository(it.owner, it.name) }
+        }
+        RegistrationWarningDialog(
+            warning = warning,
+            onConfirm = {
+                confirming = null
+                val credential = userToken
+                if (target != null && credential != null) registerRunner(target, credential)
+            },
+            onCancel = { confirming = null },
+        )
     }
 
     Column(
@@ -735,7 +753,13 @@ fun SetupScreen(
                     (runtime.installed || manifestSource() != null) &&
                     (storedTarget == null || runnerStopped),
                 colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Green, contentColor = BtopColors.Background),
-                onClick = { registerRunner(selectedTarget, userToken!!) },
+                onClick = {
+                    // The warning is asked here, not on the screen behind: a
+                    // banner that is always there stops being read, and this
+                    // is the moment the answer still changes anything (#64).
+                    val warning = registrationWarning(selectedTarget, selectedRepo?.isPrivate)
+                    if (warning == null) registerRunner(selectedTarget, userToken!!) else confirming = warning
+                },
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(

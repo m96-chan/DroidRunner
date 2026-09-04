@@ -12,7 +12,16 @@ data class Installation(
     val accountType: String,
 )
 
-data class RepositoryRef(val owner: String, val name: String) {
+data class RepositoryRef(
+    val owner: String,
+    val name: String,
+    /**
+     * Null when the response did not say. Unknown is not the same as private:
+     * a device pointed at a public repository can be handed a fork's pull
+     * request, so the two are told apart rather than merged into a default.
+     */
+    val isPrivate: Boolean? = null,
+) {
     val fullName: String get() = "$owner/$name"
 }
 
