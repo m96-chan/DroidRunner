@@ -64,8 +64,13 @@ internal object GitHubResponses {
     fun repositoryPage(body: String): RepositoryPage {
         val batch = JSONObject(body).getJSONArray("repositories")
         val repositories = (0 until batch.length()).map { index ->
-            val fullName = batch.getJSONObject(index).getString("full_name")
-            RepositoryRef(fullName.substringBefore('/'), fullName.substringAfter('/'))
+            val repository = batch.getJSONObject(index)
+            val fullName = repository.getString("full_name")
+            RepositoryRef(
+                owner = fullName.substringBefore('/'),
+                name = fullName.substringAfter('/'),
+                isPrivate = if (repository.has("private")) repository.optBoolean("private") else null,
+            )
         }
         return RepositoryPage(repositories, hasMore = batch.length() >= PAGE_SIZE)
     }
