@@ -70,7 +70,11 @@ internal object QnnModelRunner {
         val log = DelegateLog.fileIn(diagnostics)
         QnnNative.captureOutput(log.path)
         step("starting $backend on ${model.name}")
-        val runs = iterations.coerceIn(1, 500)
+        // Zero is a real answer, not a mistake: "was this graph accepted" is
+        // complete once tensors are allocated, and perhaps half of a sweep asks
+        // nothing else (#94). Timing it anyway is what turns a sweep that fits
+        // in a CI job into one that needs its own evening.
+        val runs = iterations.coerceIn(0, 500)
         step("loading libraries")
         val loading = QnnNative.load(directory, libraries)
         if (!JSONObject(loading).optBoolean("ok")) {
@@ -136,8 +140,10 @@ internal object QnnModelRunner {
                 interpreter.runForMultipleInputsOutputs(buffers, outputs)
             }
 
-            step("warmup")
-            repeat(warmup) { invoke() }
+            if (runs > 0) {
+                step("warmup")
+                repeat(warmup) { invoke() }
+            }
             step("timing $runs runs")
             val timings = LongArray(runs)
             repeat(runs) { run ->
@@ -171,10 +177,14 @@ internal object QnnModelRunner {
                 .put("requestedDevice", "qnn-$backend")
                 .put("backend", backend)
                 .put("iterations", runs)
-                .put("avgUs", timings.average() / 1000.0)
-                .put("medianUs", timings[runs / 2] / 1000.0)
-                .put("minUs", timings.first() / 1000.0)
-                .put("maxUs", timings.last() / 1000.0)
+                .apply {
+                    if (runs > 0) {
+                        put("avgUs", timings.average() / 1000.0)
+                        put("medianUs", timings[runs / 2] / 1000.0)
+                        put("minUs", timings.first() / 1000.0)
+                        put("maxUs", timings.last() / 1000.0)
+                    }
+                }
                 .put("profilingBytes", profiling)
                 .apply {
                     delegation?.let {

@@ -123,6 +123,34 @@ line.
 — the shape a batch request will also return, so a consumer written against one
 reads the other.
 
+## A batch
+
+`POST /v1/tests/models`, or `droidrunner-device test batch manifest.json`, where
+the manifest is a JSON array:
+
+```json
+[{"id": "conv-int8", "path": "/home/runner/ops/conv-int8.tflite", "device": "qnn-htp"},
+ {"id": "pack-fp32", "path": "/home/runner/ops/pack-fp32.tflite", "iterations": 0}]
+```
+
+```json
+{"schema": 1, "ok": true,
+ "results": [ {"id": "conv-int8", "ok": true,  "executed": "accelerator", "…": "…"},
+              {"id": "pack-fp32", "ok": false, "code": "refused", "…": "…"} ]}
+```
+
+- **One entry back per entry sent, in order.** A failing row never ends the
+  sweep — a sweep is largely *made of* rejections, and each one is the data.
+  A malformed row comes back saying so rather than shortening the array.
+- `iterations: 0` means load, delegate and allocate but do not time. Half of a
+  sweep only asks whether a graph was accepted, and that answer is complete
+  once tensors are allocated. The result then carries `executed` and
+  `delegation` and no timings.
+- `budgetMs` caps the **whole** sweep. If it runs out, everything collected so
+  far comes back with `budgetExhausted: true` and `stoppedAt` naming the row
+  that was running — which is the only thing a caller can act on when one
+  driver will not return.
+
 ## What is not in the contract
 
 - Field **order**. It is JSON.

@@ -1,5 +1,6 @@
 package io.github.m96chan.droidrunner.npu
 
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.File
@@ -165,6 +166,7 @@ internal class DeviceAgentServer(
             method == "POST" && path == "/v1/tests/nnapi" -> nnapiTest(body)
             method == "POST" && path == "/v1/tests/conv" -> convTest(body)
             method == "POST" && path == "/v1/tests/model" -> modelTest(body)
+            method == "POST" && path == "/v1/tests/models" -> batchTest(body)
             else -> 404 to ResultContract.error(
                 ResultContract.Code.INVALID_REQUEST,
                 "unknown endpoint",
@@ -285,6 +287,81 @@ internal class DeviceAgentServer(
             // file is not something a job should find, or be able to write.
             diagnosticsDir = runtimeDir.parentFile,
         )
+    }
+
+    /**
+     * A whole sweep in one request (issue #94).
+     *
+     * Every row is attempted and every row comes back, in the order it was
+     * sent: a sweep is largely made of rejections and each one is the data,
+     * so a failing entry must never end the batch. What does end it is the
+     * clock — a driver that will not return would otherwise cost the caller
+     * everything collected before it, so the budget is checked between rows
+     * and each row is awaited with what is left of it.
+     */
+    private fun batchTest(body: String): Pair<Int, String> {
+        val request = runCatching { JSONObject(body.ifBlank { "{}" }) }.getOrElse {
+            return 400 to ResultContract.error(
+                ResultContract.Code.INVALID_REQUEST,
+                "invalid JSON body",
+            )
+        }
+        val entries = BatchRequest.entries(request)
+        if (entries.isEmpty()) {
+            return 400 to ResultContract.error(
+                ResultContract.Code.INVALID_REQUEST,
+                "models must be a non-empty array",
+            )
+        }
+
+        val deadline = System.currentTimeMillis() + BatchRequest.budgetMs(request)
+        val results = mutableListOf<String>()
+        var stoppedAt: String? = null
+
+        // One row at a time, on a thread this can walk away from. A hung
+        // vendor call cannot be interrupted, so the thread is abandoned rather
+        // than waited on; leaking one is the price of answering at all.
+        val worker = java.util.concurrent.Executors.newSingleThreadExecutor()
+        try {
+            for (entry in entries) {
+                if (entry.rejection != null) {
+                    results += BatchRequest.skipped(entry, entry.rejection)
+                    continue
+                }
+                val remaining = deadline - System.currentTimeMillis()
+                if (remaining <= 0) {
+                    stoppedAt = stoppedAt ?: entry.id
+                    results += BatchRequest.skipped(entry, "the batch ran out of time before this")
+                    continue
+                }
+                val task = worker.submit<String> { runOne(entry) }
+                val answer = runCatching {
+                    task.get(remaining, java.util.concurrent.TimeUnit.MILLISECONDS)
+                }.getOrElse {
+                    task.cancel(true)
+                    stoppedAt = stoppedAt ?: entry.id
+                    BatchRequest.skipped(entry, "took longer than the batch had left")
+                }
+                results += BatchRequest.identify(answer, entry)
+                if (stoppedAt != null) break
+            }
+        } finally {
+            worker.shutdownNow()
+        }
+        return 200 to BatchRequest.response(results, stoppedAt)
+    }
+
+    /** One manifest row, reusing the single-model path so the shapes match. */
+    private fun runOne(entry: BatchRequest.Entry): String {
+        val request = JSONObject()
+            .put("path", entry.path)
+            .put("iterations", entry.iterations)
+            .apply {
+                entry.device?.let { put("device", it) }
+                entry.outputDir?.let { put("outputDir", it) }
+                if (entry.inputs.isNotEmpty()) put("inputs", JSONArray(entry.inputs))
+            }
+        return modelTest(request.toString()).second
     }
 
     private fun writeResponse(client: Socket, status: Int, json: String) {

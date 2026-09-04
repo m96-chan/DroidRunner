@@ -55,7 +55,11 @@ internal object ModelRunner {
         baseline: Boolean = false,
         diagnosticsDir: File? = null,
     ): String {
-        val runs = iterations.coerceIn(1, 500)
+        // Zero is a real answer, not a mistake: "was this graph accepted" is
+        // complete once tensors are allocated, and perhaps half of a sweep asks
+        // nothing else (#94). Timing it anyway is what turns a sweep that fits
+        // in a CI job into one that needs its own evening.
+        val runs = iterations.coerceIn(0, 500)
         var delegate: NnApiDelegate? = null
         var interpreter: Interpreter? = null
         return try {
@@ -117,8 +121,9 @@ internal object ModelRunner {
                 interpreter.runForMultipleInputsOutputs(buffers, outputs)
             }
 
-            repeat(warmup) { invoke() }
-
+            if (runs > 0) {
+                repeat(warmup) { invoke() }
+            }
             val timings = LongArray(runs)
             repeat(runs) { run ->
                 val started = System.nanoTime()
@@ -133,26 +138,10 @@ internal object ModelRunner {
                 .put("sizeBytes", model.length())
                 .put("requestedDevice", deviceName ?: "default")
                 // What actually happened, rather than what was asked for.
-                .put(
-                    "executed",
-                    when {
-                        delegation != null -> delegation.executed
-                        deviceName == null -> "cpu"
-                        else -> "unknown"
-                    },
-                )
-                // Names both halves of the answer: the delegate that claimed
-                // the nodes, and the driver it was pinned to. "accelerator"
-                // alone would read the same for a graph NNAPI handed to
-                // nnapi-reference, which is the CPU.
-                .put(
-                    "executedBy",
-                    when {
-                        delegation == null || delegation.none -> "cpu"
-                        deviceName != null -> "${delegation.delegate ?: "delegate"}:$deviceName"
-                        else -> delegation.delegate ?: "delegate"
-                    },
-                )
+                .put("executed", executedFor(delegation, deviceName).first)
+                // Names both halves when there are two: the delegate that
+                // claimed the nodes and the driver it was pinned to.
+                .put("executedBy", executedFor(delegation, deviceName).second)
                 .apply {
                     delegation?.let {
                         put(
@@ -169,10 +158,14 @@ internal object ModelRunner {
                     if (refused.isNotEmpty()) put("unsupportedOps", JSONArray(refused))
                 }
                 .put("iterations", runs)
-                .put("avgUs", timings.average() / 1000.0)
-                .put("medianUs", timings[runs / 2] / 1000.0)
-                .put("minUs", timings.first() / 1000.0)
-                .put("maxUs", timings.last() / 1000.0)
+                .apply {
+                    if (runs > 0) {
+                        put("avgUs", timings.average() / 1000.0)
+                        put("medianUs", timings[runs / 2] / 1000.0)
+                        put("minUs", timings.first() / 1000.0)
+                        put("maxUs", timings.last() / 1000.0)
+                    }
+                }
                 .put("inputs", JSONArray(inputSpecs.map(TensorIo::describe)))
                 .put(
                     "outputs",
