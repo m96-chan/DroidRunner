@@ -47,6 +47,7 @@ cannot produce, and the reason this exists.
 - **Self-protecting** — holds jobs while the device is unplugged, low, hot, or short on space, and restarts the listener on its own after a failure. A held device really does go offline to GitHub, rather than only believing it has
 - **Says what it is doing** — the notification carries the runner state and, when work is held, the reason; a picture-in-picture window keeps it on screen while the phone is used for something else
 - **Ephemeral mode** — optionally re-registers and wipes the work directory after every job
+- **Usable from another repository** — a composite action, a documented result contract, and exit statuses that tell a refusal apart from a phone that stopped answering
 
 ## Architecture overview
 
@@ -129,7 +130,7 @@ MediaTek MT6899, a Google Tensor G4, and two Snapdragons.
 
 | | |
 | --- | --- |
-| MediaTek Neuron SDK | [#83](https://github.com/m96-chan/DroidRunner/issues/83) — NNAPI reaches this hardware today, so this is for when it stops |
+| MediaTek Neuron | [#83](https://github.com/m96-chan/DroidRunner/issues/83) — blocked: the public runtime takes `.dla` and nobody can produce one. NNAPI still reaches this hardware |
 | Fleet dashboard | [#7](https://github.com/m96-chan/DroidRunner/issues/7) |
 | Runtime bundle updates | [#14](https://github.com/m96-chan/DroidRunner/issues/14) |
 
@@ -237,6 +238,60 @@ jobs:
 `droidrunner-device` is installed into the guest from the APK on every start, so
 it stays in step with the agent it talks to.
 
+### Verifying a model, not just timing it
+
+Latency says a graph was *accepted*. Whether it was computed *correctly* is a
+different question, and the one a compiler cares about — a lowering bug that only
+appears on the vendor's silicon looks exactly like a working compiler when the
+check runs on an x86 reference.
+
+```yaml
+      - uses: m96-chan/DroidRunner/actions/run-model@main
+        id: device
+        with:
+          model: build/model.tflite
+          device: qnn-htp
+          inputs: fixtures/input-0.bin      # raw, little-endian, one file per tensor
+          output-dir: out
+      - run: test "${{ steps.device.outputs.executed }}" = accelerator
+      - run: cmp out/output-0.bin fixtures/golden-0.bin
+```
+
+That is a differential test between a vendor's NPU and a reference implementation,
+running on push — which no cloud runner can do at all. Outputs come back with their
+quantization parameters, so int8 bytes do not have to be reverse-engineered into
+numbers.
+
+### Sweeps, for when the unit of work is not one model
+
+A few hundred single-op models is a few hundred workflow steps otherwise, which is
+the expensive part:
+
+```sh
+droidrunner-device test batch manifest.json --output sweep.json
+```
+
+One entry back per entry sent, in order. A failing row never ends the sweep — a
+sweep is largely *made of* rejections, and each one is the data. `iterations: 0`
+means load, delegate and allocate but do not time, for the rows that only ask
+whether a graph was accepted.
+
+### What another repository pins to
+
+[`docs/RESULT-CONTRACT.md`](docs/RESULT-CONTRACT.md) — a `schema` on every response,
+a `code` from a closed set when something fails, and wrapper exit statuses that
+separate the cases a sweep must treat differently:
+
+| exit | meaning |
+| --- | --- |
+| `0` | it ran |
+| `2` | the driver refused the graph — record it and carry on |
+| `3` | no such device on this phone |
+| `4` | the agent is unreachable — stop |
+
+The prose in `error` is for a person and gets reworded; the code is for a program
+and does not.
+
 #### What that actually tells you
 
 EfficientNet-Lite0, median of 30 runs (int8) and 20 (float32), same model and the
@@ -245,24 +300,30 @@ same harness on both phones:
 | device | driver | int8 | float32 |
 | --- | --- | --- | --- |
 | Tensor G4 | `google-edgetpu` | **0.65 ms** | 16.7 ms |
-| MT6899 | `mtk-mdla_shim` | 2.29 ms | 35.0 ms |
-| MT6899 | `mtk-neuron_shim` | 2.96 ms | **8.6 ms** |
+| SM8650 | `qnn-htp` (Hexagon) | 1.22 ms | **2.78 ms** |
+| MT6899 | `mtk-neuron_shim` | 2.12 ms | 7.29 ms |
+| MT6899 | `mtk-mdla_shim` | 2.69 ms | *fell back to the CPU* |
 | Tensor G4 | *NNAPI's own choice* | 5.65 ms | — |
-| MT6899 | *NNAPI's own choice* | 14.2 ms | — |
-| MT6899 | `mtk-dsp_shim` | 17.8 ms | 44.7 ms |
+| MT6899 | `mtk-dsp_shim` | *fell back to the CPU* | *fell back to the CPU* |
+| SM8650 | `nnapi-reference` (CPU) | 113 ms | 39.8 ms |
 | Tensor G4 | `nnapi-reference` (CPU) | 141 ms | 64.1 ms |
-| MT6899 | `nnapi-reference` (CPU) | 357 ms | 106 ms |
+| MT6899 | `nnapi-reference` (CPU) | 257 ms | 106 ms |
 
-Three things a spec sheet would not have told you:
+Four things a spec sheet would not have told you:
 
-- **The winner changes with the quantization, across vendors.** EdgeTPU takes int8
-  by 3.5×; Neuron takes float32 by nearly 2×. Neither phone is "the fast one" —
-  it depends on the model you ship.
-- **Letting NNAPI choose costs most of the speedup.** Naming the accelerator gave
-  0.65 ms on Tensor where NNAPI's own pick gave 5.65 ms; 2.29 ms against 14.2 ms
-  on MediaTek. Six to nine times, left on the table on both.
-- **Even the CPU baselines differ by 2.5×**, so the fallback path is a
-  device-specific number too.
+- **The winner changes with the quantization, across vendors.** EdgeTPU takes int8;
+  the Hexagon takes float32 by 2.6× over its nearest rival. Neither phone is "the
+  fast one" — it depends on the model you ship.
+- **Some of those cells are not measurements of the accelerator at all.** An earlier
+  version of this table gave MediaTek's MDLA a float32 number. It never ran there:
+  the driver refused the graph and the CPU picked it up. Every run now reports
+  [who executed it](docs/RESULT-CONTRACT.md#executed--the-field-most-consumers-branch-on),
+  and a fallback says so instead of arriving as a plausible number.
+- **Quantizing can decide whether an accelerator is reachable at all**, not just how
+  fast it is: MediaTek's MDLA takes int8 and refuses float32 outright.
+- **Letting NNAPI choose costs most of the speedup**, and NNAPI cannot reach a
+  Hexagon at all — a Snapdragon enumerates only its CPU, which is why that row needs
+  the opt-in below.
 
 This is the question a device pool exists to answer, and a virtual ARM64 runner
 cannot answer it at all.
@@ -540,7 +601,12 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 - [x] NNAPI capability probe and smoke test — run on every CI build against a real device
 - [x] Run a caller-supplied model rather than the built-in benchmarks
 - [x] Reach Qualcomm NPUs, which NNAPI cannot ([#82](https://github.com/m96-chan/DroidRunner/issues/82)) — 1.22ms against the CPU's 4.46ms
-- [ ] MediaTek Neuron SDK, for when the NNAPI shims run out ([#83](https://github.com/m96-chan/DroidRunner/issues/83))
+- [x] Run a caller-supplied model's own inputs and return its outputs ([#92](https://github.com/m96-chan/DroidRunner/issues/92))
+- [x] Report which driver actually ran the graph, not which one was asked for ([#93](https://github.com/m96-chan/DroidRunner/issues/93))
+- [x] A documented result contract and a composite action other repositories can use ([#95](https://github.com/m96-chan/DroidRunner/issues/95))
+- [x] Run a manifest of models in one request ([#94](https://github.com/m96-chan/DroidRunner/issues/94))
+- [ ] MediaTek Neuron — blocked: the public runtime takes `.dla` and nobody can produce one ([#83](https://github.com/m96-chan/DroidRunner/issues/83))
+- [ ] An operator support matrix measured on silicon rather than read off a datasheet ([#96](https://github.com/m96-chan/DroidRunner/issues/96))
 - [ ] Samsung Exynos — deprioritised: few devices, and those that exist are either
       flagship-priced or bargain oddities, so a test phone is hard to justify
 - [x] Runtime manifest signature verification
