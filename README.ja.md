@@ -593,7 +593,7 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 - [x] GitHub応答の読めない要素を飛ばし、一覧ごと失わない
 - [ ] runtime bundleの更新通知・自動導入([#14](https://github.com/m96-chan/DroidRunner/issues/14))
 - [ ] 複数端末の状態を表示する管理画面([#7](https://github.com/m96-chan/DroidRunner/issues/7))
-- [ ] GPL対応のruntime source archiveとSBOMを生成
+- [x] 配布しているGPLバイナリの対応ソースを同梱([#116](https://github.com/m96-chan/DroidRunner/issues/116))
 
 ## 参考プロジェクト
 

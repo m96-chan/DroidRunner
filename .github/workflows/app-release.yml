@@ -52,6 +52,15 @@ jobs:
           DROIDRUNNER_RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: ./gradlew testDebugUnitTest assembleRelease
 
+      # GPL-2.0 §3 is satisfied by offering the source from the same place as
+      # the binary, and a release is such a place. Built before publishing so a
+      # failure here stops the release rather than producing an APK with no
+      # source beside it (issue #116).
+      - name: Build the corresponding source archive
+        run: |
+          tag='${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}'
+          runtime/build-source-archive.sh "$tag"
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -59,4 +68,6 @@ jobs:
           tag='${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}'
           cp app/build/outputs/apk/release/app-release.apk "droidrunner-$tag.apk"
           gh release create "$tag" --title "DroidRunner $tag" --generate-notes || true
-          gh release upload "$tag" --clobber "droidrunner-$tag.apk"
+          gh release upload "$tag" --clobber \
+            "droidrunner-$tag.apk" \
+            "runtime/out/droidrunner-$tag-source.tar.gz"
