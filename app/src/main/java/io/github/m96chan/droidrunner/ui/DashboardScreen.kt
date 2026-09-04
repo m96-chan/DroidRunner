@@ -79,7 +79,7 @@ private fun Header(capabilities: DeviceCapabilities, runner: RunnerSnapshot, onO
         Text("DroidRunner", style = MaterialTheme.typography.headlineMedium, color = BtopColors.Text)
         Spacer(Modifier.weight(1f))
         Text("● ", color = runner.state.color(), style = MaterialTheme.typography.bodyLarge)
-        Text(runner.state.label(), color = runner.state.color(), style = MaterialTheme.typography.bodyMedium)
+        Text(runner.label(), color = runner.state.color(), style = MaterialTheme.typography.bodyMedium)
         Text(
             "⚙",
             color = BtopColors.Yellow,
@@ -198,7 +198,7 @@ private fun RunnerPanel(
     Panel("runner", modifier, titleColor = BtopColors.Green, fillHeight = true) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("● ", color = runner.state.color(), style = MaterialTheme.typography.bodyLarge)
-            Text(runner.state.label(), color = runner.state.color(), style = MaterialTheme.typography.bodyMedium)
+            Text(runner.label(), color = runner.state.color(), style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.weight(1f))
             runner.startedAtMillis?.let {
                 Text("up ${formatUptime(it)}", color = BtopColors.Dim, style = MaterialTheme.typography.labelMedium)
