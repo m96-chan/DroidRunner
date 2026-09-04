@@ -64,7 +64,7 @@ git status --porcelain | grep -iE '\.(jks|pem|p12|key)$' && echo "STOP: key stag
 To test an upgrade locally, build a debug APK carrying a higher version:
 
 ```bash
-gradle assembleDebug -Pdroidrunner.releaseTag=v0.4.0
+./gradlew assembleDebug -Pdroidrunner.releaseTag=v0.4.0
 ```
 
 (Use `-P`, not the env var: a long-lived Gradle daemon may not see a changed
@@ -74,9 +74,9 @@ environment.)
 
 ```bash
 git checkout main && git pull --ff-only
-gradle clean
+./gradlew clean
 ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/<version> runtime/build-proot.sh
-gradle testDebugUnitTest assembleDebug assembleRelease
+./gradlew testDebugUnitTest assembleDebug assembleRelease
 ```
 
 Rebuild proot from source rather than trusting `app/src/main/jniLibs/` — it is

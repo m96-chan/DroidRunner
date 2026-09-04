@@ -13,3 +13,6 @@ app/src/main/jniLibs/
 *.p12
 *.key
 app/.cxx/
+
+# Agent worktrees are tooling state, not project content.
+.claude/worktrees/
