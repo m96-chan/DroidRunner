@@ -237,7 +237,7 @@ without that mismatch.
 
 - JDK 17
 - Android SDK 35
-- Android Studio Ladybug or later, or Gradle 8.10+
+- Android Studio (any version supporting AGP 9.4); Gradle comes from the wrapper
 
 ## Build
 
@@ -245,7 +245,7 @@ without that mismatch.
 git clone <repository-url>
 cd DroidRunner
 ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/<version> runtime/build-proot.sh
-gradle assembleDebug
+./gradlew assembleDebug
 ```
 
 `build-proot.sh` cross-compiles proot with the NDK into `app/src/main/jniLibs/`

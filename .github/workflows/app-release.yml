@@ -24,8 +24,6 @@ jobs:
           java-version: "17"
       - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.10.2"
 
       - name: Build proot jniLibs
         run: ANDROID_NDK_ROOT="$ANDROID_NDK_LATEST_HOME" runtime/build-proot.sh
@@ -52,7 +50,7 @@ jobs:
           # versionName/versionCode are derived from this, so an update always
           # outranks what it replaces.
           DROIDRUNNER_RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-        run: gradle testDebugUnitTest assembleRelease
+        run: ./gradlew testDebugUnitTest assembleRelease
 
       - name: Publish release
         env:

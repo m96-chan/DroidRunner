@@ -231,7 +231,7 @@ GitHub製のビルド済みRunnerを取得し、その中でWorkflowに書かれ
 
 - JDK 17
 - Android SDK 35
-- Android Studio Ladybug以降、またはGradle 8.10系
+- Android Studio(AGP 9.4対応版); Gradleはwrapperが持ってきます
 
 ## ビルド
 
@@ -239,7 +239,7 @@ GitHub製のビルド済みRunnerを取得し、その中でWorkflowに書かれ
 git clone <repository-url>
 cd DroidRunner
 ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/<version> runtime/build-proot.sh
-gradle assembleDebug
+./gradlew assembleDebug
 ```
 
 `build-proot.sh`はNDKでprootをクロスビルドして`app/src/main/jniLibs/`へ配置します

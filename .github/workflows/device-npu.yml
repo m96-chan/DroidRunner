@@ -1,12 +1,7 @@
 name: Device NPU probe
 
 on:
-  push:
-    branches:
-      - feature/npu-device-agent
-      - feature/npu-device-agent-part2
-    paths-ignore:
-      - "**.md"
+  # Dispatch only: this one occupies a phone, so it runs when someone asks.
   workflow_dispatch:
 
 permissions:

@@ -1,11 +1,22 @@
 name: Android
 
 on:
+  # Without a branch filter, pushing a branch that has a pull request open
+  # built the same commit twice — once for the push, once for the pull
+  # request. main is still built after a merge, which is the run that says
+  # whether the branch everyone works from is good.
   push:
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
+
+# A newer push supersedes an in-flight check of the same branch. Runs on main
+# are left alone: each one certifies a commit that is already merged.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -18,11 +29,9 @@ jobs:
           java-version: "17"
       - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.10.2"
       - name: Build proot jniLibs
         run: ANDROID_NDK_ROOT="$ANDROID_NDK_LATEST_HOME" runtime/build-proot.sh
-      - run: gradle testDebugUnitTest assembleDebug
+      - run: ./gradlew testDebugUnitTest assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: app-debug
