@@ -1,0 +1,38 @@
+version: 2
+
+updates:
+  # Gradle sees two build scripts: the root one pins the Android and Kotlin
+  # plugins, app/ holds the Compose BOM and the library versions. Minor and
+  # patch bumps land as a single PR so the Android workflow runs once a week
+  # instead of once per library; majors still arrive on their own, because
+  # AGP/Kotlin/Compose majors want a look at the build before merging.
+  - package-ecosystem: gradle
+    directories:
+      - "/"
+      - "/app"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+    groups:
+      gradle-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Workflow actions are pinned to major tags, so this mostly catches the
+  # occasional major (actions/checkout@v4 -> v5). One PR for all of them.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
+    groups:
+      github-actions:
+        patterns:
+          - "*"
