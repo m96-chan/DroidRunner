@@ -54,3 +54,21 @@ class SocVendorTest {
         assertNull(SocVendor.detect("format1234 device"))
     }
 }
+
+class QualcommHintLabelTest {
+
+    @Test fun aSnapdragonNoLongerClaimsAnNpuFromItsName() {
+        // npu-qnn was on these phones long before anything could use the
+        // Hexagon: NNAPI reaches only the CPU on a Snapdragon, so the label
+        // sent jobs to a device that ran everything on its CPU and said
+        // nothing (#80). It is earned by a measured run now, not by a name.
+        assertNull(SocVendor.QUALCOMM.npuLabel)
+    }
+
+    @Test fun theOtherVendorsKeepTheirHints() {
+        // They reach their accelerators through NNAPI, where the probe can
+        // confirm what the name suggests.
+        assertEquals("npu-neuron", SocVendor.MEDIATEK.npuLabel)
+        assertEquals("npu-tflite", SocVendor.GOOGLE_TENSOR.npuLabel)
+    }
+}

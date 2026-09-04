@@ -24,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import io.github.m96chan.droidrunner.device.HexagonVersion
 import io.github.m96chan.droidrunner.npu.QnnClient
+import io.github.m96chan.droidrunner.npu.QnnVerificationStore
 import io.github.m96chan.droidrunner.npu.QnnInstaller
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -424,7 +425,11 @@ class RunnerService : Service() {
             // left alone rather than assumed to carry the right scope.
             val token = UserSession(SecretStore(this), BuildConfig.GITHUB_APP_CLIENT_ID)
                 .accessToken() ?: return
-            val current = DeviceCapabilities.detect().labels() + NpuLabels.cached(this)
+            val current = DeviceCapabilities.detect().labels() +
+                NpuLabels.cached(this) +
+                // Only where it was earned: a model shown to run on the
+                // Hexagon, not a SoC name that looks like one (#80, #82).
+                QnnVerificationStore(this).labels()
             val api = GitHubApi()
             val registered = api.runnerLabels(config.target, config.runnerName, token)
             if (registered.isEmpty()) return

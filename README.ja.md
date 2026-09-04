@@ -20,7 +20,8 @@ CPUでは 141ms — 仮想マシンのARM64ランナーには出せない数字�
 > [!WARNING]
 > self-hosted runnerは、Workflowに書かれたコードをそのまま端末上で実行します。
 > CI専用の端末を使い、publicリポジトリのforkからのpull requestを絶対に拾わせないで
-> ください。QualcommのNPUにはまだ到達できません([#82](https://github.com/m96-chan/DroidRunner/issues/82))。
+> ください。QualcommのNPUはopt-inが必要です — 到達するにはQualcommの条項に同意する
+> 必要があるためです([#82](https://github.com/m96-chan/DroidRunner/issues/82))。
 > MediaTekとGoogle Tensorには到達できます。
 
 ## 目標
@@ -127,7 +128,6 @@ Snapdragon 2台です。
 
 | | |
 | --- | --- |
-| QualcommのNPU | [#82](https://github.com/m96-chan/DroidRunner/issues/82) — これらの端末にNNAPIアクセラレータは存在せず、ベンダー製デリゲートが必要 |
 | MediaTek Neuron SDK | [#83](https://github.com/m96-chan/DroidRunner/issues/83) — 今はNNAPIで到達できているので、それが尽きたとき用 |
 | 複数端末ダッシュボード | [#7](https://github.com/m96-chan/DroidRunner/issues/7) |
 | runtime bundleの更新 | [#14](https://github.com/m96-chan/DroidRunner/issues/14) |
@@ -145,19 +145,53 @@ Snapdragon 2台です。
 | `nnapi` | NNAPIが利用可能 |
 | `nnapi-accelerator` | **アクセラレータがプローブに応答した** — モデル実行はこれを指定する |
 | `android-npu` | そのSoCファミリーにNPUがあることは分かっている。約束ではなくヒント |
-| `npu-qnn` | Qualcomm QNN候補 |
+| `npu-qnn` | **この端末のHexagonでモデルが実際に走った** — 推測ではなく実測 |
 | `npu-tflite` | Google Tensor / LiteRT候補 |
 | `npu-neuron` | MediaTek Neuron候補 |
 | `npu-enn` | Samsung ENN候補 |
 
-ベンダー系ラベルはSoC名由来の**ヒント**、`nnapi` と `nnapi-accelerator` は端末を
-プローブした**実測**です。両者は食い違うことがあり、Qualcommでは実際に食い違います —
-NPUはあるがNNAPIから到達できないので、`android-npu` と `npu-qnn` を持ちながら
-`nnapi-accelerator` を持ちません。**加速が必要なジョブは `nnapi-accelerator` を指定**
-してください。さもないと黙ってCPUで走ることがあります。
+`npu-tflite` / `npu-neuron` / `npu-enn` はSoC名由来の**ヒント**、`nnapi` /
+`nnapi-accelerator` / `npu-qnn` は端末に聞いた**実測**です。両者は食い違うことがあるので、
+**加速が必要なジョブは実測系ラベルを指定**してください。さもないと黙ってCPUで走ります。
+
+最も食い違っていたのがQualcommです。これらの端末のHexagonはNNAPIから到達できません —
+QualcommはNNAPIドライバを出しておらず、Snapdragonが列挙するのは `nnapi-reference`
+(CPU)だけです。`npu-qnn` は以前SoC名から付いていたため、それを指定したジョブは
+「全部CPUで走って何も言わない端末」に着地していました。現在は**Hexagonでモデルが実際に
+実行されたときだけ**付きます(下記のopt-inが必要)。
 
 ラベルはアプリ起動時に再計算され、ズレていればGitHub側を訂正します。以前は登録時に
 固定されていて、ある端末はずっと古いビルドの認識を名乗り続けていました。
+
+### Qualcomm NPU: 先にopt-in
+
+HexagonにはQualcomm自身のランタイムが必要で、DroidRunnerは同梱せず取得します。
+Snapdragonではセットアップ画面に出ます。
+
+1. **Qualcommの条項を確認。** 2法人・2つのライセンスで、利用分野の制限は
+   **端末を動かす人**を拘束します。こちらが代わりに同意するものではありません。
+   条文はPDFで取得して開き、記録するのは本文のダイジェストです — 条項が変われば
+   聞き直し、変わらないリリース更新では聞きません。
+2. **インストール。** ダウンロード38MB・ディスク102MB、この端末のHexagon世代の分だけ。
+3. **NPUを確認。** モデルを走らせて内訳を出します(`all 64 operators on the
+   Hexagon, 1.24ms`)。**これを通ってはじめて `npu-qnn` が付きます。**
+
+1の前には何も取得しません。opt-inしない端末はこれまで通りで、Snapdragon以外には
+パネル自体が出ません。
+
+nubia NX769J(Snapdragon 8 Gen 3)、EfficientNet-Lite0での実測:
+
+| モデル | 経路 | 中央値 |
+| --- | --- | --- |
+| int8 | `nnapi-reference`(NNAPIの唯一の選択肢) | 113.2 ms |
+| int8 | CPU | 4.46 ms |
+| int8 | **Hexagon** | **1.22 ms** |
+| float32 | `nnapi-reference` | 39.8 ms |
+| float32 | **Hexagon** | **2.78 ms** |
+
+`qnn-htp` を指定したジョブは、黙ってCPUに落ちるのではなく**拒否**されます。
+`droidrunner-device test model x.tflite --device qnn-htp` は、delegateが
+「グラフのどれだけを引き受けたか」を答えない限り失敗します。
 
 ## Workflow例
 
@@ -484,7 +518,7 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 - [x] per-job capability token付きDevice Agent
 - [x] NNAPI capability probeとsmoke test — CIビルドごとに実機で実行
 - [x] 組み込みベンチマークではなく任意のモデルを実行する
-- [ ] NNAPIから到達できないQualcommのNPUに届く([#82](https://github.com/m96-chan/DroidRunner/issues/82))
+- [x] NNAPIから到達できないQualcommのNPUに届く([#82](https://github.com/m96-chan/DroidRunner/issues/82)) — CPUの4.46msに対し1.22ms
 - [ ] MediaTek Neuron SDK — NNAPIのshimが尽きたとき用([#83](https://github.com/m96-chan/DroidRunner/issues/83))
 - [ ] Samsung Exynos — **優先度を下げる**。採用機種が少なく、あるものは超高価格帯か
       激安のキワモノに寄っていて、検証機の確保が正当化しにくい
