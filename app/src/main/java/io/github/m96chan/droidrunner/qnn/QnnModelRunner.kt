@@ -14,6 +14,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.tensorflow.lite.Delegate
 import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.TensorFlowLite
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -55,8 +56,10 @@ internal object QnnModelRunner {
         iterations: Int,
         warmup: Int = 2,
     ): String {
-        breadcrumb = File(directory).parentFile?.let { File(it, "qnn-last-run.txt") }
-        File(directory).parentFile?.let { QnnNative.captureOutput(File(it, "qnn-output.txt").path) }
+        val diagnostics = File(directory).parentFile ?: File(directory)
+        breadcrumb = File(diagnostics, "qnn-last-run.txt")
+        val log = DelegateLog.fileIn(diagnostics)
+        QnnNative.captureOutput(log.path)
         step("starting $backend on ${model.name}")
         val runs = iterations.coerceIn(1, 500)
         step("loading libraries")
@@ -65,10 +68,21 @@ internal object QnnModelRunner {
             return failure(model, backend, "QNN did not load", loading)
         }
 
-        val options = QnnOptions.forRun(backend)
+        val code = QnnOptions.backendCode(backend)
             ?: return failure(model, backend, "'$backend' is not a QNN backend", "")
+
+        // Before the delegate, not after. Qualcomm's own Java wrapper does
+        // exactly this — ensureJNILibraryLoaded, then TensorFlowLite.init(),
+        // then createDelegate — and the order is the whole of it: a delegate
+        // built before the LiteRT runtime exists is created happily and then
+        // refuses every graph it is offered, saying nothing about why. That is
+        // not written down anywhere; it is in the bytecode of the wrapper this
+        // project deliberately does not use.
+        step("initialising LiteRT")
+        TensorFlowLite.init()
+
         step("creating the delegate")
-        val handle = QnnNative.createDelegate(options)
+        val handle = QnnNative.createDelegate(code, directory)
         if (handle == 0L) {
             return failure(model, backend, "the delegate would not start", QnnNative.error())
         }
@@ -77,7 +91,7 @@ internal object QnnModelRunner {
         return try {
             // The delegate's account of the split is printed while the graph is
             // being applied, so the log is read from just before that point.
-            val logFrom = DelegateLog.mark()
+            val logFrom = DelegateLog.mark(log)
             step("building the interpreter")
             interpreter = Interpreter(
                 model,
@@ -122,11 +136,11 @@ internal object QnnModelRunner {
             timings.sort()
 
             step("reading what the delegate reported")
-            val delegation = QnnDelegation.parse(DelegateLog.since(logFrom))
+            val delegation = QnnDelegation.parse(DelegateLog.since(log, logFrom))
             step("reading profiling")
             val profiling = QnnNative.profiling(handle)
             refuseUnattributable(delegation, profiling)?.let { reason ->
-                return failure(model, backend, reason, DelegateLog.since(logFrom).takeLast(600))
+                return failure(model, backend, reason, DelegateLog.since(log, logFrom).takeLast(600))
             }
 
             JSONObject()

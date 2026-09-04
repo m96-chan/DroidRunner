@@ -86,39 +86,46 @@ class QnnDelegationTest {
 
 class QnnOptionsTest {
 
-    @Test fun theDelegateIsGivenNumbersBecauseThatIsWhatItParses() {
-        // The plugin entry point parses each value as the integer of the
-        // matching enum. "htp" becomes atoi("htp") — zero, kUndefinedBackend —
-        // and the delegate then walks into a backend that does not exist and
-        // takes the process down with it. That is not hypothetical: it is what
-        // the first attempt did, and a native crash was the only symptom.
-        val options = QnnOptions.forRun("htp")!!
-
-        assertEquals("2", options["backend_type"])
-        options.values.forEach { assertTrue(it, it.toIntOrNull() != null) }
+    @Test fun theBackendCodesAreTheOnesTheHeaderNumbers() {
+        // Written into the first field of the delegate's own default options.
+        // Getting this wrong once meant kUndefinedBackend, and the delegate
+        // walked into a backend that does not exist and took the process down.
+        assertEquals(2, QnnOptions.backendCode("htp"))
+        assertEquals(1, QnnOptions.backendCode("gpu"))
+        assertEquals(2, QnnOptions.backendCode("HTP"))
     }
 
-    @Test fun logLevelIsNeverSentBecauseItLosesTheBackend() {
-        // Bisected on hardware: backend_type alone works, and with profiling or
-        // htp_performance_mode it still works. Add log_level and the delegate
-        // answers "requires valid backend". The delegate logs at INFO anyway.
-        assertNull(QnnOptions.forRun("htp")!!["log_level"])
-    }
-
-    @Test fun profilingIsOnAsTheSecondOpinion() {
-        // kBasicProfiling. Nothing is recorded unless a graph really ran on
-        // the backend, which is what attributes a run on a device whose ROM
-        // has no working logcat.
-        assertEquals("1", QnnOptions.forRun("htp")!!["profiling"])
-    }
-
-    @Test fun onlyTheHtpGetsAnHtpPerformanceMode() {
-        assertEquals("2", QnnOptions.forRun("htp")!!["htp_performance_mode"])
-        assertNull(QnnOptions.forRun("gpu")!!["htp_performance_mode"])
-    }
-
-    @Test fun somethingThatIsNotAQnnBackendGetsNoOptions() {
-        assertNull(QnnOptions.forRun("edgetpu"))
+    @Test fun somethingThatIsNotAQnnBackendHasNoCode() {
         assertNull(QnnOptions.backendCode("edgetpu"))
+        assertNull(QnnOptions.backendCode(""))
+    }
+}
+
+class TfLiteDelegationReportTest {
+
+    @Test fun tfLitesOwnAnnouncementIsRead() {
+        // What an NX769J actually printed once the delegate was created the way
+        // Qualcomm's own wrapper creates it.
+        val delegation = QnnDelegation.parse(
+            "VERBOSE: Replacing 64 out of 64 node(s) with delegate (TfLiteQnnDelegate) " +
+                "node, yielding 1 partitions for the whole graph.",
+        )!!
+
+        assertEquals(64, delegation.delegated)
+        assertEquals(64, delegation.total)
+        assertEquals(1, delegation.partitions)
+        assertTrue(delegation.describe().startsWith("all 64 operators"))
+    }
+
+    @Test fun anotherDelegatesPartitioningIsNotOurs() {
+        // XNNPACK announces itself the same way. Reading its line as ours would
+        // attribute a CPU run to the Hexagon, which is the one thing that must
+        // never happen.
+        val delegation = QnnDelegation.parse(
+            "INFO: Replacing 64 out of 64 node(s) with delegate (TfLiteXNNPackDelegate) " +
+                "node, yielding 1 partitions for the whole graph.",
+        )
+
+        assertNull(delegation)
     }
 }

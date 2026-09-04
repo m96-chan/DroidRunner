@@ -44,19 +44,14 @@ internal object QnnNative {
         }
 
     /**
-     * Creates a delegate through TFLite's external-delegate ABI, returning the
-     * `TfLiteDelegate*` as a handle, or 0 with [lastError] set.
+     * Creates a delegate for [backend], returning the `TfLiteDelegate*` as a
+     * handle, or 0 with [lastError] set.
      *
-     * Options go across as strings — `backend_type`, `htp_performance_mode`
-     * and the rest — which is why none of Qualcomm's option structures appear
-     * anywhere in this project.
+     * [skelDir] is where the DSP should look for the Hexagon half of the
+     * runtime; null leaves the library's own default alone.
      */
-    fun createDelegate(options: Map<String, String>): Long =
-        if (ensureLoaded()) {
-            createDelegate(options.keys.toTypedArray(), options.values.toTypedArray())
-        } else {
-            0L
-        }
+    fun createDelegate(backend: Int, skelDir: String?): Long =
+        if (ensureLoaded()) createDelegate2(backend, skelDir) else 0L
 
     fun destroy(handle: Long) {
         if (loaded == true) destroyDelegate(handle)
@@ -88,7 +83,7 @@ internal object QnnNative {
     private external fun loadLibraries(directory: String, libraries: Array<String>): String
 
     @JvmStatic
-    private external fun createDelegate(keys: Array<String>, values: Array<String>): Long
+    private external fun createDelegate2(backend: Int, skelDir: String?): Long
 
     @JvmStatic
     private external fun destroyDelegate(handle: Long)

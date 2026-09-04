@@ -10,51 +10,44 @@
  */
 package io.github.m96chan.droidrunner.qnn
 
-import java.io.BufferedReader
-import java.io.InputStreamReader
+import java.io.File
+import java.io.RandomAccessFile
 
 /**
- * Reads back what the QNN delegate said about itself (issue #82, stage 5).
+ * Reads back what was said while a model was being prepared (issue #82).
  *
- * The delegate states how much of the graph it took while applying itself, and
- * it says so only in its log. There is no API for it: TFLite's Java surface
- * does not expose the partitioning, and the delegate's create function reports
- * errors through a callback but not this. So the log is where it is.
+ * How much of a graph reached the accelerator is stated once, in a log, while
+ * the delegate is being applied — there is no API for it. So the `:qnn`
+ * process points its own stdout and stderr at a file (see
+ * `QnnNative.captureOutput`) and this reads the part written since a run
+ * began.
  *
- * An app without READ_LOGS sees only its own process's entries, which is
- * exactly the scope wanted here — and this runs in the `:qnn` process, where
- * the only thing writing is the delegate.
+ * A file rather than logcat, which was the first attempt: one of the phones in
+ * the fleet runs a ROM where `logd` is alive and `logcat` returns nothing at
+ * all, to adb and to the app alike. Everything worth reading here is printed,
+ * not logged, so a redirected file descriptor catches it on every device
+ * instead of on some of them.
  */
 internal object DelegateLog {
 
-    /**
-     * A point in the log to read from afterwards.
-     *
-     * A timestamp rather than a clear: `logcat -c` needs a permission this app
-     * does not have, and clearing a shared buffer to measure one run would be
-     * rude even if it worked.
-     */
-    fun mark(): String = TIMESTAMP.format(System.currentTimeMillis() - CLOCK_SLACK_MS)
+    /** Where the isolated process's output is collected. */
+    fun fileIn(directory: File): File = File(directory, "qnn-output.txt")
 
-    /** Everything this process has logged since [mark]. */
-    fun since(mark: String): String = runCatching {
-        val process = ProcessBuilder("logcat", "-d", "-T", mark)
-            .redirectErrorStream(true)
-            .start()
-        val text = BufferedReader(InputStreamReader(process.inputStream)).use { it.readText() }
-        process.waitFor()
-        text
+    /** A point to read from afterwards: how much had been written by now. */
+    fun mark(log: File): Long = if (log.isFile) log.length() else 0L
+
+    /** Everything written to [log] since [mark], capped so a chatty run cannot fill memory. */
+    fun since(log: File, mark: Long): String = runCatching {
+        if (!log.isFile) return ""
+        val from = mark.coerceAtMost(log.length())
+        val length = (log.length() - from).coerceAtMost(MAX_BYTES)
+        RandomAccessFile(log, "r").use { handle ->
+            handle.seek(from)
+            val bytes = ByteArray(length.toInt())
+            handle.readFully(bytes)
+            String(bytes)
+        }
     }.getOrElse { "" }
 
-    /**
-     * logcat's `-T` compares against the device clock, and a line written a
-     * moment before the mark is still the line we want. Reaching back a little
-     * costs nothing: the caller looks for the last match, not the first.
-     */
-    private const val CLOCK_SLACK_MS = 2_000L
-
-    private val TIMESTAMP = java.text.SimpleDateFormat(
-        "MM-dd HH:mm:ss.SSS",
-        java.util.Locale.US,
-    )
+    private const val MAX_BYTES = 512L * 1024
 }

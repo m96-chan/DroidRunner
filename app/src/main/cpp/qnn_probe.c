@@ -39,13 +39,29 @@
 
 typedef int (*has_capability_fn)(int cap);
 
-// TFLite's external-delegate ABI, which every delegate exports. Using it
-// instead of TfLiteQnnDelegateCreate keeps Qualcomm's options structure out of
-// this file entirely: options are passed as strings, so there is no layout to
-// reproduce and nothing of their headers to carry around.
-typedef void *(*plugin_create_fn)(char **keys, char **values, size_t count,
-                                  void (*report_error)(const char *));
-typedef void (*plugin_destroy_fn)(void *delegate);
+// The delegate is created the way Qualcomm's own Java wrapper creates it:
+// take the library's own default options, change what must change, hand them
+// back. The string-keyed plugin entry point was tried first and is a dead end
+// -- it builds a delegate that TFLite then refuses to apply, and passing
+// log_level through it loses the backend outright.
+//
+// The structure stays opaque here. Nothing of its shape is declared beyond
+// three offsets that the published header fixes as its first three members:
+// the backend at 0, and two paths after it. Everything else is whatever the
+// library's own defaults put there.
+#define OPTIONS_BYTES 16384
+#define OFFSET_BACKEND_TYPE 0
+#define OFFSET_LIBRARY_PATH 8
+#define OFFSET_SKEL_DIR 16
+
+// Big enough that the compiler returns it indirectly, which is the convention
+// the real function was compiled with; the callee writes its own smaller size
+// into the space we give it.
+typedef struct { unsigned char bytes[OPTIONS_BYTES]; } qnn_options;
+
+typedef qnn_options (*options_default_fn)(void);
+typedef void *(*delegate_create_fn)(const void *options);
+typedef void (*delegate_delete_fn)(void *delegate);
 
 // { const uint8_t* buffer; uint32_t buffer_length; } from QnnTFLiteDelegate.h.
 // Two fields and no ambiguity about either.
@@ -194,52 +210,42 @@ Java_io_github_m96chan_droidrunner_qnn_QnnNative_loadLibraries(
 
 
 JNIEXPORT jlong JNICALL
-Java_io_github_m96chan_droidrunner_qnn_QnnNative_createDelegate(
-        JNIEnv *env, jclass clazz, jobjectArray keys, jobjectArray values) {
+Java_io_github_m96chan_droidrunner_qnn_QnnNative_createDelegate2(
+        JNIEnv *env, jclass clazz, jint backend, jstring skelDir) {
     (void) clazz;
+    const char *skel_dir = skelDir ? (*env)->GetStringUTFChars(env, skelDir, NULL) : NULL;
     g_last_error[0] = '\0';
     if (g_delegate == NULL) {
         record_error("the delegate library is not loaded");
         return 0;
     }
-    plugin_create_fn create =
-            (plugin_create_fn) dlsym(g_delegate, "tflite_plugin_create_delegate");
-    if (create == NULL) {
-        record_error("libQnnTFLiteDelegate.so has no tflite_plugin_create_delegate");
+    options_default_fn defaults =
+            (options_default_fn) dlsym(g_delegate, "TfLiteQnnDelegateOptionsDefault");
+    delegate_create_fn create =
+            (delegate_create_fn) dlsym(g_delegate, "TfLiteQnnDelegateCreate");
+    if (defaults == NULL || create == NULL) {
+        record_error("libQnnTFLiteDelegate.so is missing TfLiteQnnDelegateCreate");
         return 0;
     }
 
-    jsize count = (*env)->GetArrayLength(env, keys);
-    char **key_strings = calloc((size_t) count, sizeof(char *));
-    char **value_strings = calloc((size_t) count, sizeof(char *));
-    jstring *key_refs = calloc((size_t) count, sizeof(jstring));
-    jstring *value_refs = calloc((size_t) count, sizeof(jstring));
-    if (!key_strings || !value_strings || !key_refs || !value_refs) {
-        free(key_strings); free(value_strings); free(key_refs); free(value_refs);
+    // Kept for the life of the process: the delegate is applied long after this
+    // returns, and anything it held a pointer into would be gone by then.
+    qnn_options *options = calloc(1, sizeof(qnn_options));
+    if (options == NULL) {
         record_error("out of memory building delegate options");
         return 0;
     }
-    // Copied, and deliberately never freed. The delegate is applied long after
-    // this call returns, and handing it pointers into JNI-owned memory that we
-    // release on the way out would leave it reading whatever took their place.
-    // A handful of short strings for the life of the process is the cheaper
-    // mistake.
-    for (jsize i = 0; i < count; i++) {
-        key_refs[i] = (jstring) (*env)->GetObjectArrayElement(env, keys, i);
-        value_refs[i] = (jstring) (*env)->GetObjectArrayElement(env, values, i);
-        const char *key = (*env)->GetStringUTFChars(env, key_refs[i], NULL);
-        const char *value = (*env)->GetStringUTFChars(env, value_refs[i], NULL);
-        key_strings[i] = strdup(key);
-        value_strings[i] = strdup(value);
-        (*env)->ReleaseStringUTFChars(env, key_refs[i], key);
-        (*env)->ReleaseStringUTFChars(env, value_refs[i], value);
-        (*env)->DeleteLocalRef(env, key_refs[i]);
-        (*env)->DeleteLocalRef(env, value_refs[i]);
+    *options = defaults();
+
+    unsigned char *raw = options->bytes;
+    *(int32_t *) (raw + OFFSET_BACKEND_TYPE) = backend;
+    if (skel_dir != NULL) {
+        *(const char **) (raw + OFFSET_SKEL_DIR) = strdup(skel_dir);
     }
-    free(key_refs); free(value_refs);
 
-    void *handle = create(key_strings, value_strings, (size_t) count, record_error);
+    void *handle = create(options);
 
+    if (skel_dir) (*env)->ReleaseStringUTFChars(env, skelDir, skel_dir);
     if (handle == NULL && g_last_error[0] == '\0') {
         record_error("the delegate refused these options without saying why");
     }
@@ -251,8 +257,8 @@ Java_io_github_m96chan_droidrunner_qnn_QnnNative_destroyDelegate(
         JNIEnv *env, jclass clazz, jlong handle) {
     (void) env; (void) clazz;
     if (g_delegate == NULL || handle == 0) return;
-    plugin_destroy_fn destroy =
-            (plugin_destroy_fn) dlsym(g_delegate, "tflite_plugin_destroy_delegate");
+    delegate_delete_fn destroy =
+            (delegate_delete_fn) dlsym(g_delegate, "TfLiteQnnDelegateDelete");
     if (destroy != NULL) destroy((void *) (uintptr_t) handle);
 }
 

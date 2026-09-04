@@ -57,16 +57,32 @@ internal data class QnnDelegation(
          * delegate, and an older line may belong to a previous model.
          */
         fun parse(log: String): QnnDelegation? =
-            REPORT.findAll(log).lastOrNull()?.let { match ->
-                QnnDelegation(
-                    delegated = match.groupValues[1].toInt(),
-                    total = match.groupValues[2].toInt(),
-                    partitions = match.groupValues[3].toInt(),
-                )
+            REPORTS.firstNotNullOfOrNull { pattern ->
+                pattern.findAll(log).lastOrNull()?.let { match ->
+                    QnnDelegation(
+                        delegated = match.groupValues[1].toInt(),
+                        total = match.groupValues[2].toInt(),
+                        partitions = match.groupValues[3].toInt(),
+                    )
+                }
             }
 
-        private val REPORT =
-            Regex("""(\d+) nodes delegated out of (\d+) nodes with (\d+) partitions""")
+        /**
+         * Two ways the same fact gets stated, and both are looked for.
+         *
+         * TFLite announces the partitioning itself and names the delegate that
+         * took the nodes — which is the stronger statement, since a line about
+         * some other delegate cannot be mistaken for this one. The delegate's
+         * own wording is kept because it is what appears when TFLite is not
+         * the one talking.
+         */
+        private val REPORTS = listOf(
+            Regex(
+                """Replacing (\d+) out of (\d+) node\(s\) with delegate """ +
+                    """\(TfLiteQnnDelegate\) node, yielding (\d+) partitions""",
+            ),
+            Regex("""(\d+) nodes delegated out of (\d+) nodes with (\d+) partitions"""),
+        )
     }
 }
 
@@ -91,47 +107,20 @@ internal fun refuseUnattributable(
 
 
 /**
- * The delegate's options, as it actually reads them (issue #82, stage 5).
+ * Which backend a name asks for (issue #82, stage 5).
  *
- * They are numbers, not names. The plugin entry point takes strings and parses
- * each one as the integer of the matching enum, so `backend_type=htp` becomes
- * `atoi("htp")` — zero, `kUndefinedBackend` — and the delegate then walks into
- * a backend that does not exist and takes the process with it. That is what the
- * first attempt at this did, and the only visible symptom was a native crash in
- * a process with no working logcat.
- *
- * `log_level` is deliberately absent, and that is not an oversight. Passing it
- * alongside `backend_type` makes the delegate lose the backend entirely —
- * `backend_type` alone is accepted, `backend_type` with `profiling` or
- * `htp_performance_mode` is accepted, and only adding `log_level` produces
- * "Qnn delegate requires valid backend". Bisected on hardware, one option at a
- * time. The delegate logs at INFO without being asked, so nothing is lost.
+ * The delegate is created from the library's own default options with this
+ * written into the first field, which is how Qualcomm's Java wrapper does it.
+ * The string-keyed `tflite_plugin_create_delegate` was tried first and does not
+ * work: it builds a delegate TFLite then refuses to apply, and passing
+ * `log_level` through it loses the backend entirely. Both were established on
+ * hardware, one option at a time.
  */
 internal object QnnOptions {
 
-    /** `TfLiteQnnDelegateBackendType`. */
+    /** `TfLiteQnnDelegateBackendType`, as the published header numbers it. */
     private val BACKENDS = mapOf("gpu" to 1, "htp" to 2, "dsp" to 3, "ir" to 4)
 
-    /** `kBasicProfiling`: enough to prove a graph ran, without per-op cost. */
-    private const val PROFILING_BASIC = 1
-
-    /** `kHtpBurst` — a benchmark should measure the hardware, not its idle governor. */
-    private const val HTP_BURST = 2
-
-    /** The numeric code for [backend], or null when it is not one QNN has. */
+    /** The code for [backend], or null when it is not one QNN has. */
     fun backendCode(backend: String): Int? = BACKENDS[backend.lowercase()]
-
-    /**
-     * Options for a benchmark run, or null when [backend] is not a QNN backend.
-     */
-    fun forRun(backend: String): Map<String, String>? {
-        val code = backendCode(backend) ?: return null
-        return buildMap {
-            put("backend_type", code.toString())
-            put("profiling", PROFILING_BASIC.toString())
-            if (backend.equals("htp", ignoreCase = true)) {
-                put("htp_performance_mode", HTP_BURST.toString())
-            }
-        }
-    }
 }
