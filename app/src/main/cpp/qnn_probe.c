@@ -108,10 +108,13 @@ static size_t append_escaped(char *out, size_t at, const char *text) {
 
 // Sends this process's stdout and stderr to a file.
 //
-// QNN writes its diagnostics with printf, and the phones this runs on include
-// one whose ROM has no working logcat at all — logd runs, logcat returns
-// nothing. Without this there is no way to learn why a backend refused a
-// graph, which turns every failure into guesswork.
+// QNN writes its diagnostics with printf, and an app cannot count on logcat
+// carrying them. The nubia in the fleet ships with the system property
+// log.tag=S, which silences every tag at the source: logd runs, the main
+// buffer stays empty, and even a line written on purpose never appears. A
+// person with adb can lift it (setprop log.tag V, until the next reboot); an
+// app cannot, and should not need to. A redirected file descriptor works
+// wherever the process runs.
 JNIEXPORT jboolean JNICALL
 Java_io_github_m96chan_droidrunner_qnn_QnnNative_redirectOutput(
         JNIEnv *env, jclass clazz, jstring path) {

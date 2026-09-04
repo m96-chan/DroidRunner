@@ -38,8 +38,8 @@ internal object QnnModelRunner {
      * Where this process says how far it got.
      *
      * A vendor library that segfaults takes the process with it, and there is
-     * no reply, no stack and — on a phone whose ROM has no working logcat, as
-     * the nubia's has not — no log either. A breadcrumb on disk is what is left
+     * no reply and no stack. Nor, on a device whose ROM silences logging at the
+     * source, any log — see [DelegateLog]. A breadcrumb on disk is what is left
      * to say which step was in progress, and it costs one small write.
      */
     private var breadcrumb: File? = null

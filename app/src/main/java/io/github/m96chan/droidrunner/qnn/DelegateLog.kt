@@ -22,11 +22,16 @@ import java.io.RandomAccessFile
  * `QnnNative.captureOutput`) and this reads the part written since a run
  * began.
  *
- * A file rather than logcat, which was the first attempt: one of the phones in
- * the fleet runs a ROM where `logd` is alive and `logcat` returns nothing at
- * all, to adb and to the app alike. Everything worth reading here is printed,
- * not logged, so a redirected file descriptor catches it on every device
- * instead of on some of them.
+ * A file rather than logcat, which was the first attempt. The nubia in the
+ * fleet ships with the system property `log.tag=S`, which silences every tag
+ * at the source: `logd` runs, `events` and `radio` carry traffic, and `main`
+ * stays empty however you ask — even a line written on purpose never lands.
+ * (`adb shell setprop log.tag V` lifts it until the next reboot, which is
+ * useful when debugging by hand and no use at all to the app, which cannot set
+ * system properties and would be relying on someone having done so.)
+ *
+ * Everything worth reading here is printed rather than logged, so a redirected
+ * file descriptor catches it wherever the process runs.
  */
 internal object DelegateLog {
 
