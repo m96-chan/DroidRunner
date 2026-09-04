@@ -28,6 +28,13 @@ import kotlin.concurrent.thread
 class DeviceAgentServer(
     private val runtimeDir: File,
     private val requestedPort: Int = PORT,
+    /**
+     * Runs a model on Qualcomm's accelerator, or null on a device with none.
+     * A lambda rather than a dependency so this server keeps no Android types
+     * and stays testable on the JVM (issue #82). Ahead of [capabilitiesJson]
+     * so that one stays the trailing lambda callers already write.
+     */
+    private val qnnModel: ((File, String, Int) -> String)? = null,
     private val capabilitiesJson: () -> String,
 ) {
     var port: Int = requestedPort
@@ -208,11 +215,24 @@ class DeviceAgentServer(
         val model = GuestPath.resolve(runtimeDir, path)
             ?: return 400 to
                 """{"error":"model must be a file under /home/runner (the job workspace)"}"""
-        return 200 to ModelRunner.run(
-            model,
-            request.optString("device").takeIf { it.isNotBlank() },
-            request.optInt("iterations", 50),
-        )
+        val device = request.optString("device").takeIf { it.isNotBlank() }
+        val iterations = request.optInt("iterations", 50)
+
+        // "qnn-htp" and friends are not NNAPI device names; they mean the
+        // Qualcomm delegate in its own process, which NNAPI cannot reach.
+        val backend = runCatching { QnnBackend.of(device) }.getOrElse { unknown ->
+            return 400 to JSONObject()
+                .put("ok", false)
+                .put("error", unknown.message ?: "unknown QNN backend")
+                .toString()
+        }
+        backend?.let {
+            val run = qnnModel
+                ?: return 400 to
+                    """{"ok":false,"error":"this device has no Qualcomm accelerator runtime"}"""
+            return 200 to run(model, it, iterations)
+        }
+        return 200 to ModelRunner.run(model, device, iterations)
     }
 
     private fun writeResponse(client: Socket, status: Int, json: String) {

@@ -24,6 +24,7 @@
 #include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -36,6 +37,37 @@
 #define CAP_DSP 3
 
 typedef int (*has_capability_fn)(int cap);
+
+// TFLite's external-delegate ABI, which every delegate exports. Using it
+// instead of TfLiteQnnDelegateCreate keeps Qualcomm's options structure out of
+// this file entirely: options are passed as strings, so there is no layout to
+// reproduce and nothing of their headers to carry around.
+typedef void *(*plugin_create_fn)(char **keys, char **values, size_t count,
+                                  void (*report_error)(const char *));
+typedef void (*plugin_destroy_fn)(void *delegate);
+
+// { const uint8_t* buffer; uint32_t buffer_length; } from QnnTFLiteDelegate.h.
+// Two fields and no ambiguity about either.
+typedef struct {
+    const unsigned char *buffer;
+    unsigned int length;
+} profiling_result;
+
+typedef profiling_result (*profiling_fn)(void *delegate);
+
+// The delegate library, kept from loadLibraries so a later call can reach it.
+static void *g_delegate;
+
+// Whatever the delegate last complained about. Its create function reports
+// errors through a callback with no user pointer, so there is nowhere else to
+// put it.
+#define ERROR_BYTES 1024
+static char g_last_error[ERROR_BYTES];
+
+static void record_error(const char *message) {
+    if (message == NULL) return;
+    snprintf(g_last_error, ERROR_BYTES, "%s", message);
+}
 
 #define JSON_BYTES 4096
 
@@ -99,6 +131,7 @@ Java_io_github_m96chan_droidrunner_qnn_QnnNative_loadLibraries(
             at = append(json, at, "\"");
         } else if (strstr(name, "libQnnTFLiteDelegate.so") != NULL) {
             delegate = handle;
+            g_delegate = handle;
         }
         at = append(json, at, "}");
 
@@ -127,4 +160,86 @@ Java_io_github_m96chan_droidrunner_qnn_QnnNative_loadLibraries(
 
     (*env)->ReleaseStringUTFChars(env, directory, dir);
     return (*env)->NewStringUTF(env, json);
+}
+
+
+JNIEXPORT jlong JNICALL
+Java_io_github_m96chan_droidrunner_qnn_QnnNative_createDelegate(
+        JNIEnv *env, jclass clazz, jobjectArray keys, jobjectArray values) {
+    (void) clazz;
+    g_last_error[0] = '\0';
+    if (g_delegate == NULL) {
+        record_error("the delegate library is not loaded");
+        return 0;
+    }
+    plugin_create_fn create =
+            (plugin_create_fn) dlsym(g_delegate, "tflite_plugin_create_delegate");
+    if (create == NULL) {
+        record_error("libQnnTFLiteDelegate.so has no tflite_plugin_create_delegate");
+        return 0;
+    }
+
+    jsize count = (*env)->GetArrayLength(env, keys);
+    char **key_strings = calloc((size_t) count, sizeof(char *));
+    char **value_strings = calloc((size_t) count, sizeof(char *));
+    jstring *key_refs = calloc((size_t) count, sizeof(jstring));
+    jstring *value_refs = calloc((size_t) count, sizeof(jstring));
+    if (!key_strings || !value_strings || !key_refs || !value_refs) {
+        free(key_strings); free(value_strings); free(key_refs); free(value_refs);
+        record_error("out of memory building delegate options");
+        return 0;
+    }
+    for (jsize i = 0; i < count; i++) {
+        key_refs[i] = (jstring) (*env)->GetObjectArrayElement(env, keys, i);
+        value_refs[i] = (jstring) (*env)->GetObjectArrayElement(env, values, i);
+        key_strings[i] = (char *) (*env)->GetStringUTFChars(env, key_refs[i], NULL);
+        value_strings[i] = (char *) (*env)->GetStringUTFChars(env, value_refs[i], NULL);
+    }
+
+    void *handle = create(key_strings, value_strings, (size_t) count, record_error);
+
+    for (jsize i = 0; i < count; i++) {
+        (*env)->ReleaseStringUTFChars(env, key_refs[i], key_strings[i]);
+        (*env)->ReleaseStringUTFChars(env, value_refs[i], value_strings[i]);
+        (*env)->DeleteLocalRef(env, key_refs[i]);
+        (*env)->DeleteLocalRef(env, value_refs[i]);
+    }
+    free(key_strings); free(value_strings); free(key_refs); free(value_refs);
+
+    if (handle == NULL && g_last_error[0] == '\0') {
+        record_error("the delegate refused these options without saying why");
+    }
+    return (jlong) (uintptr_t) handle;
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_m96chan_droidrunner_qnn_QnnNative_destroyDelegate(
+        JNIEnv *env, jclass clazz, jlong handle) {
+    (void) env; (void) clazz;
+    if (g_delegate == NULL || handle == 0) return;
+    plugin_destroy_fn destroy =
+            (plugin_destroy_fn) dlsym(g_delegate, "tflite_plugin_destroy_delegate");
+    if (destroy != NULL) destroy((void *) (uintptr_t) handle);
+}
+
+// How many bytes of profiling the backend recorded. Nothing is recorded unless
+// a QNN graph actually executed, which makes this a second opinion on whether
+// the work reached the accelerator at all.
+JNIEXPORT jint JNICALL
+Java_io_github_m96chan_droidrunner_qnn_QnnNative_profilingBytes(
+        JNIEnv *env, jclass clazz, jlong handle) {
+    (void) env; (void) clazz;
+    if (g_delegate == NULL || handle == 0) return -1;
+    profiling_fn profiling =
+            (profiling_fn) dlsym(g_delegate, "TfLiteQnnDelegateGetProfilingResult");
+    if (profiling == NULL) return -1;
+    profiling_result result = profiling((void *) (uintptr_t) handle);
+    return (jint) result.length;
+}
+
+JNIEXPORT jstring JNICALL
+Java_io_github_m96chan_droidrunner_qnn_QnnNative_lastError(
+        JNIEnv *env, jclass clazz) {
+    (void) clazz;
+    return (*env)->NewStringUTF(env, g_last_error);
 }

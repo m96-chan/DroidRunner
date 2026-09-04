@@ -26,15 +26,30 @@ class DeviceAgentServerTest {
     private val tokenFile: File
         get() = File(runtimeDir, "home/runner/${DeviceAgentServer.TOKEN_FILE_NAME}")
 
+    private val qnnCalls = mutableListOf<String>()
+
     @Before fun startServer() {
+        qnnCalls.clear()
         runtimeDir = temp.newFolder("runtime")
         // Port 0 keeps parallel test runs from colliding on the fixed port.
-        server = DeviceAgentServer(runtimeDir, requestedPort = 0) { """{"stub":true}""" }
+        server = DeviceAgentServer(
+            runtimeDir,
+            requestedPort = 0,
+            qnnModel = { model, backend, iterations ->
+                qnnCalls += "${model.name}/$backend/$iterations"
+                """{"ok":true,"backend":"$backend"}"""
+            },
+        ) { """{"stub":true}""" }
         server.start()
     }
 
     @After fun stopServer() {
         server.stop()
+    }
+
+    private fun startJobWithToken(): String {
+        server.onJobActive(true)
+        return tokenFile.readText()
     }
 
     private fun request(
@@ -144,4 +159,46 @@ class DeviceAgentServerTest {
         assertTrue("expected some successful responses", results.count { it == 200 } > 0)
         assertEquals(200, request("/v1/capabilities", token).first)
     }
+
+    @Test fun aQnnDeviceGoesToQualcommsRuntimeAndNotToNnapi() {
+        // On these phones NNAPI reaches only nnapi-reference, the CPU. A job
+        // asking for the Hexagon and quietly getting a CPU number is the whole
+        // failure this route exists to avoid.
+        val token = startJobWithToken()
+        val model = File(runtimeDir, "home/runner/model.tflite").apply {
+            parentFile!!.mkdirs()
+            writeText("not really a model")
+        }
+
+        val (status, body) = request(
+            "/v1/tests/model",
+            token,
+            method = "POST",
+            body = """{"path":"/home/runner/model.tflite","device":"qnn-htp","iterations":7}""",
+        )
+
+        assertEquals(200, status)
+        assertEquals(listOf("model.tflite/htp/7"), qnnCalls)
+        assertTrue(body.contains(""""backend":"htp""""))
+    }
+
+    @Test fun aMisspeltQnnDeviceIsRefusedRatherThanSentToNnapi() {
+        val token = startJobWithToken()
+        val model = File(runtimeDir, "home/runner/model.tflite").apply {
+            parentFile!!.mkdirs()
+            writeText("not really a model")
+        }
+
+        val (status, body) = request(
+            "/v1/tests/model",
+            token,
+            method = "POST",
+            body = """{"path":"/home/runner/model.tflite","device":"qnn-hpt"}""",
+        )
+
+        assertEquals(400, status)
+        assertTrue(body.contains("qnn-htp"))
+        assertEquals(emptyList<String>(), qnnCalls)
+    }
+
 }

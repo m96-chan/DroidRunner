@@ -43,13 +43,27 @@ class QnnService : Service() {
         Handler(Looper.getMainLooper()) { message ->
             when (message.what) {
                 WHAT_PROBE -> reply(message, probe(message.data))
+                // Off the looper: a model can take minutes to prepare and run,
+                // and the binder that asked is waiting on its own thread.
+                WHAT_RUN -> {
+                    val request = Message.obtain(message)
+                    runs.execute { reply(request, run(request.data), WHAT_RUN) }
+                }
                 else -> return@Handler false
             }
             true
         },
     )
 
+    /** One at a time: the accelerator is not shared, and neither is the graph. */
+    private val runs = java.util.concurrent.Executors.newSingleThreadExecutor()
+
     override fun onBind(intent: Intent?): IBinder = messenger.binder
+
+    override fun onDestroy() {
+        runs.shutdownNow()
+        super.onDestroy()
+    }
 
     private fun probe(request: Bundle): String {
         val directory = request.getString(KEY_DIRECTORY)
@@ -60,8 +74,24 @@ class QnnService : Service() {
         return QnnNative.load(directory, libraries.toList())
     }
 
-    private fun reply(message: Message, result: String) {
-        val answer = Message.obtain(null, WHAT_PROBE).apply {
+    private fun run(request: Bundle): String {
+        val directory = request.getString(KEY_DIRECTORY)
+        val libraries = request.getStringArray(KEY_LIBRARIES)
+        val model = request.getString(KEY_MODEL)
+        if (directory == null || libraries == null || model == null) {
+            return """{"ok":false,"error":"run request was incomplete"}"""
+        }
+        return QnnModelRunner.run(
+            model = java.io.File(model),
+            directory = directory,
+            libraries = libraries.toList(),
+            backend = request.getString(KEY_BACKEND) ?: "htp",
+            iterations = request.getInt(KEY_ITERATIONS, 50),
+        )
+    }
+
+    private fun reply(message: Message, result: String, what: Int = WHAT_PROBE) {
+        val answer = Message.obtain(null, what).apply {
             data = Bundle().apply { putString(KEY_RESULT, result) }
         }
         // The caller going away between asking and being answered is ordinary:
@@ -71,8 +101,12 @@ class QnnService : Service() {
 
     companion object {
         const val WHAT_PROBE = 1
+        const val WHAT_RUN = 2
         const val KEY_DIRECTORY = "directory"
         const val KEY_LIBRARIES = "libraries"
         const val KEY_RESULT = "result"
+        const val KEY_MODEL = "model"
+        const val KEY_BACKEND = "backend"
+        const val KEY_ITERATIONS = "iterations"
     }
 }

@@ -43,6 +43,47 @@ internal object QnnNative {
             """{"ok":false,"error":"qnn_probe library not loaded"}"""
         }
 
+    /**
+     * Creates a delegate through TFLite's external-delegate ABI, returning the
+     * `TfLiteDelegate*` as a handle, or 0 with [lastError] set.
+     *
+     * Options go across as strings — `backend_type`, `htp_performance_mode`
+     * and the rest — which is why none of Qualcomm's option structures appear
+     * anywhere in this project.
+     */
+    fun createDelegate(options: Map<String, String>): Long =
+        if (ensureLoaded()) {
+            createDelegate(options.keys.toTypedArray(), options.values.toTypedArray())
+        } else {
+            0L
+        }
+
+    fun destroy(handle: Long) {
+        if (loaded == true) destroyDelegate(handle)
+    }
+
+    /**
+     * Bytes of profiling the backend recorded. Nothing is recorded unless a QNN
+     * graph actually ran, which makes this a second opinion on whether the work
+     * reached the accelerator. -1 when it cannot be asked.
+     */
+    fun profiling(handle: Long): Int = if (loaded == true) profilingBytes(handle) else -1
+
+    /** Whatever the delegate last complained about, or blank. */
+    fun error(): String = if (loaded == true) lastError() else "qnn_probe library not loaded"
+
     @JvmStatic
     private external fun loadLibraries(directory: String, libraries: Array<String>): String
+
+    @JvmStatic
+    private external fun createDelegate(keys: Array<String>, values: Array<String>): Long
+
+    @JvmStatic
+    private external fun destroyDelegate(handle: Long)
+
+    @JvmStatic
+    private external fun profilingBytes(handle: Long): Int
+
+    @JvmStatic
+    private external fun lastError(): String
 }

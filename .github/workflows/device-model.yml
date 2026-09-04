@@ -43,5 +43,21 @@ jobs:
             droidrunner-device test model float32.tflite --device "$dev" --iterations 20 || true
           done
 
+      # NNAPI cannot reach a Hexagon: Qualcomm ships no NNAPI driver, so these
+      # phones enumerate only nnapi-reference above. qnn-htp is a different
+      # route entirely, through Qualcomm's own runtime in an isolated process.
+      # No "|| true" — a Snapdragon that cannot run this should fail loudly,
+      # and the agent refuses rather than falling back to the CPU.
+      - name: Hexagon HTP, on devices that have Qualcomm's runtime
+        run: |
+          if droidrunner-device capabilities | grep -q '"version": *[0-9]'; then
+            echo "=== int8 on qnn-htp ==="
+            droidrunner-device test model int8.tflite --device qnn-htp --iterations 30
+            echo "=== float32 on qnn-htp ==="
+            droidrunner-device test model float32.tflite --device qnn-htp --iterations 20
+          else
+            echo "no Hexagon on this device; skipping"
+          fi
+
       - name: Whatever NNAPI picks for int8
         run: droidrunner-device test model int8.tflite --iterations 30
