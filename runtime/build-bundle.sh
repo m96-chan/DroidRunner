@@ -35,7 +35,15 @@ die() {
 command -v curl >/dev/null || die "curl is required"
 
 if [ -z "${RUNNER_VERSION:-}" ]; then
-    release_json="$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest)" \
+    # Unauthenticated API calls are rate limited per source address, and CI
+    # runners share theirs — this returned 403 in a pull request that had
+    # nothing to do with the runtime. A token when one is available makes the
+    # limit per-account instead; without one the call still works locally.
+    auth_header=()
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+        auth_header=(-H "Authorization: Bearer $GITHUB_TOKEN")
+    fi
+    release_json="$(curl -fsSL "${auth_header[@]}" https://api.github.com/repos/actions/runner/releases/latest)" \
         || die "Unable to query actions/runner releases"
     RUNNER_VERSION="$(sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' <<<"$release_json" | head -n1)"
     [ -n "$RUNNER_VERSION" ] || die "Unable to resolve latest actions/runner version"
