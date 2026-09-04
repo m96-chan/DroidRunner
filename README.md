@@ -11,15 +11,18 @@ GitHub Actions self-hosted runner.
 
 No Termux, no root, no permanent USB connection to a PC. The APK manages a Linux
 execution environment and the installation, registration, and background operation of
-the official GitHub Actions Runner. Beyond ordinary ARM64 builds, the long-term goal is
-a device pool that lets CI exercise Android-specific NNAPI and vendor NPU backends on
-real hardware.
+the official GitHub Actions Runner.
+
+Beyond ordinary ARM64 builds, a job can hand the device a `.tflite` model and get
+latency back from the actual accelerator — 0.65 ms on a Tensor G4's EdgeTPU where
+the same phone's CPU takes 141 ms. That is the measurement a virtual ARM64 runner
+cannot produce, and the reason this exists.
 
 > [!WARNING]
-> This is an early proof of concept. The runner-management basics are implemented, but
-> the NPU Device Agent runs built-in benchmarks only, and arbitrary model execution
-> is still in development.
-> Do not use it in production or with repositories you do not trust.
+> A self-hosted runner executes whatever code a workflow contains, on your phone.
+> Use a device dedicated to CI, and never let it pick up pull requests from forks
+> of a public repository. Qualcomm NPUs are not reachable yet ([#82](https://github.com/m96-chan/DroidRunner/issues/82));
+> MediaTek and Google Tensor are.
 
 ## Goals
 
@@ -88,34 +91,48 @@ Compose:
 The runner state is parsed from the official runner's listener output by the foreground
 service and streamed to the UI as a `StateFlow`.
 
-## Implementation status
+## What it does
 
-| Feature | Status |
+Everything below runs on real phones — the fleet this is developed against is a
+MediaTek MT6899, a Google Tensor G4, and two Snapdragons.
+
+**Running CI**
+
+- Registers as a repository or organization runner from the app, via GitHub App
+  device flow — no PAT to create by hand, and the token never enters the Linux side
+- Runs the official `linux-arm64` Actions runner under PRoot, with proot shipped
+  inside the APK because Android 10+ will not `exec()` from app storage
+- Holds jobs while the device is unplugged, low, hot or short on space, and takes
+  them again when it recovers. A held device really does go offline to GitHub
+- Restarts a listener that dies, backing off if it keeps dying, and alerts once
+  rather than once per attempt
+- Ephemeral mode re-registers and wipes the work directory per job
+
+**Running models on the silicon**
+
+- A job hands the device a `.tflite` file and gets latency back, per NNAPI driver
+- Labels are probe-verified — `nnapi-accelerator` means an accelerator answered,
+  not that the SoC name looked promising — and are corrected on GitHub when the
+  device disagrees with what it registered
+- The Device Agent is reached over loopback with a token minted per job
+
+**Staying honest about itself**
+
+- btop-style dashboard, a notification carrying the runner state and the reason
+  jobs are held, and a picture-in-picture window for watching it elsewhere
+- Runtime manifests are ECDSA-signed and verified against keys compiled into the
+  APK; an install that fails leaves the previous runtime in place
+- The log keeps its history across restarts and records the app's own decisions
+  next to the runner's output
+
+**Not yet**
+
+| | |
 | --- | --- |
-| btop-style dashboard UI | Implemented (PoC) |
-| GitHub App device-flow login + repository picker | Implemented (PoC) |
-| Repository registration token exchange | Implemented (PoC) |
-| Organization-scoped runners | Implemented (PoC) |
-| Credential storage in the Keystore (user token / PAT) | Implemented (PoC) |
-| Sign-in renewal from the stored refresh token | Implemented (PoC) |
-| Runtime bundle download + SHA-256 verification | Implemented (PoC) |
-| proot NDK build (in-APK) + runtime bundle CI | Implemented (PoC) |
-| Official runner under PRoot | Verified on-device (job executed successfully) |
-| Foreground service with runner-state parsing | Implemented (PoC) |
-| SoC/NPU candidate labels | Implemented (PoC) |
-| Charging / thermal / storage admission control | Verified on-device (a held device goes offline to GitHub) |
-| Ephemeral runners with post-job cleanup | Implemented (PoC) |
-| Listener crash recovery with restart backoff | Implemented (PoC) |
-| NPU Device Agent (loopback API, NNAPI probes, CLI) | Implemented (PoC) |
-| Probe-verified NNAPI labels | Implemented (PoC) |
-| Arbitrary model (`.tflite`) execution | Designed, not implemented |
-| Multi-device fleet dashboard | Not implemented |
-| Signed runtime manifest | Implemented (PoC) |
-| Notification with runner state, hold reason, and alerts | Implemented (PoC) |
-| Picture-in-picture runner view | Implemented (PoC) |
-| Runtime install that survives failure and keeps the registration | Verified on-device |
-| Sign-in renewal (refresh token) | Implemented (PoC) |
-| Log with history, rotation, and the app's own lines | Implemented (PoC) |
+| Qualcomm NPUs | [#82](https://github.com/m96-chan/DroidRunner/issues/82) — no NNAPI accelerator exists on these devices; needs the vendor delegate |
+| MediaTek Neuron SDK | [#83](https://github.com/m96-chan/DroidRunner/issues/83) — NNAPI reaches this hardware today, so this is for when it stops |
+| Fleet dashboard | [#7](https://github.com/m96-chan/DroidRunner/issues/7) |
+| Runtime bundle updates | [#14](https://github.com/m96-chan/DroidRunner/issues/14) |
 
 ## Runner labels
 
@@ -128,15 +145,23 @@ custom labels.
 | `arm64` | ARM64 device |
 | `android-api-N` | Android API level |
 | `soc-*` | Detected SoC information |
-| `android-npu` | Candidate device with an NPU |
-| `android-no-npu` | Device where no NPU was detected |
+| `nnapi` | NNAPI is usable on this device |
+| `nnapi-accelerator` | **An accelerator answered the probe** — the label to select on for model work |
+| `android-npu` | The SoC family is known to have an NPU. A hint, not a promise |
 | `npu-qnn` | Qualcomm QNN candidate |
 | `npu-tflite` | Google Tensor / LiteRT candidate |
 | `npu-neuron` | MediaTek Neuron candidate |
 | `npu-enn` | Samsung ENN candidate |
 
-Classification by SoC name is only a hint. In the final design the Device Agent probes
-each backend and publishes only the labels it could actually verify.
+The vendor labels come from the SoC name and are **hints**; `nnapi` and
+`nnapi-accelerator` come from probing the device and are measurements. The two can
+disagree, and on Qualcomm they do: those phones have an NPU that NNAPI cannot reach,
+so they carry `android-npu` and `npu-qnn` without `nnapi-accelerator`. Select on
+`nnapi-accelerator` when a job needs acceleration, or it may quietly get a CPU.
+
+Labels are recomputed when the app starts and corrected on GitHub if they have
+drifted — they used to be frozen at registration, which left one phone announcing
+what a much older build believed about it.
 
 ## Example workflows
 
@@ -160,33 +185,50 @@ jobs:
       - run: ./ci/test-arm64.sh
 ```
 
-### Exercise the device's NPU
+### Ask the silicon a question
 
 ```yaml
 jobs:
-  npu-test:
+  npu:
     runs-on: [self-hosted, android, nnapi-accelerator]
     steps:
-      - run: droidrunner-device capabilities        # device info, thermal, NNAPI drivers
-      - run: droidrunner-device bench-all           # CONV_2D across every driver
-      - run: droidrunner-device test conv --device mtk-neuron_shim --iterations 50
+      - run: droidrunner-device capabilities                 # device, thermal, drivers
+      - run: droidrunner-device devices                      # what NNAPI exposes here
+      - run: droidrunner-device test model my-model.tflite --device google-edgetpu --iterations 30
 ```
 
-`droidrunner-device` ships in the runtime bundle and talks to the Device Agent for
-you. Sample output from a MediaTek MT6899 phone:
+`droidrunner-device` is installed into the guest from the APK on every start, so
+it stays in step with the agent it talks to.
 
-```text
-DEVICE                       AVG_US     GFLOPS
-mtk-dsp_shim                      - compilation_finish
-mtk-mdla_shim                     - compilation_finish
-mtk-neuron_shim              4148.9       4.55
-nnapi-reference              1107.7      17.04
-```
+#### What that actually tells you
 
-Today the agent runs built-in ADD and CONV_2D benchmarks; running your own model is
-the next milestone (see issue #4). Drivers that reject the float32 convolution
-(here the DSP and MDLA) expect quantized models — which is exactly why labels come
-from probes rather than SoC names.
+EfficientNet-Lite0, median of 30 runs (int8) and 20 (float32), same model and the
+same harness on both phones:
+
+| device | driver | int8 | float32 |
+| --- | --- | --- | --- |
+| Tensor G4 | `google-edgetpu` | **0.65 ms** | 16.7 ms |
+| MT6899 | `mtk-mdla_shim` | 2.29 ms | 35.0 ms |
+| MT6899 | `mtk-neuron_shim` | 2.96 ms | **8.6 ms** |
+| Tensor G4 | *NNAPI's own choice* | 5.65 ms | — |
+| MT6899 | *NNAPI's own choice* | 14.2 ms | — |
+| MT6899 | `mtk-dsp_shim` | 17.8 ms | 44.7 ms |
+| Tensor G4 | `nnapi-reference` (CPU) | 141 ms | 64.1 ms |
+| MT6899 | `nnapi-reference` (CPU) | 357 ms | 106 ms |
+
+Three things a spec sheet would not have told you:
+
+- **The winner changes with the quantization, across vendors.** EdgeTPU takes int8
+  by 3.5×; Neuron takes float32 by nearly 2×. Neither phone is "the fast one" —
+  it depends on the model you ship.
+- **Letting NNAPI choose costs most of the speedup.** Naming the accelerator gave
+  0.65 ms on Tensor where NNAPI's own pick gave 5.65 ms; 2.29 ms against 14.2 ms
+  on MediaTek. Six to nine times, left on the table on both.
+- **Even the CPU baselines differ by 2.5×**, so the fallback path is a
+  device-specific number too.
+
+This is the question a device pool exists to answer, and a virtual ARM64 runner
+cannot answer it at all.
 
 ## Requirements
 
@@ -459,16 +501,19 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 - [x] Organization-scoped runners (one device serving a whole organization)
 - [x] Device Agent with per-job capability tokens
 - [x] NNAPI capability probe and smoke test — run on every CI build against a real device
-- [ ] Run a caller-supplied model rather than the built-in benchmarks ([#4](https://github.com/m96-chan/DroidRunner/issues/4))
-- [ ] QNN / LiteRT / MediaTek Neuron / Samsung ENN adapters ([#4](https://github.com/m96-chan/DroidRunner/issues/4))
+- [x] Run a caller-supplied model rather than the built-in benchmarks
+- [ ] Reach Qualcomm NPUs, which NNAPI cannot ([#82](https://github.com/m96-chan/DroidRunner/issues/82))
+- [ ] MediaTek Neuron SDK, for when the NNAPI shims run out ([#83](https://github.com/m96-chan/DroidRunner/issues/83))
+- [ ] Samsung Exynos — deprioritised: few devices, and those that exist are either
+      flagship-priced or bargain oddities, so a test phone is hard to justify
 - [x] Runtime manifest signature verification
 - [x] Notification carrying the runner state, the hold reason, and alerts for what GitHub cannot see
 - [x] Picture-in-picture window for watching a runner while using the phone
 - [x] Report how long a reboot left the device unserved because it was locked ([#41](https://github.com/m96-chan/DroidRunner/issues/41))
 - [x] Reinstall a missing runtime without re-registering, and never leave a device with none
 - [x] Renew the GitHub sign-in instead of losing it when the token expires
-- [ ] Stop holding jobs for a condition that lasts one sample ([#37](https://github.com/m96-chan/DroidRunner/issues/37))
-- [ ] Skip unreadable entries in GitHub responses, and say when an older runtime was chosen ([#58](https://github.com/m96-chan/DroidRunner/issues/58))
+- [x] Stop holding jobs for a condition that lasts one sample
+- [x] Skip unreadable entries in GitHub responses rather than losing the whole list
 - [ ] Notify or auto-install when the runtime bundle is out of date ([#14](https://github.com/m96-chan/DroidRunner/issues/14))
 - [ ] Fleet dashboard showing the state of multiple devices ([#7](https://github.com/m96-chan/DroidRunner/issues/7))
 - [ ] Generate a GPL-compliant runtime source archive and SBOM
