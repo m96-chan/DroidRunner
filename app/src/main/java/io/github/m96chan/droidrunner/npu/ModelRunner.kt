@@ -22,7 +22,7 @@ import java.nio.ByteOrder
  * device was requested and lets the caller compare against the CPU baseline
  * rather than claiming an acceleration that may not have happened.
  */
-object ModelRunner {
+internal object ModelRunner {
 
     /**
      * Returns every buffer to the start before an invocation.
@@ -38,7 +38,20 @@ object ModelRunner {
         outputs.values.forEach { it.rewind() }
     }
 
-    fun run(model: File, deviceName: String?, iterations: Int, warmup: Int = 2): String {
+    /**
+     * [inputs] replaces the fixed fill pattern, one file per input tensor, and
+     * [outputDir] receives the outputs — both raw little-endian in the tensor's
+     * own dtype. With neither, this behaves exactly as it did: a latency job
+     * must not change because a correctness feature was added beside it (#92).
+     */
+    fun run(
+        model: File,
+        deviceName: String?,
+        iterations: Int,
+        warmup: Int = 2,
+        inputs: List<File> = emptyList(),
+        outputTarget: TensorIo.Target? = null,
+    ): String {
         val runs = iterations.coerceIn(1, 500)
         var delegate: NnApiDelegate? = null
         var interpreter: Interpreter? = null
@@ -59,13 +72,19 @@ object ModelRunner {
             // which is how the first attempt ended up sizing every buffer wrong.
             interpreter.allocateTensors()
 
-            val inputs = (0 until interpreter.inputTensorCount).map { index ->
-                val tensor = interpreter.getInputTensor(index)
-                ByteBuffer.allocateDirect(tensor.numBytes()).order(ByteOrder.nativeOrder()).apply {
-                    // A fixed pattern keeps runs comparable without pulling in
-                    // whatever the allocator handed us.
-                    while (remaining() > 0) put((position() % 251).toByte())
-                    rewind()
+            val inputSpecs = specsOf(interpreter, input = true)
+            TensorIo.mismatch(inputSpecs, inputs)?.let { error(it) }
+
+            val buffers = inputSpecs.map { spec ->
+                ByteBuffer.allocateDirect(spec.bytes).order(ByteOrder.nativeOrder()).apply {
+                    if (inputs.isEmpty()) {
+                        // A fixed pattern keeps runs comparable without pulling
+                        // in whatever the allocator handed us.
+                        while (remaining() > 0) put((position() % 251).toByte())
+                        rewind()
+                    } else {
+                        TensorIo.load(this, inputs[spec.index])
+                    }
                 }
             }.toTypedArray<Any>()
             val outputs = (0 until interpreter.outputTensorCount).associate { index ->
@@ -80,8 +99,8 @@ object ModelRunner {
             // loop did this and the warmup did not, which is why the first
             // run always worked and the second never did.
             fun invoke() {
-                rewindAll(inputs, outputs)
-                interpreter.runForMultipleInputsOutputs(inputs, outputs)
+                rewindAll(buffers, outputs)
+                interpreter.runForMultipleInputsOutputs(buffers, outputs)
             }
 
             repeat(warmup) { invoke() }
@@ -104,8 +123,25 @@ object ModelRunner {
                 .put("medianUs", timings[runs / 2] / 1000.0)
                 .put("minUs", timings.first() / 1000.0)
                 .put("maxUs", timings.last() / 1000.0)
-                .put("inputs", tensorShapes(interpreter) { interpreter.getInputTensor(it) })
-                .put("outputs", tensorShapes(interpreter, inputs = false) { interpreter.getOutputTensor(it) })
+                .put("inputs", JSONArray(inputSpecs.map(TensorIo::describe)))
+                .put(
+                    "outputs",
+                    JSONArray(specsOf(interpreter, input = false).map(TensorIo::describe)),
+                )
+                .apply {
+                    // Written after the timing loop, from the last invocation:
+                    // saving on every iteration would measure the filesystem.
+                    outputTarget?.let { target ->
+                        put(
+                            "outputFiles",
+                            JSONArray(
+                                specsOf(interpreter, input = false).map { spec ->
+                                    TensorIo.save(target, spec, outputs.getValue(spec.index))
+                                },
+                            ),
+                        )
+                    }
+                }
                 .toString()
         } catch (failure: Throwable) {
             // Buffer-size failures carry no message, so report the shapes the
@@ -135,22 +171,22 @@ object ModelRunner {
         }
     }
 
-    private fun tensorShapes(
-        interpreter: Interpreter,
-        inputs: Boolean = true,
-        tensor: (Int) -> org.tensorflow.lite.Tensor,
-    ): JSONArray {
-        val count = if (inputs) interpreter.inputTensorCount else interpreter.outputTensorCount
-        return JSONArray().apply {
-            for (index in 0 until count) {
-                val current = tensor(index)
-                put(
-                    JSONObject()
-                        .put("name", current.name())
-                        .put("type", current.dataType().name)
-                        .put("shape", JSONArray(current.shape().toList())),
-                )
-            }
+    /** What the interpreter settled on, which is only final after allocation. */
+    private fun specsOf(interpreter: Interpreter, input: Boolean): List<TensorIo.Spec> {
+        val count = if (input) interpreter.inputTensorCount else interpreter.outputTensorCount
+        return (0 until count).map { index ->
+            val tensor =
+                if (input) interpreter.getInputTensor(index) else interpreter.getOutputTensor(index)
+            TensorIo.Spec(
+                index = index,
+                name = tensor.name(),
+                type = tensor.dataType().name,
+                shape = tensor.shape().toList(),
+                bytes = tensor.numBytes(),
+                scale = tensor.quantizationParams()?.scale,
+                zeroPoint = tensor.quantizationParams()?.zeroPoint,
+            )
         }
     }
+
 }

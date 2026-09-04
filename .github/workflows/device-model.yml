@@ -59,5 +59,34 @@ jobs:
             echo "no Hexagon on this device; skipping"
           fi
 
+      # The point of caller-supplied inputs (#92): the same bytes through two
+      # different processors, and a comparison of what came back. Latency says
+      # the graph was accepted; this says whether it was computed the same way.
+      - name: Same input, CPU and accelerator, compared
+        run: |
+          head -c 150528 /dev/urandom > input.bin
+          mkdir -p out-cpu out-npu
+
+          droidrunner-device test model int8.tflite --device nnapi-reference \
+            --input input.bin --output-dir out-cpu --iterations 1
+
+          if droidrunner-device capabilities | grep -q '"version": *[0-9]'; then
+            droidrunner-device test model int8.tflite --device qnn-htp \
+              --input input.bin --output-dir out-npu --iterations 1
+          else
+            echo "no Hexagon here; comparing the CPU against itself"
+            droidrunner-device test model int8.tflite --device nnapi-reference \
+              --input input.bin --output-dir out-npu --iterations 1
+          fi
+
+          # Top-1 over a 1000-class UINT8 softmax. Vendor accelerators quantize
+          # and round differently, so the bytes are not expected to match; the
+          # class the model chose is what a correctness check can hold them to.
+          top1() { od -An -v -tu1 -w1 "$1" | nl -ba | sort -k2,2nr -k1,1n | head -1 | awk '{print $1-1" score="$2}'; }
+          echo "cpu top-1: $(top1 out-cpu/output-0.bin)"
+          echo "npu top-1: $(top1 out-npu/output-0.bin)"
+          [ "$(top1 out-cpu/output-0.bin | cut -d' ' -f1)" = "$(top1 out-npu/output-0.bin | cut -d' ' -f1)" ] \
+            || { echo "the two processors disagree on the class"; exit 1; }
+
       - name: Whatever NNAPI picks for int8
         run: droidrunner-device test model int8.tflite --iterations 30

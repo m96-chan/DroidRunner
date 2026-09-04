@@ -29,4 +29,27 @@ object GuestPath {
         if (!resolved.path.startsWith(root + File.separator)) return null
         return resolved.takeIf { it.isFile }
     }
+
+    /**
+     * Resolves a directory for a job to receive files in, creating it when it
+     * is not there yet (issue #92).
+     *
+     * Separate from [resolve] because that one insists on an existing file, and
+     * an output directory is by definition somewhere nothing has been written
+     * yet. The confinement is the same and is checked the same way: job code is
+     * untrusted, and "write these tensors wherever I say" is a worse primitive
+     * than "read this model" if it escapes.
+     */
+    fun resolveDirectory(runtimeDir: File, guestPath: String): File? {
+        if (!guestPath.startsWith("$GUEST_HOME/")) return null
+        val home = File(runtimeDir, "home/runner")
+        val root = runCatching { home.canonicalPath }.getOrNull() ?: return null
+        val candidate = File(home, guestPath.removePrefix("$GUEST_HOME/"))
+        // Canonicalised before it exists, so a symlink in the existing part of
+        // the path cannot smuggle the rest of it outside.
+        val resolved = runCatching { candidate.canonicalFile }.getOrNull() ?: return null
+        if (!resolved.path.startsWith(root + File.separator)) return null
+        if (!resolved.exists() && !resolved.mkdirs()) return null
+        return resolved.takeIf { it.isDirectory }
+    }
 }
