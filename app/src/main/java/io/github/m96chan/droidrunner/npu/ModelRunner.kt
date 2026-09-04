@@ -51,6 +51,9 @@ internal object ModelRunner {
         warmup: Int = 2,
         inputs: List<File> = emptyList(),
         outputTarget: TensorIo.Target? = null,
+        /** Also run the model with no delegate, in this same request (#93). */
+        baseline: Boolean = false,
+        diagnosticsDir: File? = null,
     ): String {
         val runs = iterations.coerceIn(1, 500)
         var delegate: NnApiDelegate? = null
@@ -66,7 +69,18 @@ internal object ModelRunner {
                 )
                 options.addDelegate(delegate)
             }
-            interpreter = Interpreter(model, options)
+            // The interpreter states its partitioning while it is being built,
+            // and the NNAPI delegate names the operators it refuses. Neither
+            // has an API; printing is the only source (#93).
+            val log = diagnosticsDir?.let { File(it, "tflite-build.log") }
+            val built = if (log != null) {
+                OutputCapture.around(log) { Interpreter(model, options) }
+            } else {
+                Interpreter(model, options) to ""
+            }
+            interpreter = built.first
+            val delegation = Delegation.parse(built.second)
+            val refused = Delegation.unsupported(built.second)
             // Tensor sizes are only final once allocation has run — and with a
             // delegate attached they can differ from the pre-allocation values,
             // which is how the first attempt ended up sizing every buffer wrong.
@@ -118,6 +132,42 @@ internal object ModelRunner {
                 .put("model", model.name)
                 .put("sizeBytes", model.length())
                 .put("requestedDevice", deviceName ?: "default")
+                // What actually happened, rather than what was asked for.
+                .put(
+                    "executed",
+                    when {
+                        delegation != null -> delegation.executed
+                        deviceName == null -> "cpu"
+                        else -> "unknown"
+                    },
+                )
+                // Names both halves of the answer: the delegate that claimed
+                // the nodes, and the driver it was pinned to. "accelerator"
+                // alone would read the same for a graph NNAPI handed to
+                // nnapi-reference, which is the CPU.
+                .put(
+                    "executedBy",
+                    when {
+                        delegation == null || delegation.none -> "cpu"
+                        deviceName != null -> "${delegation.delegate ?: "delegate"}:$deviceName"
+                        else -> delegation.delegate ?: "delegate"
+                    },
+                )
+                .apply {
+                    delegation?.let {
+                        put(
+                            "delegation",
+                            JSONObject()
+                                .put("delegated", it.delegated)
+                                .put("total", it.total)
+                                .put("partitions", it.partitions)
+                                .put("delegate", it.delegate ?: JSONObject.NULL)
+                                .put("describe", it.describe())
+                                .put("partial", it.partial),
+                        )
+                    }
+                    if (refused.isNotEmpty()) put("unsupportedOps", JSONArray(refused))
+                }
                 .put("iterations", runs)
                 .put("avgUs", timings.average() / 1000.0)
                 .put("medianUs", timings[runs / 2] / 1000.0)
@@ -129,6 +179,17 @@ internal object ModelRunner {
                     JSONArray(specsOf(interpreter, input = false).map(TensorIo::describe)),
                 )
                 .apply {
+                    // Run here rather than in a second workflow step, so the
+                    // ratio comes from one thermal state instead of two
+                    // minutes apart (#93).
+                    if (baseline && deviceName != null) {
+                        put(
+                            "baseline",
+                            JSONObject(
+                                run(model, null, runs, warmup, inputs, null, false, null),
+                            ),
+                        )
+                    }
                     // Written after the timing loop, from the last invocation:
                     // saving on every iteration would measure the filesystem.
                     outputTarget?.let { target ->

@@ -10,6 +10,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 typedef struct ANeuralNetworksDevice ANeuralNetworksDevice;
 typedef struct ANeuralNetworksModel ANeuralNetworksModel;
@@ -477,4 +479,58 @@ Java_io_github_m96chan_droidrunner_npu_NnapiProbe_addBenchmark(
     if (model) p_modelFree(model);
     if (wantedName) (*env)->ReleaseStringUTFChars(env, jDeviceName, wantedName);
     return (*env)->NewStringUTF(env, out);
+}
+
+
+// Temporarily sends this process's stdout and stderr to a file (issue #93).
+//
+// TFLite states how much of a graph a delegate took, and the NNAPI delegate
+// names the operators it refused, and both do it by printing. On Android an
+// app's stdout and stderr go to /dev/null unless someone has set
+// log.redirect-stdio, so none of it arrives anywhere. There is no API for the
+// partitioning either, in Java or in C, which leaves the log as the only
+// source for the number every consumer of this asks for.
+//
+// Unlike the isolated process, this one belongs to the app for its whole life,
+// so the redirect is undone rather than left in place: the original
+// descriptors are handed back as a token and restored when the run is over.
+JNIEXPORT jlong JNICALL
+Java_io_github_m96chan_droidrunner_npu_OutputCapture_redirect(
+        JNIEnv *env, jclass clazz, jstring path) {
+    (void) clazz;
+    const char *file = (*env)->GetStringUTFChars(env, path, NULL);
+    int fd = open(file, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    (*env)->ReleaseStringUTFChars(env, path, file);
+    if (fd < 0) return 0;
+
+    int saved_out = dup(STDOUT_FILENO);
+    int saved_err = dup(STDERR_FILENO);
+    if (saved_out < 0 || saved_err < 0) {
+        close(fd);
+        if (saved_out >= 0) close(saved_out);
+        if (saved_err >= 0) close(saved_err);
+        return 0;
+    }
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
+    dup2(fd, STDOUT_FILENO);
+    dup2(fd, STDERR_FILENO);
+    close(fd);
+    // Both descriptors in one long, so the caller holds one opaque token.
+    return ((jlong) saved_out << 32) | (jlong) (uint32_t) saved_err;
+}
+
+JNIEXPORT void JNICALL
+Java_io_github_m96chan_droidrunner_npu_OutputCapture_restore(
+        JNIEnv *env, jclass clazz, jlong token) {
+    (void) env; (void) clazz;
+    if (token == 0) return;
+    int saved_out = (int) (token >> 32);
+    int saved_err = (int) (token & 0xFFFFFFFF);
+    fflush(stdout);
+    fflush(stderr);
+    dup2(saved_out, STDOUT_FILENO);
+    dup2(saved_err, STDERR_FILENO);
+    close(saved_out);
+    close(saved_err);
 }

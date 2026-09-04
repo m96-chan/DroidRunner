@@ -66,17 +66,23 @@ jobs:
         run: |
           head -c 150528 /dev/urandom > input.bin
           mkdir -p out-cpu out-npu
+          token="$(cat "$DROIDRUNNER_DEVICE_TOKEN_FILE")"
+          ask() {
+            curl -fsS -X POST -H "Authorization: Bearer $token" \
+              -H 'Content-Type: application/json' -d "$1" \
+              "$DROIDRUNNER_DEVICE_URL/v1/tests/model"
+            echo
+          }
+          run_on() { # run_on <device> <outdir>
+            ask "{\"path\":\"$PWD/int8.tflite\",\"device\":\"$1\",\"iterations\":1,\"inputs\":[\"$PWD/input.bin\"],\"outputDir\":\"$PWD/$2\"}"
+          }
 
-          droidrunner-device test model int8.tflite --device nnapi-reference \
-            --input input.bin --output-dir out-cpu --iterations 1
-
+          run_on nnapi-reference out-cpu
           if droidrunner-device capabilities | grep -q '"version": *[0-9]'; then
-            droidrunner-device test model int8.tflite --device qnn-htp \
-              --input input.bin --output-dir out-npu --iterations 1
+            run_on qnn-htp out-npu
           else
             echo "no Hexagon here; comparing the CPU against itself"
-            droidrunner-device test model int8.tflite --device nnapi-reference \
-              --input input.bin --output-dir out-npu --iterations 1
+            run_on nnapi-reference out-npu
           fi
 
           # Top-1 over a 1000-class UINT8 softmax. Vendor accelerators quantize
@@ -87,6 +93,30 @@ jobs:
           echo "npu top-1: $(top1 out-npu/output-0.bin)"
           [ "$(top1 out-cpu/output-0.bin | cut -d' ' -f1)" = "$(top1 out-npu/output-0.bin | cut -d' ' -f1)" ] \
             || { echo "the two processors disagree on the class"; exit 1; }
+
+      # #93: who ran the graph, and the CPU reference from the same request so
+      # the ratio comes from one thermal state rather than two steps apart.
+      # Straight at the agent rather than through the wrapper: the API is what
+      # #93 changed, and the wrapper on the device can lag a fresh app build
+      # (#107).
+      - name: Who actually ran it, against its own baseline
+        run: |
+          token="$(cat "$DROIDRUNNER_DEVICE_TOKEN_FILE")"
+          model="$PWD/int8.tflite"
+          ask() {
+            curl -fsS -X POST -H "Authorization: Bearer $token" \
+              -H 'Content-Type: application/json' -d "$1" \
+              "$DROIDRUNNER_DEVICE_URL/v1/tests/model"
+            echo
+          }
+          for dev in $(droidrunner-device devices); do
+            echo "=== int8 on $dev ==="
+            ask "{\"path\":\"$model\",\"device\":\"$dev\",\"iterations\":20,\"baseline\":true}"
+          done
+          if droidrunner-device capabilities | grep -q '"version": *[0-9]'; then
+            echo "=== int8 on qnn-htp ==="
+            ask "{\"path\":\"$model\",\"device\":\"qnn-htp\",\"iterations\":20}"
+          fi
 
       - name: Whatever NNAPI picks for int8
         run: droidrunner-device test model int8.tflite --iterations 30

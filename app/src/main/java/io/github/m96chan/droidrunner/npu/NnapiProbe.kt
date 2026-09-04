@@ -5,6 +5,9 @@ object NnapiProbe {
     @Volatile
     private var loaded: Boolean? = null
 
+    /** Whether the probe library — and the output capture beside it — loaded. */
+    fun available(): Boolean = ensureLoaded()
+
     private fun ensureLoaded(): Boolean {
         loaded?.let { return it }
         return runCatching { System.loadLibrary("nnapi_probe") }
