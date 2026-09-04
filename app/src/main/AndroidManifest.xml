@@ -48,6 +48,22 @@
             </intent-filter>
         </receiver>
 
+        <!--
+            Hands Qualcomm's licence PDFs to whatever the user reads PDFs with,
+            so the terms can be read before they are accepted (issue #82).
+            Grants are per-URI and read-only; see res/xml/qnn_licences.xml for
+            how little is exposed.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.licences"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/qnn_licences" />
+        </provider>
+
         <service
             android:name=".runner.RunnerService"
             android:exported="false"

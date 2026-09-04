@@ -61,6 +61,9 @@ import io.github.m96chan.droidrunner.runner.AdmissionThresholds
 import io.github.m96chan.droidrunner.runner.RunnerRegistration
 import io.github.m96chan.droidrunner.runner.ThermalStatus
 import io.github.m96chan.droidrunner.npu.NpuLabels
+import io.github.m96chan.droidrunner.npu.QnnConsent
+import io.github.m96chan.droidrunner.npu.QnnInstaller
+import io.github.m96chan.droidrunner.npu.QnnLicences
 import io.github.m96chan.droidrunner.runner.RunnerState
 import io.github.m96chan.droidrunner.runner.RunnerStatus
 import io.github.m96chan.droidrunner.runtime.RuntimeInstaller
@@ -92,6 +95,17 @@ fun SetupScreen(
 
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+
+    // Qualcomm's NPU runtime is fetched, not shipped, and its terms bind the
+    // person running the device — so consent is stored separately from the
+    // install and outlives it (issue #82).
+    val qnn = remember { QnnInstaller(context) }
+    val qnnConsent = remember { QnnConsent(context) }
+    var qnnInstalled by remember { mutableStateOf(qnn.installed) }
+    var qnnAccepted by remember { mutableStateOf(qnnConsent.granted) }
+    var showLicences by remember { mutableStateOf(false) }
+    var licenceBusy by remember { mutableStateOf(false) }
+    var licenceFailure by remember { mutableStateOf<String?>(null) }
     // Long-running setup runs behind a modal, so nobody wanders off mid-flight.
     var progress by remember { mutableStateOf<SetupProgress?>(null) }
     var setupJob by remember { mutableStateOf<Job?>(null) }
@@ -315,6 +329,53 @@ fun SetupScreen(
         }
     }
 
+    /**
+     * Fetches the licence text if it is not already here and hands it to a
+     * reader. This is the only Qualcomm download that happens before consent,
+     * and it is what makes consent mean anything.
+     */
+    fun openLicence(licence: QnnLicences.Licence) {
+        licenceBusy = true
+        licenceFailure = null
+        scope.launch {
+            licenceFailure = runCatching {
+                val file = withContext(Dispatchers.IO) {
+                    qnn.fetchLicences().first { it.name == licence.fileName }
+                }
+                context.startActivity(LicenceViewer.intentFor(context, file))
+                null
+            }.getOrElse { failure ->
+                if (failure is android.content.ActivityNotFoundException) {
+                    "no PDF reader on this device — install one to read the terms"
+                } else {
+                    "could not open the licence: ${failure.message}"
+                }
+            }
+            licenceBusy = false
+        }
+    }
+
+    fun installQnn(htpVersion: Int) {
+        busy = true
+        progress = SetupProgress("preparing")
+        setupJob = scope.launch {
+            status = runCatching {
+                runInterruptible(Dispatchers.IO) {
+                    qnn.install(htpVersion, qnnConsent.record) { phase, fraction ->
+                        progress = SetupProgress(phase, fraction)
+                    }
+                }
+                null
+            }.getOrElse { failure ->
+                if (failure is kotlinx.coroutines.CancellationException) "install cancelled"
+                else "failed: ${failure.message}"
+            }
+            qnnInstalled = qnn.installed
+            progress = null
+            busy = false
+        }
+    }
+
     fun registerRunner(target: RunnerTarget, credential: String) {
         if (RunnerRegistration.load(runtime.runtimeDir)?.target == target) {
             status = null
@@ -409,6 +470,24 @@ fun SetupScreen(
                 if (target != null && credential != null) registerRunner(target, credential)
             },
             onCancel = { confirming = null },
+        )
+    }
+
+    if (showLicences) {
+        QnnLicenceDialog(
+            onOpen = ::openLicence,
+            onAccept = {
+                qnnConsent.accept()
+                qnnAccepted = qnnConsent.granted
+                showLicences = false
+                licenceFailure = null
+            },
+            onCancel = {
+                showLicences = false
+                licenceFailure = null
+            },
+            fetching = licenceBusy,
+            failure = licenceFailure,
         )
     }
 
@@ -615,6 +694,78 @@ fun SetupScreen(
                     color = BtopColors.Yellow,
                     style = MaterialTheme.typography.labelMedium,
                 )
+            }
+        }
+
+        // Every other device already reaches what it has through NNAPI, so a
+        // panel about Qualcomm's terms would be a question nobody should answer.
+        val npu = npuAcceleration(capabilities.soc, qnnAccepted, qnnInstalled)
+        if (npu !is NpuAcceleration.Irrelevant) {
+            Panel("npu runtime", titleColor = BtopColors.Cyan) {
+                when (npu) {
+                    is NpuAcceleration.Unsupported -> Text(
+                        npu.reason,
+                        color = BtopColors.Yellow,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+
+                    is NpuAcceleration.Installed -> Text(
+                        "installed: ${npu.stamp}",
+                        color = BtopColors.Green,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+
+                    is NpuAcceleration.NeedsAcceptance -> {
+                        Text(
+                            "Hexagon v${npu.htpVersion} — Qualcomm's runtime can drive this " +
+                                "NPU, but its terms are yours to accept",
+                            color = BtopColors.Text,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                        Spacer(Modifier.padding(top = 6.dp))
+                        Text(
+                            downloadSummary(npu.downloadBytes, npu.installBytes),
+                            color = BtopColors.Dim,
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                        Spacer(Modifier.padding(top = 6.dp))
+                        Button(
+                            enabled = !busy,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = BtopColors.Yellow,
+                                contentColor = BtopColors.Background,
+                            ),
+                            onClick = { showLicences = true },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Review Qualcomm's terms") }
+                    }
+
+                    is NpuAcceleration.Installable -> {
+                        Text(
+                            "terms accepted — Hexagon v${npu.htpVersion} runtime not installed",
+                            color = BtopColors.Text,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                        Spacer(Modifier.padding(top = 6.dp))
+                        Text(
+                            downloadSummary(npu.downloadBytes, npu.installBytes),
+                            color = BtopColors.Dim,
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                        Spacer(Modifier.padding(top = 6.dp))
+                        Button(
+                            enabled = !busy,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = BtopColors.Cyan,
+                                contentColor = BtopColors.Background,
+                            ),
+                            onClick = { installQnn(npu.htpVersion) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Install NPU runtime") }
+                    }
+
+                    NpuAcceleration.Irrelevant -> Unit
+                }
             }
         }
 
