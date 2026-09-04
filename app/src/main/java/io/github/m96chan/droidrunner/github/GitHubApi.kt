@@ -3,6 +3,8 @@ package io.github.m96chan.droidrunner.github
 import io.github.m96chan.droidrunner.model.RunnerTarget
 import java.net.HttpURLConnection
 import java.net.URL
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class Installation(
     val id: Long,
@@ -101,7 +103,44 @@ class GitHubApi {
             request("GET", "https://api.github.com/repos/$repo/releases?per_page=20", token),
         )
 
-    private fun request(method: String, url: String, token: String?): String {
+    /** Where a target's runners live; the two scopes use different endpoints. */
+    private fun runnersPath(target: RunnerTarget): String = when (target) {
+        is RunnerTarget.Repository -> "repos/${target.owner}/${target.name}/actions/runners"
+        is RunnerTarget.Organization -> "orgs/${target.org}/actions/runners"
+    }
+
+    /** Labels GitHub currently holds for this runner, its own platform ones included. */
+    fun runnerLabels(target: RunnerTarget, name: String, token: String): Set<String> =
+        GitHubResponses.runnerLabels(
+            request("GET", "https://api.github.com/${runnersPath(target)}?per_page=100", token),
+            name,
+        )
+
+    /** The id GitHub knows this runner by, or null when it is not registered there. */
+    fun runnerId(target: RunnerTarget, name: String, token: String): Long? =
+        GitHubResponses.runnerId(
+            request("GET", "https://api.github.com/${runnersPath(target)}?per_page=100", token),
+            name,
+        )
+
+    /**
+     * Replaces a runner's custom labels without re-registering it.
+     *
+     * Re-registering would mean a new runner identity and a stopped listener;
+     * this is the endpoint that exists so a device can correct what it says
+     * about itself while it keeps working (issue #80).
+     */
+    fun replaceLabels(target: RunnerTarget, runnerId: Long, labels: List<String>, token: String) {
+        request(
+            "PUT",
+            "https://api.github.com/${runnersPath(target)}/$runnerId/labels",
+            token,
+            JSONObject().put("labels", JSONArray(labels)).toString(),
+        )
+    }
+
+    private fun request(method: String, url: String, token: String?, body: String? = null): String {
+        val payload = body?.toByteArray()
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = 15_000
@@ -110,12 +149,15 @@ class GitHubApi {
             token?.let { setRequestProperty("Authorization", "Bearer $it") }
             setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
             setRequestProperty("User-Agent", "DroidRunner/0.1")
-            if (method == "POST") {
+            if (payload != null) setRequestProperty("Content-Type", "application/json")
+            if (method == "POST" || method == "PUT") {
                 doOutput = true
-                setFixedLengthStreamingMode(0)
+                setFixedLengthStreamingMode(payload?.size ?: 0)
             }
         }
-        if (method == "POST") connection.outputStream.use { }
+        if (method == "POST" || method == "PUT") {
+            connection.outputStream.use { out -> payload?.let(out::write) }
+        }
         val body = (if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream)
             .bufferedReader().use { it.readText() }
         if (connection.responseCode !in 200..299) {
