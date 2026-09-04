@@ -10,13 +10,18 @@ DroidRunnerは、ARM64 Android端末をRepository単位のGitHub Actions
 self-hosted runnerとして動作させるAndroidアプリです。
 
 Termuxやroot権限、PCへのUSB常時接続は必要ありません。APKがLinux実行環境と
-公式GitHub Actions Runnerの導入・登録・常駐を管理します。通常のARM64ビルドに加え、
-Android端末固有のNNAPIやベンダーNPUをCIから検証できる端末プールを目指しています。
+公式GitHub Actions Runnerの導入・登録・常駐を管理します。
+
+通常のARM64ビルドに加えて、ジョブが `.tflite` モデルを端末に渡し、**実際の
+アクセラレータの実測値**を受け取れます。Tensor G4のEdgeTPUで 0.65ms、同じ端末の
+CPUでは 141ms — 仮想マシンのARM64ランナーには出せない数字で、このプロジェクトが
+存在する理由です。
 
 > [!WARNING]
-> 現在は初期PoCです。Runner管理の基礎実装はありますが、配布可能なruntime bundleと
-> NPU Device Agentは組み込みベンチマークのみ対応で、任意モデルの実行は開発中です。
-> 本番環境や信頼できないRepositoryでは使用しないでください。
+> self-hosted runnerは、Workflowに書かれたコードをそのまま端末上で実行します。
+> CI専用の端末を使い、publicリポジトリのforkからのpull requestを絶対に拾わせないで
+> ください。QualcommのNPUにはまだ到達できません([#82](https://github.com/m96-chan/DroidRunner/issues/82))。
+> MediaTekとGoogle Tensorには到達できます。
 
 ## 目標
 
@@ -87,34 +92,45 @@ Android APIやNPUへアクセスするテストは、loopback APIを介してAPK
 Runnerの状態は、Foreground Serviceが公式Runnerのlistener出力をパースし、
 `StateFlow`としてUIへストリームします。
 
-## 現在の実装状況
+## できること
 
-| 機能 | 状態 |
+以下はすべて実機で動いています。開発に使っているのは MediaTek MT6899、Google Tensor G4、
+Snapdragon 2台です。
+
+**CIを回す**
+
+- GitHub App の Device Flow でリポジトリまたはOrganizationのRunnerとして登録。
+  PATの手動発行は不要で、トークンはLinux側に渡りません
+- 公式の `linux-arm64` Actions Runner を PRoot 上で実行。proot は APK に同梱します
+  (Android 10+ はアプリ領域からの `exec()` を拒否するため)
+- 非充電・残量低下・高温・容量不足のあいだはジョブを保留し、回復したら再開。
+  **保留中はGitHubから見て実際にofflineになります**
+- 落ちたリスナーを再起動し、落ち続けるならバックオフ。警告は試行ごとではなく1回だけ
+- ephemeralモードはジョブごとに再登録し work directory を消去
+
+**シリコンでモデルを動かす**
+
+- ジョブが `.tflite` を端末に渡し、**NNAPIドライバごとの実測値**を受け取る
+- ラベルはプローブ検証済み — `nnapi-accelerator` は「アクセラレータが実際に応答した」
+  ことを意味し、SoC名の印象ではありません。端末の実態とズレていればGitHub側を訂正します
+- Device Agent へは loopback 経由で、ジョブごとに発行されるトークンで到達
+
+**自分の状態を隠さない**
+
+- btop風ダッシュボード、Runnerの状態と保留理由を出す通知、
+  他の作業をしながら見られるPicture-in-Picture
+- runtime manifest は ECDSA 署名され、APKに埋め込んだ鍵で検証。
+  インストールが失敗しても**前のruntimeが残ります**
+- ログは再起動をまたいで履歴を保ち、Runnerの出力の隣にアプリ自身の判断を記録
+
+**まだできないこと**
+
+| | |
 | --- | --- |
-| btop風ダッシュボードUI | PoC実装済み |
-| GitHub App Device Flowログイン+リポジトリ選択 | PoC実装済み |
-| Repository登録トークンの取得 | PoC実装済み |
-| Organizationスコープのrunner | PoC実装済み |
-| 資格情報のKeystore保存(userトークン / PAT) | PoC実装済み |
-| refresh tokenによるサインインの自動更新 | PoC実装済み |
-| runtime bundleの取得・SHA-256検証 | PoC実装済み |
-| prootのNDKビルド(APK同梱)+ bundle CI | PoC実装済み |
-| PRootでの公式Runner起動 | 実機検証済み(ジョブ実行成功) |
-| Foreground Service(Runner状態パース付き) | PoC実装済み |
-| SoC/NPU候補ラベル | PoC実装済み |
-| 充電・温度・ストレージ制御 | 実機検証済み(保留中はGitHubからofflineに見える) |
-| ephemeral runner(ジョブ後クリーンアップ) | PoC実装済み |
-| リスナー異常終了からの復旧 | PoC実装済み |
-| NPU Device Agent(loopback API・NNAPI probe・CLI) | PoC実装済み |
-| probe検証済みNNAPIラベル | PoC実装済み |
-| 任意モデル(`.tflite`)の実行 | 設計済み・未実装 |
-| 複数端末ダッシュボード | 未実装 |
-| 署名付きruntime manifest | PoC実装済み |
-| Runner状態・保留理由・警告を出す通知 | PoC実装済み |
-| Picture-in-PictureでのRunner表示 | PoC実装済み |
-| 失敗しても壊れず、登録も保つruntimeインストール | 実機検証済み |
-| サインインの更新(リフレッシュトークン) | PoC実装済み |
-| 履歴・ローテーション・アプリ行を持つログ | PoC実装済み |
+| QualcommのNPU | [#82](https://github.com/m96-chan/DroidRunner/issues/82) — これらの端末にNNAPIアクセラレータは存在せず、ベンダー製デリゲートが必要 |
+| MediaTek Neuron SDK | [#83](https://github.com/m96-chan/DroidRunner/issues/83) — 今はNNAPIで到達できているので、それが尽きたとき用 |
+| 複数端末ダッシュボード | [#7](https://github.com/m96-chan/DroidRunner/issues/7) |
+| runtime bundleの更新 | [#14](https://github.com/m96-chan/DroidRunner/issues/14) |
 
 ## Runnerラベル
 
@@ -126,15 +142,22 @@ Runnerの状態は、Foreground Serviceが公式Runnerのlistener出力をパー
 | `arm64` | ARM64端末 |
 | `android-api-N` | Android API Level |
 | `soc-*` | 検出したSoC情報 |
-| `android-npu` | NPU搭載候補端末 |
-| `android-no-npu` | NPUを検出できなかった端末 |
+| `nnapi` | NNAPIが利用可能 |
+| `nnapi-accelerator` | **アクセラレータがプローブに応答した** — モデル実行はこれを指定する |
+| `android-npu` | そのSoCファミリーにNPUがあることは分かっている。約束ではなくヒント |
 | `npu-qnn` | Qualcomm QNN候補 |
 | `npu-tflite` | Google Tensor / LiteRT候補 |
 | `npu-neuron` | MediaTek Neuron候補 |
 | `npu-enn` | Samsung ENN候補 |
 
-SoC名による判定はあくまで候補です。完成版ではDevice Agentが実際にバックエンドをprobeし、
-利用可能性を確認できたラベルだけを公開します。
+ベンダー系ラベルはSoC名由来の**ヒント**、`nnapi` と `nnapi-accelerator` は端末を
+プローブした**実測**です。両者は食い違うことがあり、Qualcommでは実際に食い違います —
+NPUはあるがNNAPIから到達できないので、`android-npu` と `npu-qnn` を持ちながら
+`nnapi-accelerator` を持ちません。**加速が必要なジョブは `nnapi-accelerator` を指定**
+してください。さもないと黙ってCPUで走ることがあります。
+
+ラベルはアプリ起動時に再計算され、ズレていればGitHub側を訂正します。以前は登録時に
+固定されていて、ある端末はずっと古いビルドの認識を名乗り続けていました。
 
 ## Workflow例
 
@@ -158,32 +181,48 @@ jobs:
       - run: ./ci/test-arm64.sh
 ```
 
-### 端末のNPUを叩く
+### シリコンに問う
 
 ```yaml
 jobs:
-  npu-test:
+  npu:
     runs-on: [self-hosted, android, nnapi-accelerator]
     steps:
-      - run: droidrunner-device capabilities        # 端末情報・温度・NNAPIドライバ一覧
-      - run: droidrunner-device bench-all           # 全ドライバでCONV_2Dベンチ
-      - run: droidrunner-device test conv --device mtk-neuron_shim --iterations 50
+      - run: droidrunner-device capabilities                 # 端末情報・温度・ドライバ
+      - run: droidrunner-device devices                      # この端末が公開するドライバ
+      - run: droidrunner-device test model my-model.tflite --device google-edgetpu --iterations 30
 ```
 
-`droidrunner-device`はruntime bundleに同梱され、Device Agentとの通信を代行します。
-MediaTek MT6899端末での実測例:
+`droidrunner-device` は起動のたびにAPKからゲストへ入るので、対話するAgentと常に同じ
+世代に保たれます。
 
-```text
-DEVICE                       AVG_US     GFLOPS
-mtk-dsp_shim                      - compilation_finish
-mtk-mdla_shim                     - compilation_finish
-mtk-neuron_shim              4148.9       4.55
-nnapi-reference              1107.7      17.04
-```
+#### 実際に何が分かるか
 
-現在のAgentは組み込みのADD/CONV_2Dベンチマークのみ実行できます。任意モデルの実行は
-次のマイルストーンです(issue #4)。float32の畳み込みを拒否するドライバ(ここではDSPと
-MDLA)は量子化モデル向けで、SoC名ではなくprobeでラベルを決めるべき理由がこれです。
+EfficientNet-Lite0、中央値(int8は30回、float32は20回)。**同じモデル・同じ計測系**で
+2台を比較したものです。
+
+| 端末 | ドライバ | int8 | float32 |
+| --- | --- | --- | --- |
+| Tensor G4 | `google-edgetpu` | **0.65 ms** | 16.7 ms |
+| MT6899 | `mtk-mdla_shim` | 2.29 ms | 35.0 ms |
+| MT6899 | `mtk-neuron_shim` | 2.96 ms | **8.6 ms** |
+| Tensor G4 | *NNAPI任せ* | 5.65 ms | — |
+| MT6899 | *NNAPI任せ* | 14.2 ms | — |
+| MT6899 | `mtk-dsp_shim` | 17.8 ms | 44.7 ms |
+| Tensor G4 | `nnapi-reference`(CPU) | 141 ms | 64.1 ms |
+| MT6899 | `nnapi-reference`(CPU) | 357 ms | 106 ms |
+
+スペック表からは分からないことが3つ読めます。
+
+- **量子化によって、ベンダーをまたいで勝者が入れ替わります。** int8はEdgeTPUが3.5倍速く、
+  float32はNeuronが2倍近く速い。**どちらが速い端末かという問いに答えは無く**、
+  出荷するモデル次第です。
+- **NNAPI任せにすると高速化のほとんどを失います。** アクセラレータを名指しすれば
+  Tensorで0.65msのところ、NNAPIの自動選択は5.65ms。MediaTekでも2.29ms対14.2ms。
+  両機とも6〜9倍を取りこぼしています。
+- **CPUベースラインすら2.5倍違います。** フォールバック経路の性能も端末固有です。
+
+これが実機プールの存在理由で、仮想マシンのARM64ランナーには答えられない問いです。
 
 ## 必要環境
 
@@ -444,16 +483,19 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 - [x] Organizationスコープのrunner(1台で組織全体を担当)
 - [x] per-job capability token付きDevice Agent
 - [x] NNAPI capability probeとsmoke test — CIビルドごとに実機で実行
-- [ ] 組み込みベンチマークではなく任意のモデルを実行する([#4](https://github.com/m96-chan/DroidRunner/issues/4))
-- [ ] QNN / LiteRT / MediaTek Neuron / Samsung ENN adapter([#4](https://github.com/m96-chan/DroidRunner/issues/4))
+- [x] 組み込みベンチマークではなく任意のモデルを実行する
+- [ ] NNAPIから到達できないQualcommのNPUに届く([#82](https://github.com/m96-chan/DroidRunner/issues/82))
+- [ ] MediaTek Neuron SDK — NNAPIのshimが尽きたとき用([#83](https://github.com/m96-chan/DroidRunner/issues/83))
+- [ ] Samsung Exynos — **優先度を下げる**。採用機種が少なく、あるものは超高価格帯か
+      激安のキワモノに寄っていて、検証機の確保が正当化しにくい
 - [x] runtime manifestの署名検証
 - [x] Runner状態と保留理由を出す通知、およびGitHubには見えないことだけを伝える警告
 - [x] スマホを他の用途で使いながらRunnerを見ておくPicture-in-Picture
 - [x] ロックされていたせいで再起動後に無人だった時間を記録して表示する([#41](https://github.com/m96-chan/DroidRunner/issues/41))
 - [x] 登録を保ったまま、消えたruntimeを入れ直す(そして端末をruntime無しにしない)
 - [x] トークン期限切れでサインインを失わず、更新する
-- [ ] 1サンプルだけ条件に触れた程度でジョブを保留しない([#37](https://github.com/m96-chan/DroidRunner/issues/37))
-- [ ] GitHub応答の読めない要素を飛ばし、古いruntimeを選んだときは黙らない([#58](https://github.com/m96-chan/DroidRunner/issues/58))
+- [x] 1サンプルだけ条件に触れた程度でジョブを保留しない
+- [x] GitHub応答の読めない要素を飛ばし、一覧ごと失わない
 - [ ] runtime bundleの更新通知・自動導入([#14](https://github.com/m96-chan/DroidRunner/issues/14))
 - [ ] 複数端末の状態を表示する管理画面([#7](https://github.com/m96-chan/DroidRunner/issues/7))
 - [ ] GPL対応のruntime source archiveとSBOMを生成
