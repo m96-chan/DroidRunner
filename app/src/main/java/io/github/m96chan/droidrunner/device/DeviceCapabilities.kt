@@ -18,7 +18,11 @@ data class DeviceCapabilities(
         add("arm64")
         add("android-api-${Build.VERSION.SDK_INT}")
         add("soc-${slug(soc)}")
-        add(if (hasNpuHint) "android-npu" else "android-no-npu")
+        // Only the positive claim. "No NPU" was asserted from a SoC string
+        // that cannot establish it — a Snapdragon whose NPU is unreachable
+        // through NNAPI still has one (#82) — and the probe's
+        // `nnapi-accelerator` is the label that says something measured.
+        if (hasNpuHint) add("android-npu")
         vendor?.npuLabel?.takeIf { it != "npu-unknown" }?.let(::add)
     }
 

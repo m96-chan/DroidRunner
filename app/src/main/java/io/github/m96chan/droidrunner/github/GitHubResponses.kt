@@ -61,6 +61,32 @@ internal object GitHubResponses {
             .map { RunnerTarget.Organization(it.account) }
 
     /** The repositories on one page of the installation-repositories endpoint. */
+    /**
+     * The id of the runner registered under [name], or null when this target
+     * has no such runner — which is the normal answer after someone removed it
+     * from the GitHub side.
+     */
+    fun runnerId(body: String, name: String): Long? {
+        val runners = JSONObject(body).optJSONArray("runners") ?: return null
+        for (index in 0 until runners.length()) {
+            val runner = runners.optJSONObject(index) ?: continue
+            if (runner.optString("name") == name) return runner.optLong("id").takeIf { it != 0L }
+        }
+        return null
+    }
+
+    /** Every label GitHub currently has for a runner, its own included. */
+    fun runnerLabels(body: String, name: String): Set<String> {
+        val runners = JSONObject(body).optJSONArray("runners") ?: return emptySet()
+        for (index in 0 until runners.length()) {
+            val runner = runners.optJSONObject(index) ?: continue
+            if (runner.optString("name") != name) continue
+            val labels = runner.optJSONArray("labels") ?: return emptySet()
+            return (0 until labels.length()).mapNotNull { labels.optJSONObject(it)?.optString("name") }.toSet()
+        }
+        return emptySet()
+    }
+
     fun repositoryPage(body: String): RepositoryPage {
         val batch = JSONObject(body).getJSONArray("repositories")
         val repositories = (0 until batch.length()).map { index ->

@@ -4,7 +4,13 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import android.os.PowerManager
+import io.github.m96chan.droidrunner.BuildConfig
+import io.github.m96chan.droidrunner.device.DeviceCapabilities
+import io.github.m96chan.droidrunner.github.GitHubApi
 import io.github.m96chan.droidrunner.github.SignInExpiredException
+import io.github.m96chan.droidrunner.github.UserSession
+import io.github.m96chan.droidrunner.npu.NpuLabels
+import io.github.m96chan.droidrunner.security.SecretStore
 import io.github.m96chan.droidrunner.monitor.SystemMonitor
 import io.github.m96chan.droidrunner.npu.DeviceAgentServer
 import io.github.m96chan.droidrunner.npu.DeviceCapabilitiesJson
@@ -113,6 +119,7 @@ class RunnerService : Service() {
         }
 
         val mine = generation.incrementAndGet()
+        scope.launch { reconcileLabels(runtimeDir) }
         executor.execute { supervise(runtimeDir, mine) }
         return START_NOT_STICKY
     }
@@ -391,6 +398,38 @@ class RunnerService : Service() {
         return ProcessTree.pidsMatching(marker)
             .flatMap { ProcessTree.treeOf(it) }
             .distinct()
+    }
+
+    /**
+     * Corrects what this device tells GitHub about itself (issue #80).
+     *
+     * Labels are written once, at registration, so a device goes on announcing
+     * what the app believed when it was set up — one phone in the fleet is a
+     * Snapdragon 8 Gen 3 still labelled `android-no-npu` from before the SoC
+     * matching was fixed. GitHub can replace a runner's labels without giving
+     * it a new identity, so this reconciles rather than re-registers and the
+     * listener is never interrupted.
+     *
+     * Best effort by design. No token, no network, or a runner GitHub does not
+     * know about is not worth stopping a device that is otherwise working.
+     */
+    private fun reconcileLabels(runtimeDir: File) {
+        runCatching {
+            val config = RunnerRegistration.load(runtimeDir) ?: return
+            // Only a user sign-in can rewrite labels; a hand-entered PAT is
+            // left alone rather than assumed to carry the right scope.
+            val token = UserSession(SecretStore(this), BuildConfig.GITHUB_APP_CLIENT_ID)
+                .accessToken() ?: return
+            val current = DeviceCapabilities.detect().labels() + NpuLabels.cached(this)
+            val api = GitHubApi()
+            val registered = api.runnerLabels(config.target, config.runnerName, token)
+            if (registered.isEmpty()) return
+            if (!LabelReconciliation.needsUpdate(current, registered)) return
+
+            val id = api.runnerId(config.target, config.runnerName, token) ?: return
+            api.replaceLabels(config.target, id, LabelReconciliation.payload(current), token)
+            RunnerStatus.onAppLine("labels: updated to match this device")
+        }
     }
 
     /** Asks the listener tree to leave, then insists. Returns true if it is gone. */
