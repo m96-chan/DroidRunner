@@ -61,6 +61,7 @@ import io.github.m96chan.droidrunner.runner.AdmissionThresholds
 import io.github.m96chan.droidrunner.runner.RunnerRegistration
 import io.github.m96chan.droidrunner.runner.ThermalStatus
 import io.github.m96chan.droidrunner.npu.NpuLabels
+import io.github.m96chan.droidrunner.npu.QnnClient
 import io.github.m96chan.droidrunner.npu.QnnConsent
 import io.github.m96chan.droidrunner.npu.QnnInstaller
 import io.github.m96chan.droidrunner.npu.QnnLicences
@@ -106,6 +107,8 @@ fun SetupScreen(
     var showLicences by remember { mutableStateOf(false) }
     var licenceBusy by remember { mutableStateOf(false) }
     var licenceFailure by remember { mutableStateOf<String?>(null) }
+    // What the isolated process said last time it was asked (issue #82).
+    var qnnProbe by remember { mutableStateOf<String?>(null) }
     // Long-running setup runs behind a modal, so nobody wanders off mid-flight.
     var progress by remember { mutableStateOf<SetupProgress?>(null) }
     var setupJob by remember { mutableStateOf<Job?>(null) }
@@ -355,6 +358,20 @@ fun SetupScreen(
         }
     }
 
+    /**
+     * Asks the ":qnn" process whether Qualcomm's runtime actually works here.
+     * Installing proves the files are on disk; only this proves the delegate
+     * loads and the device reports a DSP.
+     */
+    fun checkQnn(htpVersion: Int) {
+        qnnProbe = "checking…"
+        scope.launch {
+            qnnProbe = withContext(Dispatchers.IO) {
+                QnnClient(context).probe(qnn.installDir, htpVersion).summary()
+            }
+        }
+    }
+
     fun installQnn(htpVersion: Int) {
         busy = true
         progress = SetupProgress("preparing")
@@ -373,6 +390,8 @@ fun SetupScreen(
             qnnInstalled = qnn.installed
             progress = null
             busy = false
+            // The install is only half the answer; ask the device the rest.
+            if (status == null) checkQnn(htpVersion)
         }
     }
 
@@ -709,11 +728,30 @@ fun SetupScreen(
                         style = MaterialTheme.typography.labelMedium,
                     )
 
-                    is NpuAcceleration.Installed -> Text(
-                        "installed: ${npu.stamp}",
-                        color = BtopColors.Green,
-                        style = MaterialTheme.typography.labelMedium,
-                    )
+                    is NpuAcceleration.Installed -> {
+                        Text(
+                            "installed: ${npu.stamp}",
+                            color = BtopColors.Green,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                        qnnProbe?.let {
+                            Spacer(Modifier.padding(top = 6.dp))
+                            Text(
+                                it,
+                                color = if (it.contains("HTP available")) {
+                                    BtopColors.Green
+                                } else {
+                                    BtopColors.Yellow
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
+                        Spacer(Modifier.padding(top = 6.dp))
+                        OutlinedButton(
+                            onClick = { checkQnn(npu.htpVersion) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Check the NPU") }
+                    }
 
                     is NpuAcceleration.NeedsAcceptance -> {
                         Text(

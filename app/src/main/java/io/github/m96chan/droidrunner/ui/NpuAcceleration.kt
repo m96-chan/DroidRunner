@@ -34,8 +34,8 @@ internal sealed interface NpuAcceleration {
         val installBytes: Long,
     ) : NpuAcceleration
 
-    /** Installed and current. */
-    data class Installed(val stamp: String) : NpuAcceleration
+    /** Installed and current. Carries the generation so it can be re-checked. */
+    data class Installed(val stamp: String, val htpVersion: Int) : NpuAcceleration
 }
 
 /**
@@ -61,7 +61,7 @@ internal fun npuAcceleration(
         )
     }
     if (installed == QnnArtifacts.stamp(version)) {
-        return NpuAcceleration.Installed(installed)
+        return NpuAcceleration.Installed(installed, version)
     }
     return if (consentGranted) {
         NpuAcceleration.Installable(
