@@ -34,10 +34,16 @@ class HexagonVersionTest {
         assertNull(HexagonVersion.unsupportedReason("qti sm8650 qcom"))
     }
 
-    @Test fun theLibraryNameFollowsTheVersion() {
-        // The name is how the fetch stage will address the artifact, so the
-        // shape matters as much as the number.
-        assertEquals("libQnnHtpV75.so", HexagonVersion.runtimeLibrary(75))
-        assertEquals("libQnnHtpV73.so", HexagonVersion.runtimeLibrary(73))
+    @Test fun theLibraryNamesFollowTheVersion() {
+        // These are the names the fetch stage addresses inside Qualcomm's AAR,
+        // so a typo here is a download that 404s or a library that never loads.
+        assertEquals(
+            listOf("libQnnHtpV75Skel.so", "libQnnHtpV75Stub.so"),
+            HexagonVersion.libraries(75),
+        )
+        assertEquals(
+            listOf("libQnnHtpV73Skel.so", "libQnnHtpV73Stub.so"),
+            HexagonVersion.libraries(73),
+        )
     }
 }

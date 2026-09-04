@@ -39,8 +39,16 @@ object HexagonVersion {
         return KNOWN.entries.firstOrNull { (model, _) -> model in text }?.value
     }
 
-    /** The library a device of this version needs, e.g. `libQnnHtpV75.so`. */
-    fun runtimeLibrary(version: Int): String = "libQnnHtpV$version.so"
+    /**
+     * The two libraries a device of this version needs. They come as a pair
+     * because the work is split across two processors: the stub runs on the
+     * CPU and marshals calls, the skel runs on the Hexagon DSP itself.
+     *
+     * There is no single `libQnnHtpV75.so` — an earlier guess at the name that
+     * the published runtime does not contain.
+     */
+    fun libraries(version: Int): List<String> =
+        listOf("libQnnHtpV${version}Skel.so", "libQnnHtpV${version}Stub.so")
 
     /** What to say when a Snapdragon is not in the table. */
     fun unsupportedReason(soc: String): String? =

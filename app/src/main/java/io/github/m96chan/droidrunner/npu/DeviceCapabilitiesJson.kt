@@ -18,7 +18,10 @@ object DeviceCapabilitiesJson {
         val version = HexagonVersion.of(soc)
         return JSONObject()
             .put("version", version ?: JSONObject.NULL)
-            .put("runtimeLibrary", version?.let(HexagonVersion::runtimeLibrary) ?: JSONObject.NULL)
+            .put(
+                "libraries",
+                version?.let { JSONArray(HexagonVersion.libraries(it)) } ?: JSONObject.NULL,
+            )
             .put("unsupported", HexagonVersion.unsupportedReason(soc) ?: JSONObject.NULL)
     }
 
