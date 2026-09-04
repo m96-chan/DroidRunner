@@ -69,7 +69,12 @@ internal object QnnArtifacts {
     private const val ABI = "arm64-v8a"
 
     /**
-     * Needed whatever the generation. `libQnnHtpPrepare.so` is 79MB of the
+     * Needed whatever the generation. `libqnn_delegate_jni.so` is deliberately
+     * absent: it exports only `Java_com_qualcomm_qti_QnnDelegate_*` entry
+     * points for Qualcomm's own Java wrapper, whose classes this project does
+     * not ship. The delegate is reached through its C API instead, so those
+     * 279KB would never be called.
+     * `libQnnHtpPrepare.so` is 79MB of the
      * 101MB and cannot be dropped: it compiles a model's graph for the NPU,
      * which is exactly what running an arbitrary `.tflite` asks for.
      */
@@ -78,7 +83,6 @@ internal object QnnArtifacts {
         Entry(Module.RUNTIME, "libQnnSystem.so", "a78a9b637ed814d5a4dc49219c673a794d9fca94e1149430530040aff925509a", 4_072_432, 1_491_137),
         Entry(Module.RUNTIME, "libQnnHtpPrepare.so", "2297c95919a389dc1d7b2c8f06970a4365be8b26f5cff34986ad0863a46724ea", 79_343_312, 32_362_670),
         Entry(Module.DELEGATE, "libQnnTFLiteDelegate.so", "143271c6a7637c6d1138f5c46b851c1f2889d27333c1c21ef666caf1104fa0c2", 1_032_472, 372_740),
-        Entry(Module.DELEGATE, "libqnn_delegate_jni.so", "aa468adc4fc6b97a3b5e59e61ae25c0f10067b974cb9a9eaaf292a1b25a294d9", 279_168, 90_790),
     )
 
     /**

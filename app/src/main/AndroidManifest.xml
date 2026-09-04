@@ -28,6 +28,18 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.DroidRunner"
         android:usesCleartextTraffic="false">
+        <!--
+            The Hexagon stub links libcdsprpc.so directly — the platform's own
+            path to the DSP, listed in /vendor/etc/public.libraries.txt. Since
+            Android 12 an app has to name a vendor library before its linker
+            namespace will resolve it, and without this the stub fails to load
+            with "library not found in namespace" (issue #82).
+
+            required="false" because most devices have no such library and are
+            still perfectly good runners.
+        -->
+        <uses-native-library android:name="libcdsprpc.so" android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -63,6 +75,19 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/qnn_licences" />
         </provider>
+
+        <!--
+            Qualcomm's runtime lives in a process of its own. The FSF's line
+            for "one program" is the shared address space, and PRoot is
+            someone else's GPL-2.0 code running in the main process; this
+            project cannot grant exceptions on its behalf. Isolation also
+            means a vendor library that crashes takes down a process whose
+            only job is to answer questions about it (issue #82).
+        -->
+        <service
+            android:name=".qnn.QnnService"
+            android:exported="false"
+            android:process=":qnn" />
 
         <service
             android:name=".runner.RunnerService"

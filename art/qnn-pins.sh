@@ -44,7 +44,7 @@ echo "    private val SHARED = listOf("
 for library in libQnnHtp.so libQnnSystem.so libQnnHtpPrepare.so; do
   row RUNTIME "$work/qnn-runtime.aar" "$work/qnn-runtime/jni/arm64-v8a/$library"
 done
-for library in libQnnTFLiteDelegate.so libqnn_delegate_jni.so; do
+for library in libQnnTFLiteDelegate.so; do
   row DELEGATE "$work/qnn-litert-delegate.aar" \
     "$work/qnn-litert-delegate/jni/arm64-v8a/$library"
 done
