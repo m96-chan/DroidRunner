@@ -62,9 +62,10 @@ class QnnArtifactsTest {
     }
 
     @Test fun eachEntryIsAddressedInsideTheAarThatShipsIt() {
-        val delegate = QnnArtifacts.entriesFor(75)!!.first { it.library == "libqnn_delegate_jni.so" }
+        val delegate = QnnArtifacts.entriesFor(75)!!
+            .first { it.library == "libQnnTFLiteDelegate.so" }
 
-        assertEquals("jni/arm64-v8a/libqnn_delegate_jni.so", delegate.zipEntry)
+        assertEquals("jni/arm64-v8a/libQnnTFLiteDelegate.so", delegate.zipEntry)
         assertEquals(
             "https://repo1.maven.org/maven2/com/qualcomm/qti/qnn-litert-delegate/" +
                 "${QnnArtifacts.VERSION}/qnn-litert-delegate-${QnnArtifacts.VERSION}.aar",

@@ -57,7 +57,7 @@ class NpuAccelerationTest {
             npuAcceleration(snapdragon, true, "2.30.0 v75") is NpuAcceleration.Installable,
         )
         assertEquals(
-            NpuAcceleration.Installed(QnnArtifacts.stamp(75)),
+            NpuAcceleration.Installed(QnnArtifacts.stamp(75), 75),
             npuAcceleration(snapdragon, true, QnnArtifacts.stamp(75)),
         )
     }
