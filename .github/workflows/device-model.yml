@@ -6,18 +6,15 @@ on:
   workflow_dispatch:
     inputs:
       label:
-        description: "Extra runner label selecting the device"
+        description: "Extra runner label selecting the device (e.g. npu-neuron)"
         required: true
         default: "android-npu"
-  push:
-    branches:
-      - feature/model-execution
 
 permissions: {}
 
 jobs:
   model:
-    runs-on: [self-hosted, android, "${{ inputs.label || 'npu-neuron' }}"]
+    runs-on: [self-hosted, android, "${{ inputs.label }}"]
     steps:
       # Two builds of the same network. Vendor accelerators are built for
       # quantized graphs — the MediaTek DSP and MDLA reject float32 outright —

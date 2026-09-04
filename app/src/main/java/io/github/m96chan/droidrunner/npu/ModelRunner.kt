@@ -24,6 +24,20 @@ import java.nio.ByteOrder
  */
 object ModelRunner {
 
+    /**
+     * Returns every buffer to the start before an invocation.
+     *
+     * A run leaves each buffer at its limit, so reusing one without this makes
+     * the next bulk copy throw. This is separate, and tested, because getting
+     * it wrong is not obvious from the failure: the exception names
+     * `ByteBuffer.put` and nothing about the reason, and it appears on every
+     * driver at once — which reads like a delegate problem and is not one.
+     */
+    internal fun rewindAll(inputs: Array<Any>, outputs: Map<Int, ByteBuffer>) {
+        inputs.forEach { (it as ByteBuffer).rewind() }
+        outputs.values.forEach { it.rewind() }
+    }
+
     fun run(model: File, deviceName: String?, iterations: Int, warmup: Int = 2): String {
         val runs = iterations.coerceIn(1, 500)
         var delegate: NnApiDelegate? = null
@@ -66,8 +80,7 @@ object ModelRunner {
             // loop did this and the warmup did not, which is why the first
             // run always worked and the second never did.
             fun invoke() {
-                inputs.forEach { (it as ByteBuffer).rewind() }
-                outputs.values.forEach { it.rewind() }
+                rewindAll(inputs, outputs)
                 interpreter.runForMultipleInputsOutputs(inputs, outputs)
             }
 
