@@ -257,3 +257,68 @@ class ResultContractOverHttpTest {
         assertEquals("invalid-request", parsed.getString("code"))
     }
 }
+
+class BatchOverHttpTest {
+
+    @Rule @JvmField val temp = TemporaryFolder()
+
+    private lateinit var runtimeDir: File
+    private lateinit var server: DeviceAgentServer
+
+    @Before fun start() {
+        runtimeDir = temp.newFolder("runtime")
+        File(runtimeDir, "home/runner").mkdirs()
+        server = DeviceAgentServer(runtimeDir, requestedPort = 0) { """{"stub":true}""" }
+        server.start()
+        server.onJobActive(true)
+    }
+
+    @After fun stop() = server.stop()
+
+    private fun post(path: String, body: String): Pair<Int, String> {
+        val token = File(runtimeDir, "home/runner/.droidrunner-agent-token").readText()
+        val connection = (URL("${server.url}$path").openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 5_000
+            readTimeout = 30_000
+            setRequestProperty("Authorization", "Bearer $token")
+            doOutput = true
+            setRequestProperty("Content-Length", body.length.toString())
+        }
+        connection.outputStream.use { it.write(body.toByteArray()) }
+        val status = connection.responseCode
+        val text = (if (status in 200..299) connection.inputStream else connection.errorStream)
+            ?.bufferedReader()?.use { it.readText() }.orEmpty()
+        connection.disconnect()
+        return status to text
+    }
+
+    @Test fun aFailingRowNeverEndsTheSweep() {
+        // Every entry here fails — there is no TFLite runtime in a JVM test —
+        // and that is the point: the array must still be the manifest, in
+        // order, with every row present.
+        val (status, body) = post(
+            "/v1/tests/models",
+            """{"models":[
+                 {"id":"a","path":"/home/runner/missing-a.tflite"},
+                 {"id":"b"},
+                 {"id":"c","path":"/home/runner/missing-c.tflite"}
+               ]}""",
+        )
+
+        assertEquals(200, status)
+        val parsed = JSONObject(body)
+        assertEquals(1, parsed.getInt("schema"))
+        val results = parsed.getJSONArray("results")
+        assertEquals(3, results.length())
+        assertEquals(listOf("a", "b", "c"), (0 until 3).map { results.getJSONObject(it).getString("id") })
+        (0 until 3).forEach { assertFalse(results.getJSONObject(it).getBoolean("ok")) }
+    }
+
+    @Test fun anEmptyManifestIsARequestError() {
+        val (status, body) = post("/v1/tests/models", """{"models":[]}""")
+
+        assertEquals(400, status)
+        assertEquals("invalid-request", JSONObject(body).getString("code"))
+    }
+}
