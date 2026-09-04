@@ -46,6 +46,16 @@ class RunnerService : Service() {
     @Volatile private var restartDelayMs = 0L
     @Volatile private var nextStartAtMillis = 0L
 
+    /**
+     * Which run of the service owns it (issue #68). A start bumps this; a
+     * supervisor compares it before touching anything shared, so one on its
+     * way out cannot switch off a service a newer start has claimed.
+     */
+    private val generation = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** The most recent start, so a stop cannot cancel one that arrived after it. */
+    @Volatile private var latestStartId = 0
+
     /** Alert state for issue #34: one notification per streak of failures. */
     @Volatile private var consecutiveFailures = 0
     @Volatile private var alerted = false
@@ -68,6 +78,7 @@ class RunnerService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        latestStartId = startId
         if (intent?.action == ACTION_STOP) {
             stopRunner()
             return START_NOT_STICKY
@@ -101,19 +112,20 @@ class RunnerService : Service() {
             }
         }
 
-        executor.execute { supervise(runtimeDir) }
+        val mine = generation.incrementAndGet()
+        executor.execute { supervise(runtimeDir, mine) }
         return START_NOT_STICKY
     }
 
     /** Starts, holds, and restarts the listener according to device conditions. */
-    private fun supervise(runtimeDir: File) {
+    private fun supervise(runtimeDir: File, myGeneration: Int) {
         runCatching {
             check(RunnerRegistration.isConfigured(runtimeDir)) { "Runner is not configured" }
             var admissionState = AdmissionPolicy.State()
             var reportedFor: String? = null
             var held = false
 
-            while (!stopRequested.get()) {
+            while (ServiceLifetime.shouldKeepRunning(myGeneration, generation.get(), stopRequested.get())) {
                 val thresholds = AdmissionThresholds.load(this)
                 val evaluation = AdmissionPolicy.evaluate(sampleConditions(), thresholds, admissionState)
                 admissionState = evaluation.state
@@ -162,8 +174,14 @@ class RunnerService : Service() {
         }.onFailure {
             if (it !is InterruptedException) RunnerStatus.onAppLine("runner error: ${it.message}")
         }
-        starting.set(false)
-        if (!stopRequested.get()) stopSelf()
+        // A superseded supervisor leaves both alone: `starting` and the
+        // service now belong to whoever replaced it.
+        if (generation.get() == myGeneration) {
+            starting.set(false)
+            if (ServiceLifetime.shouldStopService(myGeneration, generation.get(), stopRequested.get())) {
+                stopSelf(latestStartId)
+            }
+        }
     }
 
     private fun sampleConditions(): DeviceConditions {
@@ -414,7 +432,10 @@ class RunnerService : Service() {
         wakeLock?.takeIf { it.isHeld }?.release()
         wakeLock = null
         stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        // With the id, Android keeps the service alive if a start arrived after
+        // this stop — a bare stopSelf() would take that start down with it and
+        // leave the device looking idle.
+        stopSelf(latestStartId)
     }
 
     companion object {
