@@ -98,6 +98,21 @@ driver it was pinned to, e.g. `TfLiteNnapiDelegate:nnapi-reference`. That
 example is why: `accelerator` alone reads identically for a graph NNAPI handed
 to its CPU reference.
 
+### Which CPU, when it was the CPU
+
+`cpu` and `cpu-fallback` each cover more than one path, and the paths are an
+order of magnitude apart. On the same phone and network:
+
+| `executedBy` | what it is | median |
+| --- | --- | --- |
+| `TfLiteXNNPackDelegate` | an optimised, multi-threaded CPU kernel | 26,379 µs |
+| `TfLiteNnapiDelegate:nnapi-reference` | NNAPI's reference implementation, which exists to be correct rather than fast | 257,104 µs |
+
+So **`executedBy` is what says which**, and a ratio computed against the wrong
+one says something untrue about the accelerator it is compared with. Reported by
+the NxPU side, who spotted that the two CPU numbers in a MediaTek table looked
+like a contradiction and are not one.
+
 `unsupportedOps` appears when a delegate said which operators it would not
 take. "12 of 14 nodes went to the accelerator" says an operator table is wrong
 somewhere; this says where.
