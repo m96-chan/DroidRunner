@@ -35,7 +35,12 @@ internal class DeviceAgentServer(
      * and stays testable on the JVM (issue #82). Ahead of [capabilitiesJson]
      * so that one stays the trailing lambda callers already write.
      */
-    private val qnnModel: ((File, String, Int, List<File>, TensorIo.Target?) -> String)? = null,
+    private val qnnModel: ((File, String, Int, List<File>, TensorIo.Target?, Boolean) -> String)? = null,
+    /**
+     * What the phone was doing, sampled at each end of a timing loop (#98).
+     * A lambda for the same reason as [qnnModel]: no Android types here.
+     */
+    private val conditions: (() -> DeviceConditions)? = null,
     private val capabilitiesJson: () -> String,
 ) {
     var port: Int = requestedPort
@@ -236,6 +241,9 @@ internal class DeviceAgentServer(
             )
         val device = request.optString("device").takeIf { it.isNotBlank() }
         val iterations = request.optInt("iterations", 50)
+        // Off by default: 500 iterations is 500 numbers, and most callers want
+        // the percentiles rather than the loop (#98).
+        val keepTimings = request.optBoolean("timings")
 
         // Job code chose these paths, so each one is proven to stay inside the
         // runner's home before anything is opened or written (issue #92).
@@ -274,7 +282,7 @@ internal class DeviceAgentServer(
                     ResultContract.Code.NOT_INSTALLED,
                     "this device has no Qualcomm accelerator runtime",
                 )
-            return 200 to run(model, it, iterations, inputs, outputTarget)
+            return 200 to run(model, it, iterations, inputs, outputTarget, keepTimings)
         }
         return 200 to ModelRunner.run(
             model = model,
@@ -283,6 +291,8 @@ internal class DeviceAgentServer(
             inputs = inputs,
             outputTarget = outputTarget,
             baseline = request.optBoolean("baseline"),
+            conditions = conditions,
+            keepTimings = keepTimings,
             // App-private and outside the guest's home: a diagnostic scratch
             // file is not something a job should find, or be able to write.
             diagnosticsDir = runtimeDir.parentFile,
@@ -359,6 +369,7 @@ internal class DeviceAgentServer(
             .apply {
                 entry.device?.let { put("device", it) }
                 entry.outputDir?.let { put("outputDir", it) }
+                if (entry.keepTimings) put("timings", true)
                 if (entry.inputs.isNotEmpty()) put("inputs", JSONArray(entry.inputs))
             }
         return modelTest(request.toString()).second

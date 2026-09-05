@@ -162,5 +162,36 @@ jobs:
           echo "--- iterations 0 reports acceptance without timings:"
           grep -q '"iterations":0' sweep.json
 
+      # #98: the conditions a number was measured under. Straight at the agent,
+      # because the wrapper on the device ships with the runtime bundle and
+      # lags a fresh app build (#107) — `--timings` is not in the published one.
+      - name: What the phone was doing while it was measured
+        run: |
+          token="$(cat "$DROIDRUNNER_DEVICE_TOKEN_FILE")"
+          curl -fsS -X POST -H "Authorization: Bearer $token" \
+            -H 'Content-Type: application/json' \
+            -d "{\"path\":\"$PWD/int8.tflite\",\"iterations\":20,\"timings\":true}" \
+            "$DROIDRUNNER_DEVICE_URL/v1/tests/model" > conditions.json
+          echo "--- the tail, which is where a throttle shows:"
+          grep -o '"p90Us":[^,}]*' conditions.json
+          grep -o '"p99Us":[^,}]*' conditions.json
+          echo "--- conditions at each end of the loop:"
+          grep -o '"conditions":{[^}]*}[^}]*}[^}]*}' conditions.json
+          echo "--- assertions:"
+          grep -q '"p90Us"' conditions.json && grep -q '"p99Us"' conditions.json
+          grep -q '"thermalStatus"' conditions.json
+          # Both ends, and a verdict a gate can branch on without parsing them.
+          grep -q '"before"' conditions.json && grep -q '"after"' conditions.json
+          grep -q '"stable"' conditions.json
+          # Every iteration, in the order it ran. 20 asked for, 20 back.
+          test "$(grep -o '"timingsUs":\[[^]]*\]' conditions.json | tr ',' '\n' | wc -l)" = 20
+          echo "--- and off by default, since 500 iterations is 500 numbers:"
+          curl -fsS -X POST -H "Authorization: Bearer $token" \
+            -H 'Content-Type: application/json' \
+            -d "{\"path\":\"$PWD/int8.tflite\",\"iterations\":5}" \
+            "$DROIDRUNNER_DEVICE_URL/v1/tests/model" > quiet.json
+          grep -q '"timingsUs"' quiet.json && { echo "raw timings arrived unasked"; exit 1; }
+          grep -q '"conditions"' quiet.json
+
       - name: Whatever NNAPI picks for int8
         run: droidrunner-device test model int8.tflite --iterations 30

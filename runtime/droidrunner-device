@@ -15,6 +15,7 @@
 #                                [--size N] [--channels N] [--filters N]
 #   droidrunner-device test model <file.tflite> [--device NAME] [--iterations N]
 #                                   [--input FILE]... [--output-dir DIR] [--baseline]
+#                                   [--timings]
 #   droidrunner-device test batch <manifest.json> [--budget-ms N]
 #   droidrunner-device bench-all [--iterations N] [--size N] [--json]
 #
@@ -178,7 +179,7 @@ case "$cmd" in
             # The agent needs the path as the job sees it, absolute.
             model="$(cd "$(dirname "$model")" && pwd)/$(basename "$model")"
         fi
-        device=""; iterations=""; size=""; channels=""; filters=""
+        device=""; iterations=""; size=""; channels=""; filters=""; timings=""
         while [ $# -gt 0 ]; do
             case "$1" in
                 --device) device="$2"; shift 2 ;;
@@ -190,6 +191,9 @@ case "$cmd" in
                 # Runs the CPU reference in the same request, so the ratio
                 # comes from one thermal state rather than two steps apart.
                 --baseline) baseline=1; shift ;;
+                # Every iteration in run order, for seeing a throttle develop
+                # rather than inferring one from the percentiles (#98).
+                --timings) timings=1; shift ;;
                 --output-dir)
                     mkdir -p "$2" || die "cannot create $2"
                     output_dir="$(cd "$2" && pwd)"
@@ -208,6 +212,7 @@ case "$cmd" in
         [ -n "$inputs" ] && body="$body\"inputs\":[${inputs%,}],"
         [ -n "$output_dir" ] && body="$body\"outputDir\":\"$output_dir\","
         [ -n "$baseline" ] && body="$body\"baseline\":true,"
+        [ -n "$timings" ] && body="$body\"timings\":true,"
         [ -n "$device" ] && body="$body\"device\":\"$device\","
         [ -n "$iterations" ] && body="$body\"iterations\":$iterations,"
         [ -n "$size" ] && body="$body\"size\":$size,"

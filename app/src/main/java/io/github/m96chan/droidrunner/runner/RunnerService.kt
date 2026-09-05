@@ -14,6 +14,7 @@ import io.github.m96chan.droidrunner.security.SecretStore
 import io.github.m96chan.droidrunner.monitor.SystemMonitor
 import io.github.m96chan.droidrunner.npu.DeviceAgentServer
 import io.github.m96chan.droidrunner.npu.DeviceCapabilitiesJson
+import io.github.m96chan.droidrunner.npu.DeviceConditionsSampler
 import io.github.m96chan.droidrunner.runtime.RuntimeInstaller
 import java.io.File
 import java.util.concurrent.Executors
@@ -114,6 +115,7 @@ class RunnerService : Service() {
             runtimeDir = runtimeDir,
             capabilitiesJson = { DeviceCapabilitiesJson.build(this) },
             qnnModel = qnnModelRunner(),
+            conditions = { DeviceConditionsSampler.sample(this) },
         ).also { server ->
             server.start()
             RunnerStatus.setJobBoundaryListener { active ->
@@ -566,10 +568,12 @@ class RunnerService : Service() {
      * licences and install the runtime while the runner is up, and should not
      * have to restart it to use what they just installed (issue #82).
      */
-    private fun qnnModelRunner(): ((java.io.File, String, Int, List<java.io.File>, io.github.m96chan.droidrunner.npu.TensorIo.Target?) -> String)? {
+    private fun qnnModelRunner(): (
+        (java.io.File, String, Int, List<java.io.File>, io.github.m96chan.droidrunner.npu.TensorIo.Target?, Boolean) -> String
+    )? {
         val htpVersion = HexagonVersion.of(DeviceCapabilities.detect().soc) ?: return null
         val installer = QnnInstaller(this)
-        return { model, backend, iterations, inputs, outputTarget ->
+        return { model, backend, iterations, inputs, outputTarget, keepTimings ->
             if (installer.installed == null) {
                 org.json.JSONObject()
                     .put("ok", false)
@@ -588,6 +592,7 @@ class RunnerService : Service() {
                     iterations = iterations,
                     inputs = inputs,
                     outputTarget = outputTarget,
+                    keepTimings = keepTimings,
                 )
             }
         }

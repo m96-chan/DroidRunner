@@ -10,10 +10,12 @@
  */
 package io.github.m96chan.droidrunner.qnn
 
+import io.github.m96chan.droidrunner.npu.DeviceConditions
 import io.github.m96chan.droidrunner.npu.Delegation
 import io.github.m96chan.droidrunner.npu.refuseUnattributable
 import io.github.m96chan.droidrunner.npu.ResultContract
 import io.github.m96chan.droidrunner.npu.TensorIo
+import io.github.m96chan.droidrunner.npu.Timings
 import org.json.JSONArray
 import org.json.JSONObject
 import org.tensorflow.lite.Delegate
@@ -64,6 +66,10 @@ internal object QnnModelRunner {
         warmup: Int = 2,
         inputs: List<File> = emptyList(),
         outputTarget: TensorIo.Target? = null,
+        /** Samples what the phone was doing, at each end of the loop (#98). */
+        conditions: (() -> DeviceConditions)? = null,
+        /** Keep every iteration, in the order it ran (#98). */
+        keepTimings: Boolean = false,
     ): String {
         val diagnostics = File(directory).parentFile ?: File(directory)
         breadcrumb = File(diagnostics, "qnn-last-run.txt")
@@ -145,13 +151,18 @@ internal object QnnModelRunner {
                 repeat(warmup) { invoke() }
             }
             step("timing $runs runs")
-            val timings = LongArray(runs)
+            val before = conditions?.invoke()
+            val measured = LongArray(runs)
             repeat(runs) { run ->
                 val started = System.nanoTime()
                 invoke()
-                timings[run] = System.nanoTime() - started
+                measured[run] = System.nanoTime() - started
             }
-            timings.sort()
+            val after = conditions?.invoke()
+            // Sorted separately: run order is the whole value of the raw
+            // timings, since a throttle is visible as drift across the loop and
+            // in nothing else.
+            val timings = measured.copyOf().apply { sort() }
 
             step("reading what the delegate reported")
             val delegation = Delegation.parse(DelegateLog.since(log, logFrom))
@@ -192,7 +203,13 @@ internal object QnnModelRunner {
                         put("medianUs", timings[runs / 2] / 1000.0)
                         put("minUs", timings.first() / 1000.0)
                         put("maxUs", timings.last() / 1000.0)
+                        put("p90Us", Timings.percentile(timings, 90) / 1000.0)
+                        put("p99Us", Timings.percentile(timings, 99) / 1000.0)
+                        if (keepTimings) {
+                            put("timingsUs", JSONArray(measured.map { it / 1000.0 }))
+                        }
                     }
+                    DeviceConditions.describe(before, after)?.let { put("conditions", it) }
                 }
                 .put("profilingBytes", profiling)
                 .apply {
