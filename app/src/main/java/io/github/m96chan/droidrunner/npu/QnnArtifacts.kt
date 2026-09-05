@@ -80,7 +80,18 @@ internal object QnnArtifacts {
     }
 
     /** What marks an install as complete and identifies what it holds. */
-    fun stamp(htpVersion: Int): String = "$VERSION v$htpVersion"
+    /**
+     * What an install *is*, for deciding whether the one on disk still counts.
+     *
+     * The library names are in it because they were not, and that is a silent
+     * failure waiting to happen: adding a file to the table would leave every
+     * existing device believing it was current and never fetching the new one.
+     * A device that installed before the Adreno was added reinstalls once.
+     */
+    fun stamp(htpVersion: Int): String {
+        val libraries = entriesFor(htpVersion).orEmpty().joinToString(",") { it.library }
+        return "$VERSION v$htpVersion ${libraries.hashCode()}"
+    }
 
     private const val ABI = "arm64-v8a"
 
@@ -94,7 +105,19 @@ internal object QnnArtifacts {
      * 101MB and cannot be dropped: it compiles a model's graph for the NPU,
      * which is exactly what running an arbitrary `.tflite` asks for.
      */
+    /** The Adreno backend (#140), named so the load order can ask for it. */
+    const val GPU_LIBRARY = "libQnnGpu.so"
+
     private val SHARED = listOf(
+        // The Adreno. `QnnBackend` has accepted "gpu" since #82 while nothing
+        // fetched this, so asking for it failed inside the delegate for a file
+        // that was never there. 8.5 MB against an install already over 100 MB
+        // — not worth a second consent flow to save.
+        Entry(
+            Module.RUNTIME, GPU_LIBRARY,
+            "9c5ae0bfb493dd04eb14527677be176be50b769abdc9cb203cd59055fdc196b5",
+            8_553_320, 2_820_480,
+        ),
         Entry(Module.RUNTIME, "libQnnHtp.so", "4c13d31eff0d86336faceeaf0b3e8c6c2ccafc14e3d9fee72d5f1de441c6901d", 3_786_336, 1_463_692),
         Entry(Module.RUNTIME, "libQnnSystem.so", "a78a9b637ed814d5a4dc49219c673a794d9fca94e1149430530040aff925509a", 4_072_432, 1_491_137),
         Entry(Module.RUNTIME, "libQnnHtpPrepare.so", "2297c95919a389dc1d7b2c8f06970a4365be8b26f5cff34986ad0863a46724ea", 79_343_312, 32_362_670),

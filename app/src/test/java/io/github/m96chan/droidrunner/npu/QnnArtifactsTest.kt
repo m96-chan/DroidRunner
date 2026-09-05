@@ -73,10 +73,20 @@ class QnnArtifactsTest {
         )
     }
 
-    @Test fun theStampNamesBothTheReleaseAndTheGeneration() {
+    @Test fun theStampNamesTheReleaseTheGenerationAndTheLibraries() {
         // An install is skipped when the stamp matches, so it has to change
-        // when either the QNN release or the device's generation does.
-        assertEquals("${QnnArtifacts.VERSION} v75", QnnArtifacts.stamp(75))
+        // when the QNN release changes, when the device's generation does —
+        // and when the set of libraries does, which it did not until #140.
+        // Adding a file to the table would otherwise have left every existing
+        // device believing it was current and never fetching the new one.
+        assertTrue(QnnArtifacts.stamp(75).startsWith("${QnnArtifacts.VERSION} v75"))
         assertTrue(QnnArtifacts.stamp(75) != QnnArtifacts.stamp(73))
+    }
+
+    @Test fun addingALibraryChangesTheStamp() {
+        val libraries = QnnArtifacts.entriesFor(75)!!.map { it.library }
+        val withOneMore = (libraries + "libQnnSomethingNew.so").joinToString(",")
+
+        assertTrue(libraries.joinToString(",").hashCode() != withOneMore.hashCode())
     }
 }
