@@ -329,22 +329,34 @@ jobs:
           # awk is not something to trust a finding to.
           ls -l out-cpu-f32 out-dev-f32 out-cpu-signed out-dev-signed || true
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: f32-outputs
-          path: |
-            out-cpu-f32/
-            out-dev-f32/
-            out-cpu-signed/
-            out-dev-signed/
-            out-cpu-odd/
-            out-dev-odd/
-            out-cpu-res/
-            out-dev-res/
-            out-gpu-f32/
-            f32-device.json
-            qnn-gpu.json
-          if-no-files-found: warn
+
+      # #140: the GPU, which every phone has and none of them exposes through
+      # NNAPI. Precision is a declared choice here, unlike the Hexagon, which
+      # computes f32 in fp16 without saying so (tools/ulp).
+      - name: The GPU, which is not an NNAPI driver
+        run: |
+          # Not gated on the compatibility list: it is a table shipped inside
+          # TFLite 2.16.1, an SM8650 is not in it, and "not in the table" is not
+          # "will not run". Ask the delegate instead.
+          droidrunner-device capabilities | grep -o '"gpu":{[^}]*}' || true
+          status=0
+          droidrunner-device test model int8.tflite --device gpu --iterations 20 \
+            --output gpu.json || status=$?
+          cat gpu.json
+          [ "$status" = 0 ] || { echo "the GPU delegate would not run here"; exit 0; }
+          grep -o '"executed":"[^"]*"\|"executedBy":"[^"]*"\|"medianUs":[^,]*' gpu.json
+          # It must be attributed to the GPU delegate, not reported as a CPU
+          # fallback — the rule it had to be threaded into predates any way of
+          # asking for something that is not an NNAPI driver.
+          grep -q '"executedBy":"TfLiteGpuDelegateV2:gpu"' gpu.json
+          echo "--- and the f32 arithmetic, where precision was asked for"
+          mkdir -p out-gpu-arith
+          droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
+            --device gpu \
+            --input tools/ulp/fixtures/input-0.bin \
+            --input tools/ulp/fixtures/input-1.bin \
+            --output-dir out-gpu-arith --iterations 1 > /dev/null || true
+          ls -l out-gpu-arith || true
 
       # #140: QnnBackend has accepted "gpu" since #82 and nobody has ever
       # asked for it. Adreno through QNN needs no new dependency — either it
@@ -375,6 +387,25 @@ jobs:
       # #128: `executed: unknown` means the delegate ran and we could not read
       # what it took — the failure mode of parsing prose. It is the honest
       # answer and an invisible one, so a device run says so out loud.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f32-outputs
+          path: |
+            out-cpu-f32/
+            out-dev-f32/
+            out-cpu-signed/
+            out-dev-signed/
+            out-cpu-odd/
+            out-dev-odd/
+            out-cpu-res/
+            out-dev-res/
+            out-gpu-f32/
+            out-gpu-arith/
+            gpu.json
+            f32-device.json
+            qnn-gpu.json
+          if-no-files-found: warn
+
       - name: Nothing came back unattributable
         run: |
           for f in sweep.json action-result.json conditions.json quiet.json; do

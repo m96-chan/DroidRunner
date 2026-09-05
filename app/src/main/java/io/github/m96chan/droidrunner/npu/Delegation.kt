@@ -152,6 +152,12 @@ internal fun executedFor(delegation: Delegation?, deviceName: String?): Pair<Str
         // XNNPACK as one.
         deviceName in CPU_DEVICES -> "cpu" to "${delegate ?: "delegate"}:$deviceName"
 
+        // Asked for the GPU and the GPU delegate took it. Without this the
+        // rule below would call a working GPU run a CPU fallback, because it
+        // was written when NNAPI was the only way to ask for anything (#140).
+        deviceName == GPU_DEVICE && delegate == GPU_DELEGATE ->
+            delegation.executed to "$GPU_DELEGATE:$GPU_DEVICE"
+
         // Something took it that is not the delegate a pinned NNAPI device
         // would have gone through, so the pin did not happen.
         deviceName != null && delegate != null && delegate != NNAPI_DELEGATE ->
@@ -172,6 +178,16 @@ private val CPU_DELEGATES = setOf("TfLiteXNNPackDelegate")
 private val CPU_DEVICES = setOf("nnapi-reference")
 
 private const val NNAPI_DELEGATE = "TfLiteNnapiDelegate"
+
+/**
+ * What TFLite calls the GPU delegate, read out of the shipped library rather
+ * than remembered: `strings libtensorflowlite_gpu_jni.so` has exactly one
+ * name that the partitioning line can print.
+ */
+internal const val GPU_DELEGATE = "TfLiteGpuDelegateV2"
+
+/** The device name a job asks for to reach it. */
+internal const val GPU_DEVICE = "gpu"
 
 /**
  * Whether a run may be published as an accelerator measurement.

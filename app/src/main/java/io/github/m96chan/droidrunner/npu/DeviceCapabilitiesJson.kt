@@ -25,6 +25,25 @@ object DeviceCapabilitiesJson {
             .put("unsupported", HexagonVersion.unsupportedReason(soc) ?: JSONObject.NULL)
     }
 
+    /**
+     * What TFLite's bundled compatibility list says about this phone.
+     *
+     * Reported as `allowlisted`, not as `supported`, because that is what it
+     * is: a table shipped inside the library, matched against device strings.
+     * An SM8650 answers **false** here, which cannot mean the Adreno will not
+     * run a graph — it means the phone is newer than the table in 2.16.1.
+     *
+     * So this is advisory and nothing gates on it. Whether the delegate runs
+     * is decided by asking the delegate, which is the same rule the rest of
+     * this project follows: a driver's opinion beats a datasheet, and a
+     * datasheet is what an allowlist is.
+     */
+    private fun gpu(): JSONObject = runCatching {
+        org.tensorflow.lite.gpu.CompatibilityList().use {
+            JSONObject().put("allowlisted", it.isDelegateSupportedOnThisDevice)
+        }
+    }.getOrElse { JSONObject().put("allowlisted", false).put("error", it.message.orEmpty()) }
+
     fun build(context: Context): String {
         val capabilities = DeviceCapabilities.detect()
         val thermal = if (Build.VERSION.SDK_INT >= 29) {
@@ -61,6 +80,11 @@ object DeviceCapabilitiesJson {
             .put("android", JSONObject().put("sdk", Build.VERSION.SDK_INT))
             .put("thermalStatus", thermal)
             .put("nnapi", JSONObject(NnapiProbe.devices()))
+            // The one accelerator every phone has, and the only one this
+            // project never asked about until #140. Reported separately from
+            // NNAPI because it is not an NNAPI driver: it is TFLite's own
+            // delegate, reached by the device name `gpu`.
+            .put("gpu", gpu())
             // What this device would need to reach its Hexagon NPU (#82).
             // Reported before anything can use it, so a job can see which
             // devices a future QNN adapter would cover — and so an

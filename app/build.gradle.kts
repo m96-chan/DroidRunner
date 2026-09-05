@@ -157,6 +157,14 @@ dependencies {
     // Runs caller-supplied models; the NNAPI delegate is how a job reaches an
     // accelerator the device actually exposes.
     implementation("org.tensorflow:tensorflow-lite:2.16.1")
+    // The GPU is the one accelerator every phone has, and until #140 the only
+    // one never asked about. Apache-2.0, the same project already linked, so
+    // none of #82's licensing apparatus applies — the whole cost is ~2 MB of
+    // arm64 payload, against a 41 MB QNN opt-in and a 208 MB runtime bundle.
+    implementation("org.tensorflow:tensorflow-lite-gpu:2.16.1")
+    // The options class the delegate's own constructor takes lives here and is
+    // not pulled in transitively; the compiler is what said so.
+    implementation("org.tensorflow:tensorflow-lite-gpu-api:2.16.1")
 
     testImplementation("junit:junit:4.13.2")
     // Android's org.json is a stub in unit tests; use the real implementation.
