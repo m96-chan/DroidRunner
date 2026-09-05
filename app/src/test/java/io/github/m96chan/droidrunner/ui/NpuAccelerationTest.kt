@@ -63,10 +63,11 @@ class NpuAccelerationTest {
     }
 
     @Test fun bothCostsAreQuotedBecauseEitherAloneMisleads() {
-        // 38MB crosses the network and 102MB stays on the phone; a user told
-        // only the first would be surprised by the second.
+        // 41MB crosses the network and 110MB stays on the phone; a user told
+        // only the first would be surprised by the second. Both grew when the
+        // Adreno backend joined the install (#140).
         assertEquals(
-            "38 MB to download, 102 MB on disk",
+            "41 MB to download, 110 MB on disk",
             downloadSummary(QnnArtifacts.downloadBytes(75), QnnArtifacts.installBytes(75)),
         )
     }
