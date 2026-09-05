@@ -358,25 +358,6 @@ jobs:
             --output-dir out-gpu-arith --iterations 1 > /dev/null || true
           ls -l out-gpu-arith || true
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: f32-outputs
-          path: |
-            out-cpu-f32/
-            out-dev-f32/
-            out-cpu-signed/
-            out-dev-signed/
-            out-cpu-odd/
-            out-dev-odd/
-            out-cpu-res/
-            out-dev-res/
-            out-gpu-f32/
-            out-gpu-arith/
-            gpu.json
-            f32-device.json
-            qnn-gpu.json
-          if-no-files-found: warn
-
       # #140: QnnBackend has accepted "gpu" since #82 and nobody has ever
       # asked for it. Adreno through QNN needs no new dependency — either it
       # already works and Qualcomm GPU coverage exists, or it does not and the
@@ -406,6 +387,25 @@ jobs:
       # #128: `executed: unknown` means the delegate ran and we could not read
       # what it took — the failure mode of parsing prose. It is the honest
       # answer and an invisible one, so a device run says so out loud.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f32-outputs
+          path: |
+            out-cpu-f32/
+            out-dev-f32/
+            out-cpu-signed/
+            out-dev-signed/
+            out-cpu-odd/
+            out-dev-odd/
+            out-cpu-res/
+            out-dev-res/
+            out-gpu-f32/
+            out-gpu-arith/
+            gpu.json
+            f32-device.json
+            qnn-gpu.json
+          if-no-files-found: warn
+
       - name: Nothing came back unattributable
         run: |
           for f in sweep.json action-result.json conditions.json quiet.json; do
