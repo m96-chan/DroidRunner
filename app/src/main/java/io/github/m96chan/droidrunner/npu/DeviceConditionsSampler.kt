@@ -30,7 +30,11 @@ internal object DeviceConditionsSampler {
             },
             thermalHeadroom = if (Build.VERSION.SDK_INT >= 30) {
                 // Documented to return NaN when it has not had long enough
-                // since boot, or when it is asked again too soon.
+                // since boot, or when it is asked again too soon — roughly one
+                // reading every ten seconds. So a short loop typically gets it
+                // at one end and not the other, and some phones never do:
+                // measured present-then-absent on an SM8650 and absent on an
+                // MT6899. Absent is the right answer; a stale reading is not.
                 power?.getThermalHeadroom(FORECAST_SECONDS)?.takeIf { !it.isNaN() }
             } else {
                 null

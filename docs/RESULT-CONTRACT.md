@@ -137,6 +137,13 @@ counts as unstable — silence is not a yes, and a gate must not read "we could
 not tell" as "it was fine". Any field the device could not read is absent
 rather than zero, because zero is a real battery temperature.
 
+`thermalHeadroom` in particular is often present at one end and not the other,
+and on some phones at neither: the platform rate-limits it to roughly one
+reading every ten seconds and returns NaN otherwise, and not every vendor
+implements it. Measured on an SM8650 (present at `before`, absent at `after`
+after a 20-iteration loop) and an MT6899 (absent at both). It is a bonus, not
+the field to branch on — `stable` is.
+
 `p90Us` and `p99Us` sit beside min/median/max because a throttle shows in the
 tail and not in the middle. They are nearest-rank, so every value published was
 produced by some iteration. `timings: true` in the request adds `timingsUs`:
