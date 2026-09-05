@@ -33,6 +33,8 @@ internal object BatchRequest {
         val outputDir: String? = null,
         /** Every iteration, in run order, for this row only (#98). */
         val keepTimings: Boolean = false,
+        /** What the delegate printed, for this row only (#128). */
+        val keepDelegateLog: Boolean = false,
         /** Why this row cannot be run, when it cannot. */
         val rejection: String? = null,
     )
@@ -77,6 +79,7 @@ internal object BatchRequest {
                 }.orEmpty(),
                 outputDir = row.optString("outputDir").takeIf { it.isNotBlank() },
                 keepTimings = row.optBoolean("timings"),
+                keepDelegateLog = row.optBoolean("delegateLog"),
             )
         }
     }

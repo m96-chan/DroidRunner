@@ -58,6 +58,8 @@ internal object ModelRunner {
         conditions: (() -> DeviceConditions)? = null,
         /** Keep every iteration, in the order it ran (#98). */
         keepTimings: Boolean = false,
+        /** Return what the delegate printed, verbatim (#128). */
+        keepDelegateLog: Boolean = false,
     ): String {
         // Zero is a real answer, not a mistake: "was this graph accepted" is
         // complete once tensors are allocated, and perhaps half of a sweep asks
@@ -151,6 +153,16 @@ internal object ModelRunner {
                 // claimed the nodes and the driver it was pinned to.
                 .put("executedBy", executedFor(delegation, deviceName).second)
                 .apply {
+                    // What the delegate said, unparsed. Our reading of it is
+                    // a regex over prose and the prose is not an API — so the
+                    // evidence travels with the conclusion, and a caller who
+                    // disagrees with us can say why. Included whenever the
+                    // attribution failed, because that is when it is needed and
+                    // when nobody thought to ask for it in advance (#128).
+                    val unattributed = delegation == null && deviceName != null
+                    if (keepDelegateLog || unattributed) {
+                        put("delegateLog", built.second.takeLast(MAX_LOG_CHARS))
+                    }
                     delegation?.let {
                         put(
                             "delegation",
@@ -254,6 +266,14 @@ internal object ModelRunner {
             runCatching { delegate?.close() }
         }
     }
+
+    /**
+     * How much of the delegate's own output travels back with a result.
+     *
+     * Enough to hold the partitioning line and what surrounds it, and not so
+     * much that a 62-row sweep carries a megabyte of it.
+     */
+    private const val MAX_LOG_CHARS = 4000
 
     /** What the interpreter settled on, which is only final after allocation. */
     private fun specsOf(interpreter: Interpreter, input: Boolean): List<TensorIo.Spec> {
