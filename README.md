@@ -622,7 +622,12 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 - [x] A documented result contract and a composite action other repositories can use ([#95](https://github.com/m96-chan/DroidRunner/issues/95))
 - [x] Run a manifest of models in one request ([#94](https://github.com/m96-chan/DroidRunner/issues/94))
 - [ ] MediaTek Neuron — blocked: the public runtime takes `.dla` and nobody can produce one ([#83](https://github.com/m96-chan/DroidRunner/issues/83))
-- [ ] An operator support matrix measured on silicon rather than read off a datasheet ([#96](https://github.com/m96-chan/DroidRunner/issues/96))
+- [x] An operator support matrix measured on silicon rather than read off a datasheet ([#96](https://github.com/m96-chan/DroidRunner/issues/96)) — three MediaTek drivers disagree on one SoC
+- [x] Say what state the device was in when a number was measured ([#98](https://github.com/m96-chan/DroidRunner/issues/98))
+- [x] Compare a matrix against the last one, so a driver that stops taking an operator is a red build ([#126](https://github.com/m96-chan/DroidRunner/issues/126))
+- [x] Fail the build when TFLite stops printing what the delegation report is parsed from ([#128](https://github.com/m96-chan/DroidRunner/issues/128))
+- [x] Test the `droidrunner-device` wrapper every consumer goes through ([#125](https://github.com/m96-chan/DroidRunner/issues/125))
+- [x] One command to put a build on every attached phone ([#127](https://github.com/m96-chan/DroidRunner/issues/127))
 - [ ] Samsung Exynos — deprioritised: few devices, and those that exist are either
       flagship-priced or bargain oddities, so a test phone is hard to justify
 - [x] Runtime manifest signature verification
@@ -633,7 +638,7 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 - [x] Renew the GitHub sign-in instead of losing it when the token expires
 - [x] Stop holding jobs for a condition that lasts one sample
 - [x] Skip unreadable entries in GitHub responses rather than losing the whole list
-- [ ] Notify or auto-install when the runtime bundle is out of date ([#14](https://github.com/m96-chan/DroidRunner/issues/14))
+- [x] Notify or auto-install when the runtime bundle is out of date ([#14](https://github.com/m96-chan/DroidRunner/issues/14))
 - [ ] Fleet dashboard showing the state of multiple devices ([#7](https://github.com/m96-chan/DroidRunner/issues/7))
 - [x] Ship the corresponding source for the GPL binaries we distribute ([#116](https://github.com/m96-chan/DroidRunner/issues/116))
 
