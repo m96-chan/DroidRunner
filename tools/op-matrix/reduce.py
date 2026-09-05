@@ -148,8 +148,15 @@ def main():
             if not usable:
                 cells[driver] = {"status": EXCLUDED, "detail": control_detail}
                 continue
-            status, detail = classify(sweep.get(model["id"]), driver)
-            cells[driver] = {"status": status, "detail": detail}
+            row = sweep.get(model["id"])
+            status, detail = classify(row, driver)
+            cell = {"status": status, "detail": detail}
+            # Carried so a comparison can tell "this driver changed its mind"
+            # from "the phone was in a state it could not describe" (#98, #126).
+            stable = (row or {}).get("conditions", {}).get("stable")
+            if stable is not None:
+                cell["stable"] = stable
+            cells[driver] = cell
         rows.append({"operator": model["operator"], "precision": model["precision"],
                      "id": model["id"], "usable": usable,
                      "controlDetail": control_detail if not usable else None,

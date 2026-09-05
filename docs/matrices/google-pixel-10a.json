@@ -1,0 +1,1196 @@
+{
+  "schema": 1,
+  "device": {
+    "manufacturer": "Google",
+    "model": "Pixel 10a",
+    "soc": "Google Tensor G4 stallion",
+    "sdk": 37,
+    "droidrunner": "0.8.0 9c1dddf"
+  },
+  "drivers": [
+    "google-edgetpu",
+    "nnapi-reference"
+  ],
+  "generatedBy": "tensorflow 2.20.0",
+  "skippedModels": [],
+  "rows": [
+    {
+      "operator": "ADD",
+      "precision": "float32",
+      "id": "add-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "ADD",
+      "precision": "int8",
+      "id": "add-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "SUB",
+      "precision": "float32",
+      "id": "sub-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "SUB",
+      "precision": "int8",
+      "id": "sub-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "MUL",
+      "precision": "float32",
+      "id": "mul-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "MUL",
+      "precision": "int8",
+      "id": "mul-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "MAXIMUM",
+      "precision": "float32",
+      "id": "maximum-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "MAXIMUM",
+      "precision": "int8",
+      "id": "maximum-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "MINIMUM",
+      "precision": "float32",
+      "id": "minimum-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "MINIMUM",
+      "precision": "int8",
+      "id": "minimum-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "SQUARED_DIFFERENCE",
+      "precision": "float32",
+      "id": "squared_difference-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "SQUARED_DIFFERENCE",
+      "precision": "int8",
+      "id": "squared_difference-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "CONV_2D",
+      "precision": "float32",
+      "id": "conv_2d-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "CONV_2D",
+      "precision": "int8",
+      "id": "conv_2d-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "DEPTHWISE_CONV_2D",
+      "precision": "float32",
+      "id": "depthwise_conv_2d-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "DEPTHWISE_CONV_2D",
+      "precision": "int8",
+      "id": "depthwise_conv_2d-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "TRANSPOSE_CONV",
+      "precision": "float32",
+      "id": "transpose_conv-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "TRANSPOSE_CONV",
+      "precision": "int8",
+      "id": "transpose_conv-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "FULLY_CONNECTED",
+      "precision": "float32",
+      "id": "fully_connected-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "FULLY_CONNECTED",
+      "precision": "int8",
+      "id": "fully_connected-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "AVERAGE_POOL_2D",
+      "precision": "float32",
+      "id": "average_pool_2d-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "AVERAGE_POOL_2D",
+      "precision": "int8",
+      "id": "average_pool_2d-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "MAX_POOL_2D",
+      "precision": "float32",
+      "id": "max_pool_2d-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "MAX_POOL_2D",
+      "precision": "int8",
+      "id": "max_pool_2d-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "MEAN",
+      "precision": "float32",
+      "id": "mean-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "MEAN",
+      "precision": "int8",
+      "id": "mean-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "SUM",
+      "precision": "float32",
+      "id": "sum-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "SUM",
+      "precision": "int8",
+      "id": "sum-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "SOFTMAX",
+      "precision": "float32",
+      "id": "softmax-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "SOFTMAX",
+      "precision": "int8",
+      "id": "softmax-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "LOGISTIC",
+      "precision": "float32",
+      "id": "logistic-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "LOGISTIC",
+      "precision": "int8",
+      "id": "logistic-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "TANH",
+      "precision": "float32",
+      "id": "tanh-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "TANH",
+      "precision": "int8",
+      "id": "tanh-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "RELU",
+      "precision": "float32",
+      "id": "relu-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "RELU",
+      "precision": "int8",
+      "id": "relu-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "RELU6",
+      "precision": "float32",
+      "id": "relu6-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "RELU6",
+      "precision": "int8",
+      "id": "relu6-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "LEAKY_RELU",
+      "precision": "float32",
+      "id": "leaky_relu-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "LEAKY_RELU",
+      "precision": "int8",
+      "id": "leaky_relu-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "HARD_SWISH",
+      "precision": "float32",
+      "id": "hard_swish-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "HARD_SWISH",
+      "precision": "int8",
+      "id": "hard_swish-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "CONCATENATION",
+      "precision": "float32",
+      "id": "concatenation-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "CONCATENATION",
+      "precision": "int8",
+      "id": "concatenation-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "RESHAPE",
+      "precision": "float32",
+      "id": "reshape-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "RESHAPE",
+      "precision": "int8",
+      "id": "reshape-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "PAD",
+      "precision": "float32",
+      "id": "pad-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "PAD",
+      "precision": "int8",
+      "id": "pad-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "TRANSPOSE",
+      "precision": "float32",
+      "id": "transpose-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "TRANSPOSE",
+      "precision": "int8",
+      "id": "transpose-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "RESIZE_BILINEAR",
+      "precision": "float32",
+      "id": "resize_bilinear-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "RESIZE_BILINEAR",
+      "precision": "int8",
+      "id": "resize_bilinear-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "RESIZE_NEAREST_NEIGHBOR",
+      "precision": "float32",
+      "id": "resize_nearest_neighbor-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "cpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "RESIZE_NEAREST_NEIGHBOR",
+      "precision": "int8",
+      "id": "resize_nearest_neighbor-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "STRIDED_SLICE",
+      "precision": "float32",
+      "id": "strided_slice-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "cpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "STRIDED_SLICE",
+      "precision": "int8",
+      "id": "strided_slice-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "cpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "SLICE",
+      "precision": "float32",
+      "id": "slice-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "SLICE",
+      "precision": "int8",
+      "id": "slice-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "SPACE_TO_DEPTH",
+      "precision": "float32",
+      "id": "space_to_depth-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "SPACE_TO_DEPTH",
+      "precision": "int8",
+      "id": "space_to_depth-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "DEPTH_TO_SPACE",
+      "precision": "float32",
+      "id": "depth_to_space-float32",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "unsupported",
+          "detail": "TfLiteXNNPackDelegate",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    },
+    {
+      "operator": "DEPTH_TO_SPACE",
+      "precision": "int8",
+      "id": "depth_to_space-int8",
+      "usable": true,
+      "controlDetail": null,
+      "drivers": {
+        "google-edgetpu": {
+          "status": "accelerated",
+          "detail": "TfLiteNnapiDelegate:google-edgetpu",
+          "stable": true
+        },
+        "nnapi-reference": {
+          "status": "unsupported",
+          "detail": "TfLiteNnapiDelegate:nnapi-reference",
+          "stable": true
+        }
+      }
+    }
+  ]
+}
