@@ -140,8 +140,10 @@ def main():
         sys.exit(f"unknown operator(s): {', '.join(unknown)}")
 
     out = pathlib.Path(args.out)
-    models_dir = out / "models"
-    models_dir.mkdir(parents=True, exist_ok=True)
+    # Flat, and the index names files relative to this directory: the whole
+    # directory is one artifact, and the device job joins its download path to
+    # what the index says. A subdirectory here becomes models/models/ there.
+    out.mkdir(parents=True, exist_ok=True)
 
     generated, skipped = [], []
     for operator in wanted:
@@ -166,10 +168,10 @@ def main():
                                 "reason": "the converter emitted "
                                           f"{emitted or 'nothing'}, not one {operator}"})
                 continue
-            path = models_dir / f"{name}.tflite"
+            path = out / f"{name}.tflite"
             path.write_bytes(blob)
             generated.append({"id": name, "operator": operator, "precision": precision,
-                              "file": f"models/{name}.tflite", "bytes": len(blob),
+                              "file": f"{name}.tflite", "bytes": len(blob),
                               "inputShapes": [list(s) for s in shapes]})
 
     (out / "models.json").write_text(json.dumps(

@@ -62,7 +62,7 @@ jobs:
             printf '['
             while IFS=$'\t' read -r id file operator precision; do
               printf '%s{"id":"%s","path":"%s/models/%s","iterations":0' \
-                "$separator" "$id" "$PWD" "${file#models/}"
+                "$separator" "$id" "$PWD" "$file"
               if [ -n "${1:-}" ]; then printf ',"device":"%s"' "$1"; fi
               printf '}'
               separator=","
@@ -78,6 +78,15 @@ jobs:
           droidrunner-device test batch manifest-cpu.json --budget-ms 600000 \
             --output sweep-cpu.json >/dev/null
           echo "control: $(grep -o '"id":' sweep-cpu.json | wc -l) rows"
+          # Every model failing on the CPU means the models never arrived, or
+          # arrived somewhere the agent will not read from. Whatever the
+          # drivers then say is meaningless, and stopping here says so instead
+          # of producing a green run and an empty table.
+          if ! grep -q '"ok": *true' sweep-cpu.json; then
+            echo "the control sweep ran nothing at all:"
+            head -c 400 sweep-cpu.json
+            exit 1
+          fi
 
           drivers="$(droidrunner-device devices)"
           # qnn-htp is not an NNAPI device name and never appears in that list:

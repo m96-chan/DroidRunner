@@ -80,26 +80,28 @@ class WhatOneResultMeans(unittest.TestCase):
 
 class TheMatrixItBuilds(unittest.TestCase):
 
-    def reduce_to(self, control, sweep):
+    def reduce_to(self, control, sweep, expect_failure=False):
         with tempfile.TemporaryDirectory() as scratch:
             scratch = pathlib.Path(scratch)
             models = {"schema": 1, "generatedBy": "test", "skipped": [], "models": [
                 {"id": "add-int8", "operator": "ADD", "precision": "int8",
-                 "file": "models/add-int8.tflite"},
+                 "file": "add-int8.tflite"},
                 {"id": "pad-int8", "operator": "PAD", "precision": "int8",
-                 "file": "models/pad-int8.tflite"}]}
+                 "file": "pad-int8.tflite"}]}
             (scratch / "models.json").write_text(json.dumps(models))
             (scratch / "control.json").write_text(
                 json.dumps({"schema": 1, "ok": True, "results": control}))
             (scratch / "driver.json").write_text(
                 json.dumps({"schema": 1, "ok": True, "results": sweep}))
-            subprocess.run(
+            done = subprocess.run(
                 [sys.executable, str(HERE / "reduce.py"),
                  "--models", str(scratch / "models.json"),
                  "--control", str(scratch / "control.json"),
                  "--sweep", f"mtk-mdla_shim={scratch / 'driver.json'}",
                  "--out", str(scratch / "out")],
-                check=True, capture_output=True)
+                check=not expect_failure, capture_output=True, text=True)
+            if expect_failure:
+                return done.returncode, done.stderr
             return (json.loads((scratch / "out" / "matrix.json").read_text()),
                     (scratch / "out" / "matrix.md").read_text())
 
@@ -136,6 +138,22 @@ class TheMatrixItBuilds(unittest.TestCase):
         self.assertEqual(["mtk-mdla_shim"], matrix["drivers"])
         self.assertIn("| ADD | int8 | ✓ |", markdown)
         self.assertIn("| PAD | int8 | ✗ |", markdown)
+
+
+    def test_a_table_in_which_nothing_ran_is_refused_rather_than_published(self):
+        # The first run of this on hardware excluded all 62 rows — the models
+        # never reached the agent — and came back green. An empty table that
+        # looks like an answer is worse than no table.
+        broken = [{"schema": 1, "ok": False, "code": "invalid-request", "id": id,
+                   "error": "model must be a file under /home/runner"}
+                  for id in ("add-int8", "pad-int8")]
+        status, complaint = self.reduce_to(
+            control=broken,
+            sweep=[took_nothing("add-int8"), took_nothing("pad-int8")],
+            expect_failure=True)
+
+        self.assertNotEqual(0, status)
+        self.assertIn("says nothing about any driver", complaint)
 
 
 if __name__ == "__main__":
