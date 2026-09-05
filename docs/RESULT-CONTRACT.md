@@ -151,6 +151,11 @@ rather than a description.
 | `partial` | some did; the rest ran on the CPU, and the split is in `delegation` |
 | `cpu-fallback` | the delegate took nothing |
 | `cpu` | no device was requested |
+
+Device names a job may ask for: an NNAPI driver as `capabilities` lists it,
+`qnn-htp` or `qnn-gpu` for Qualcomm's own runtime, and **`gpu`** for TFLite's
+GPU delegate — the one accelerator present on every phone, and not an NNAPI
+driver.
 | `unknown` | a device was requested and **the delegate did not say what it took** |
 
 **`accelerator` is a statement about who executed the graph, not about the
@@ -252,6 +257,13 @@ throttle developing is visible at all. It is off by default — 500 iterations i
   sees them**, under `/home/runner`.
 - `quantizationParams` — on quantized tensors only, so a caller holding int8
   bytes is not inferring a scale from the numbers.
+- `precisionLossAllowed` — GPU only: whether the delegate was allowed to drop
+  to fp16. It never does so unasked, and this says which was asked for — the one
+  path where the precision of a result is a declared choice rather than
+  something to be discovered afterwards.
+- `inputBytes` / `outputBytes` — on a failure with a live interpreter: the sizes
+  it settled on. A buffer-size failure carries no message of its own, and
+  guessing the shapes from outside cost two device round trips once.
 - `backend` — Qualcomm only: which QNN backend ran it, e.g. `htp`.
 - `profilingBytes` — Qualcomm only: how much profiling data the delegate
   produced. Zero is normal; it exists because a run that reports nothing *and*

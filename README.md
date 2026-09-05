@@ -194,12 +194,39 @@ Measured on a nubia NX769J (Snapdragon 8 Gen 3), EfficientNet-Lite0:
 | int8 | `nnapi-reference` (NNAPI's only option here) | 113.2 ms |
 | int8 | CPU | 4.46 ms |
 | int8 | **Hexagon** | **1.22 ms** |
+| int8 | Adreno, through TFLite's GPU delegate | 4.95 ms |
 | float32 | `nnapi-reference` | 39.8 ms |
 | float32 | **Hexagon** | **2.78 ms** |
 
 A job asking for `qnn-htp` is refused rather than quietly run on the CPU:
 `droidrunner-device test model x.tflite --device qnn-htp` fails unless the delegate
 says how much of the graph it took.
+
+### The GPU, which every phone has
+
+`--device gpu` reaches TFLite's own GPU delegate. Not the fastest route on any
+phone here — the Hexagon is four times quicker — but it is the only accelerator
+present on **every** device, including the ones whose vendor ships no NNAPI
+driver, and it is the one where precision is a **declared choice** rather than a
+discovery:
+
+| path to the same Adreno | EfficientNet-Lite0 int8 |
+| --- | --- |
+| `gpu` — TFLite's delegate, OpenCL | all 64 operators, 4.95 ms, full precision |
+| `qnn-gpu` — Qualcomm's own GPU backend | refuses at graph finalize, error 6020 |
+
+One piece of silicon, two vendors' software, one of which will run the model.
+
+That declared precision is worth something. On the same phone, given f32 inputs
+whose exact sums are representable, the GPU asked for full precision returns
+**1024 of 1024 bit-exact**, and the Hexagon returns 1016 of 1024 off by one ULP
+because it computed in fp16 without being asked. See
+[`tools/ulp/README.md`](tools/ulp/README.md).
+
+TFLite's own compatibility list says this phone is **not** supported, which is
+why nothing gates on it: the list ships inside the library and predates the
+handset. `capabilities` reports it as `allowlisted` — advisory, and the delegate
+is asked regardless.
 
 ## Example workflows
 
@@ -629,6 +656,8 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 - [x] Fail the build when TFLite stops printing what the delegation report is parsed from ([#128](https://github.com/m96-chan/DroidRunner/issues/128))
 - [x] Test the `droidrunner-device` wrapper every consumer goes through ([#125](https://github.com/m96-chan/DroidRunner/issues/125))
 - [x] One command to put a build on every attached phone ([#127](https://github.com/m96-chan/DroidRunner/issues/127))
+- [x] Reach the GPU, the one accelerator every phone has ([#140](https://github.com/m96-chan/DroidRunner/issues/140)) — 4.95 ms on an Adreno, and bit-exact f32
+- [x] One shape for a failure, whichever layer produced it ([#138](https://github.com/m96-chan/DroidRunner/issues/138))
 - [ ] Samsung Exynos — deprioritised: few devices, and those that exist are either
       flagship-priced or bargain oddities, so a test phone is hard to justify
 - [x] Runtime manifest signature verification

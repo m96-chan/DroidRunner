@@ -61,6 +61,11 @@ line for "one program" is the shared address space.
 Three things sit behind the numbers, and each exists because of a specific way
 an earlier version of this was wrong:
 
+- **Three routes to silicon, not one.** NNAPI for the drivers a phone
+  enumerates, Qualcomm's own runtime in an isolated process for a Hexagon NNAPI
+  cannot see, and TFLite's GPU delegate for the accelerator every phone has.
+  They are separate device names because they are separate stacks: the same
+  Adreno runs a model through one and is refused by the other.
 - **Attribution.** `executed`/`executedBy` name the delegate that took the nodes
   *and* the driver it was pinned to. A CPU run through `nnapi-reference` reads
   identically to an accelerated one without both halves, and once did.
