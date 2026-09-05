@@ -90,10 +90,18 @@ Tensor 0 is invalidly specified in schema.
 ```
 
 `error` carries that text in full, naming each tensor. It is deliberately not
-summarised — it is what turns an afternoon into a minute. On the Qualcomm path
-`detail` carries the **vendor's** own error string beside it, which is empty
-when the failure was upstream of the delegate, as it is here. Empty is the
-honest value: QNN was never asked.
+summarised — it is what turns an afternoon into a minute. On the Qualcomm path `detail`
+carries **our loader's** last error — `qnn_probe.c`'s, about opening libraries
+and creating the delegate — and is empty whenever the loader succeeded, as it
+is here.
+
+It is not the vendor's error string, though this document said so until a
+measurement contradicted it: asking the Adreno through QNN returns
+`qnn_graph_finalize failed. Error 6020`, which is Qualcomm's own words, and it
+arrives inside `error` by way of TFLite's exception rather than in `detail`.
+So `detail` empty beside a vendor error code is correct and reads as though
+something were missing. Tracked with #138, which is the same complaint: the
+failure fields on that path do not hold what their names suggest.
 
 Each of these is checked by `runtime/tests/test-droidrunner-device.sh`, against
 a stub agent on loopback, so the table is a promise with something behind it
