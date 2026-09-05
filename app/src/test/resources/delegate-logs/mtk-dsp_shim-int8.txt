@@ -1,0 +1,6 @@
+WARNING: NNAPI SL driver did not implement SL_ANeuralNetworksDiagnostic_registerCallbacks!
+VERBOSE: Replacing 5 out of 64 node(s) with delegate (TfLiteNnapiDelegate) node, yielding 5 partitions for the whole graph.
+WARNING: NNAPI SL driver did not implement SL_ANeuralNetworksDiagnostic_registerCallbacks!
+WARNING: NNAPI SL driver did not implement SL_ANeuralNetworksDiagnostic_registerCallbacks!
+WARNING: NNAPI SL driver did not implement SL_ANeuralNetworksDiagnostic_registerCallbacks!
+VERBOSE: Replacing 59 out of 62 node(s) with delegate (TfLiteXNNPackDelegate) node, yielding 5 partitions for the whole graph.

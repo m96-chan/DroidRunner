@@ -193,5 +193,36 @@ jobs:
           grep -q '"timingsUs"' quiet.json && { echo "raw timings arrived unasked"; exit 1; }
           grep -q '"conditions"' quiet.json
 
+      # #128: the delegate's own words, so a caller can check our reading of
+      # them rather than take it. Printed here because a fixture taken from a
+      # phone is the only kind that proves the parser reads what is actually
+      # printed — one written by hand only proves it reads itself.
+      - name: What the delegate actually printed
+        run: |
+          droidrunner-device test model int8.tflite --device "$(droidrunner-device devices | head -1)" \
+            --iterations 1 --delegate-log --output delegate-log.json
+          # Printed whole rather than unpicked: the guest has neither python3
+          # nor jq, and a JSON string full of escaped newlines is not something
+          # to take apart with sed. It is capped at 4000 characters at source.
+          echo "<<<BEGIN-DELEGATE-RESULT"
+          cat delegate-log.json
+          echo
+          echo "END-DELEGATE-RESULT>>>"
+
+      # #128: `executed: unknown` means the delegate ran and we could not read
+      # what it took — the failure mode of parsing prose. It is the honest
+      # answer and an invisible one, so a device run says so out loud.
+      - name: Nothing came back unattributable
+        run: |
+          for f in sweep.json action-result.json conditions.json quiet.json; do
+            [ -s "$f" ] || continue
+            if grep -q '"executed": *"unknown"' "$f"; then
+              echo "$f contains a result the delegate would not attribute:"
+              grep -o '"id":"[^"]*"[^}]*"executed": *"unknown"' "$f" | head -5
+              exit 1
+            fi
+          done
+          echo "every result named who executed it"
+
       - name: Whatever NNAPI picks for int8
         run: droidrunner-device test model int8.tflite --iterations 30

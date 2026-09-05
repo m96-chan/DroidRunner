@@ -134,17 +134,6 @@ class TfLiteDelegationReportTest {
         assertEquals("cpu-fallback", Delegation(0, 64, 0).executed)
     }
 
-    @Test fun refusedOperatorsAreNamedSoATableCanBeCorrected() {
-        // "12 of 14 nodes went to the accelerator" says an operator table is
-        // wrong somewhere; this says where.
-        val log = """
-            Operator RESHAPE (v1) is not supported by the NNAPI delegate
-            Operator PACK (v2) is not supported by the NNAPI delegate
-            Operator RESHAPE (v1) is not supported by the NNAPI delegate
-        """.trimIndent()
-
-        assertEquals(listOf("RESHAPE", "PACK"), Delegation.unsupported(log))
-    }
 }
 
 
@@ -236,5 +225,55 @@ class CpuDriverTest {
             "accelerator",
             executedFor(Delegation(64, 64, 1, "TfLiteNnapiDelegate"), "mtk-mdla_shim").first,
         )
+    }
+}
+
+
+/**
+ * The parse, against output captured from a phone (issue #128).
+ *
+ * Every line here was printed by a real delegate on a real device and taken
+ * out of a result with `--delegate-log`. The fixture this replaced was a line
+ * I wrote myself, and it was wrong in two ways at once: the device prints
+ * `VERBOSE:` and not `INFO:`, and it prints two of these lines and not one.
+ * The regex survived both, which is luck, and the test could not have told
+ * anyone otherwise — it was reading a string from the same imagination that
+ * wrote the regex.
+ *
+ * `tools/check-tflite-wording.sh` guards the other end: it fails when the
+ * format string these render leaves the shipped library.
+ */
+class CapturedDelegateLogTest {
+
+    private fun captured(name: String): String =
+        javaClass.classLoader!!.getResourceAsStream("delegate-logs/$name")!!
+            .bufferedReader().readText()
+
+    @Test fun theLastDelegateToSpeakIsTheOneThatRanTheGraph() {
+        // NNAPI takes 5 of 64 nodes, XNNPACK then takes 59 of the remaining 62.
+        // Reading the first line would report a partial NNAPI acceleration for
+        // a graph the CPU ran — the claim #93 exists to prevent.
+        val delegation = Delegation.parse(captured("mtk-dsp_shim-int8.txt"))!!
+
+        assertEquals("TfLiteXNNPackDelegate", delegation.delegate)
+        assertEquals(59, delegation.delegated)
+        assertEquals(62, delegation.total)
+        assertEquals(5, delegation.partitions)
+    }
+
+    @Test fun aDriverThatKeptFiveNodesStillCountsAsTheCpuHavingRunIt() {
+        val log = captured("mtk-dsp_shim-int8.txt")
+
+        val (executed, by) = executedFor(Delegation.parse(log), "mtk-dsp_shim")
+
+        assertEquals("cpu-fallback", executed)
+        assertEquals("TfLiteXNNPackDelegate", by)
+    }
+
+    @Test fun anUnrecognisedLineParsesToNothingRatherThanToZero() {
+        // If a TFLite upgrade rewords this, every result becomes
+        // `executed: unknown`. That is the honest answer and an invisible one,
+        // which is what tools/check-tflite-wording.sh exists to make loud.
+        assertNull(Delegation.parse("VERBOSE: Delegated 64 nodes to the accelerator."))
     }
 }

@@ -244,6 +244,9 @@ internal class DeviceAgentServer(
         // Off by default: 500 iterations is 500 numbers, and most callers want
         // the percentiles rather than the loop (#98).
         val keepTimings = request.optBoolean("timings")
+        // The delegate's own words, for a caller who would rather read them
+        // than trust our reading of them (#128).
+        val keepDelegateLog = request.optBoolean("delegateLog")
 
         // Job code chose these paths, so each one is proven to stay inside the
         // runner's home before anything is opened or written (issue #92).
@@ -293,6 +296,7 @@ internal class DeviceAgentServer(
             baseline = request.optBoolean("baseline"),
             conditions = conditions,
             keepTimings = keepTimings,
+            keepDelegateLog = keepDelegateLog,
             // App-private and outside the guest's home: a diagnostic scratch
             // file is not something a job should find, or be able to write.
             diagnosticsDir = runtimeDir.parentFile,
@@ -370,6 +374,7 @@ internal class DeviceAgentServer(
                 entry.device?.let { put("device", it) }
                 entry.outputDir?.let { put("outputDir", it) }
                 if (entry.keepTimings) put("timings", true)
+                if (entry.keepDelegateLog) put("delegateLog", true)
                 if (entry.inputs.isNotEmpty()) put("inputs", JSONArray(entry.inputs))
             }
         return modelTest(request.toString()).second

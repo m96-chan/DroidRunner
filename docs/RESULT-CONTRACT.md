@@ -103,6 +103,7 @@ rather than a description.
 | `partial` | some did; the rest ran on the CPU, and the split is in `delegation` |
 | `cpu-fallback` | the delegate took nothing |
 | `cpu` | no device was requested |
+| `unknown` | a device was requested and **the delegate did not say what it took** |
 
 `executedBy` names **both halves** — the delegate that claimed the nodes and the
 driver it was pinned to, e.g. `TfLiteNnapiDelegate:nnapi-reference`. That
@@ -124,9 +125,43 @@ one says something untrue about the accelerator it is compared with. Reported by
 the NxPU side, who spotted that the two CPU numbers in a MediaTek table looked
 like a contradiction and are not one.
 
-`unsupportedOps` appears when a delegate said which operators it would not
-take. "12 of 14 nodes went to the accelerator" says an operator table is wrong
-somewhere; this says where.
+`unknown` deserves a word, because it is the failure mode of how this is
+measured. The split is read out of a line TFLite prints while applying a
+delegate — there is no API for it, in 2.16.1 or anywhere we could find — so a
+TFLite that rewords that line produces `unknown` for everything. **Treat
+`unknown` as not-accelerated.** `tools/check-tflite-wording.sh` runs on every
+build and fails when the wording it depends on leaves the library, so this
+should never reach you silently ([#128](https://github.com/m96-chan/DroidRunner/issues/128)).
+
+There is no field naming the operators a driver refused. TFLite does not print
+them — neither does Qualcomm's delegate, checked in both binaries — and a field
+that says so is better than one that is always absent. **Which operator a driver
+will not take is what the operator support matrix answers**, by asking with one
+operator at a time; see
+[`docs/OPERATOR-MATRIX.md`](OPERATOR-MATRIX.md). That is the reason it exists.
+
+`nnapiErrno` appears when NNAPI's delegate reports an error through
+`hasErrors()` — the one thing about a delegate that comes from an API rather
+than from prose.
+
+### The delegate's own words
+
+`"delegateLog": true` in the request (or `--delegate-log`) returns what the
+delegate printed, unparsed and capped at 4000 characters. It also arrives
+**unasked whenever the attribution failed**, since that is when it is needed and
+nobody thinks to ask in advance.
+
+Read it when you doubt us. Our `executed` is a regex over that text, and where
+the two disagree the text is what happened. A real one, from an MT6899:
+
+```
+VERBOSE: Replacing 5 out of 64 node(s) with delegate (TfLiteNnapiDelegate) node, yielding 5 partitions for the whole graph.
+VERBOSE: Replacing 59 out of 62 node(s) with delegate (TfLiteXNNPackDelegate) node, yielding 5 partitions for the whole graph.
+```
+
+Two delegates in one build: NNAPI took 5 nodes of 64, XNNPACK then took 59 of
+the remaining 62. The **last** line is the one that decides, which is why that
+result is `cpu-fallback` and not a partial acceleration.
 
 ### The conditions it was measured under
 
