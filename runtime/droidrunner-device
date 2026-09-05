@@ -260,7 +260,14 @@ case "$cmd" in
         done
         # An array, the same shape a batch request will return, so a consumer
         # written against one reads the other (issue #94).
-        [ -n "$as_json" ] && emit "{\"schema\":1,\"ok\":true,\"results\":[${entries%,}]}"
+        #
+        # An `if`, not `[ ... ] && emit`: this is the last command the script
+        # runs, so with no --json the failing test became the script's exit
+        # status and a successful sweep reported failure. It printed the table,
+        # then exited 1.
+        if [ -n "$as_json" ]; then
+            emit "{\"schema\":1,\"ok\":true,\"results\":[${entries%,}]}"
+        fi
         ;;
 
     *)
