@@ -77,9 +77,20 @@ internal class QnnClient(private val context: Context) {
         keepTimings: Boolean = false,
         timeoutMs: Long = RUN_TIMEOUT_MS,
     ): String {
-        val libraries = QnnLibraries.loadOrder(htpVersion)
+        val libraries = QnnLibraries.loadOrder(htpVersion, backend)
             ?: return refusal("no QNN runtime for Hexagon v$htpVersion")
-        if (!installDir.isDirectory) return refusal("the QNN runtime is not installed")
+        if (!installDir.isDirectory) {
+            return refusal("the QNN runtime is not installed", ResultContract.Code.NOT_INSTALLED)
+        }
+        // A backend whose library was never fetched fails deep inside the
+        // delegate, with "Failed to apply delegate" and an empty vendor
+        // string, for a file we know is absent. Say which file (#140).
+        QnnLibraries.missingLibraryFor(backend, installDir.list()?.toSet().orEmpty())?.let {
+            return refusal(
+                "the $backend backend needs $it, which this device has not installed",
+                ResultContract.Code.NOT_INSTALLED,
+            )
+        }
 
         return ask(QnnService.WHAT_RUN, timeoutMs) { extras ->
             extras.putString(QnnService.KEY_DIRECTORY, installDir.absolutePath)
@@ -110,8 +121,12 @@ internal class QnnClient(private val context: Context) {
         }
     }
 
-    private fun refusal(reason: String) =
-        org.json.JSONObject().put("ok", false).put("error", reason).toString()
+    private fun refusal(reason: String, code: String = ResultContract.Code.FAILED) =
+        org.json.JSONObject()
+            .put("ok", false)
+            .put("code", code)
+            .put("error", reason)
+            .toString()
 
     /**
      * Binds, sends one message, waits for the answer and unbinds.
