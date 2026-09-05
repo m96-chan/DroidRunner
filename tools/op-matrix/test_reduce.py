@@ -78,6 +78,47 @@ class WhatOneResultMeans(unittest.TestCase):
         self.assertEqual(reduce.PARTIAL, status)
 
 
+class WhenTheDeviceDidNotSayWhatExecuted(unittest.TestCase):
+    """The Qualcomm path reports `delegation` and no `executed` (see #96)."""
+
+    def qnn_row(self, delegated=1, partial=False):
+        return {"schema": 1, "ok": True, "id": "add-int8", "backend": "htp",
+                "requestedDevice": "qnn-htp",
+                "delegation": {"delegated": delegated, "total": 1, "partitions": 1,
+                               "partial": partial,
+                               "describe": "all 1 operators on the Hexagon, 1 partitions"}}
+
+    def test_a_graph_the_delegate_took_entirely_is_not_read_as_a_refusal(self):
+        status, _ = reduce.classify(self.qnn_row(), "qnn-htp")
+        self.assertEqual(reduce.ACCELERATED, status)
+
+    def test_a_delegation_that_took_nothing_is_still_unsupported(self):
+        status, _ = reduce.classify(self.qnn_row(delegated=0), "qnn-htp")
+        self.assertEqual(reduce.UNSUPPORTED, status)
+
+    def test_a_driver_that_is_the_cpu_is_the_cpu_however_much_it_took(self):
+        # Deriving from delegation alone would call a complete run through
+        # NNAPI's reference implementation an accelerator, which is the claim
+        # #93 was filed to stop.
+        row = self.qnn_row()
+        row["requestedDevice"] = "nnapi-reference"
+        self.assertEqual(reduce.UNSUPPORTED, reduce.classify(row, "nnapi-reference")[0])
+
+    def test_an_agent_calling_the_cpu_reference_an_accelerator_is_not_believed(self):
+        # An older build on one of the phones did exactly this. The driver is
+        # the CPU by name, which is a fact about NNAPI and not a measurement.
+        status, _ = reduce.classify(
+            {"schema": 1, "ok": True, "id": "add-int8", "executed": "accelerator",
+             "executedBy": "TfLiteNnapiDelegate:nnapi-reference"}, "nnapi-reference")
+        self.assertEqual(reduce.UNSUPPORTED, status)
+
+    def test_a_result_with_neither_field_is_an_error_not_a_verdict(self):
+        status, complaint = reduce.classify(
+            {"schema": 1, "ok": True, "id": "add-int8"}, "qnn-htp")
+        self.assertEqual(reduce.ERROR, status)
+        self.assertIn("did not say", complaint)
+
+
 class TheMatrixItBuilds(unittest.TestCase):
 
     def reduce_to(self, control, sweep, expect_failure=False):

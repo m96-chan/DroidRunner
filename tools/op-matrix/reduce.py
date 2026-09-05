@@ -42,14 +42,48 @@ def results_by_id(path):
     return rows, envelope
 
 
-def classify(row):
+# Drivers that are the CPU whatever route reached them. Needed only for the
+# fallback below: a result carrying `executed` has already been through the
+# agent's own version of this judgement.
+CPU_DRIVERS = {"nnapi-reference"}
+
+
+def executed_of(row, driver):
+    """`executed`, or what the delegation says when the field is not there.
+
+    The Qualcomm path reports `delegation` but no `executed` — the contract's
+    headline field missing from the one route that reaches an NPU. Treating
+    that absence as "the driver took nothing" reported all 62 operators as
+    unsupported on a Hexagon that had taken every one of them. So it is derived
+    instead, with the same rule the agent applies: a driver that is the CPU is
+    the CPU however completely it took the graph.
+    """
+    # Whatever the device said, this driver is the CPU: the name says so, and
+    # it is a fact about NNAPI rather than a measurement. One of the three
+    # phones this was first run on carried a build predating that rule and
+    # reported 60 of 62 operators as accelerated by `nnapi-reference`.
+    if driver in CPU_DRIVERS:
+        return "cpu"
+    if row.get("executed"):
+        return row["executed"]
+    delegation = row.get("delegation")
+    if not delegation:
+        return None
+    if delegation.get("partial"):
+        return "partial"
+    return "accelerator" if delegation.get("delegated", 0) > 0 else "cpu-fallback"
+
+
+def classify(row, driver=None):
     """One result, as one of the words above."""
     if row is None:
         return ERROR, "the sweep returned no row for this model"
     if row.get("ok"):
-        executed = row.get("executed")
+        executed = executed_of(row, driver)
+        if executed is None:
+            return ERROR, "the device did not say what executed this"
         if executed == "accelerator":
-            return ACCELERATED, row.get("executedBy", "")
+            return ACCELERATED, row.get("executedBy") or row.get("requestedDevice", "")
         if executed == "partial":
             # A single-operator model should not be able to split. When one
             # does, the converter emitted more than we think it did, and that
@@ -109,7 +143,7 @@ def main():
             if not usable:
                 cells[driver] = {"status": EXCLUDED, "detail": control_detail}
                 continue
-            status, detail = classify(sweep.get(model["id"]))
+            status, detail = classify(sweep.get(model["id"]), driver)
             cells[driver] = {"status": status, "detail": detail}
         rows.append({"operator": model["operator"], "precision": model["precision"],
                      "id": model["id"], "usable": usable,

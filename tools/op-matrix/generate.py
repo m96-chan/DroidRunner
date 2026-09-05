@@ -59,7 +59,12 @@ OPS = {
     "TRANSPOSE_CONV": ([SPATIAL], lambda x: tf.nn.conv2d_transpose(
         x, const(3, 3, 8, 8, seed=3), output_shape=[1, 32, 32, 8],
         strides=2, padding="SAME")),
-    "FULLY_CONNECTED": ([FLAT], lambda x: tf.matmul(x, const(64, 32, seed=4))),
+    # With no bias, NNAPI rejects the operation outright
+    # (ANEURALNETWORKS_BAD_DATA) on every driver of every phone tried — a model
+    # it cannot represent rather than an operator anything refused. The bias is
+    # fused into the one node.
+    "FULLY_CONNECTED": ([FLAT], lambda x: tf.matmul(x, const(64, 32, seed=4))
+                        + const(32, seed=5)),
     "AVERAGE_POOL_2D": ([SPATIAL], lambda x: tf.nn.avg_pool2d(x, 2, 2, "VALID")),
     "MAX_POOL_2D": ([SPATIAL], lambda x: tf.nn.max_pool2d(x, 2, 2, "VALID")),
     "MEAN": ([SPATIAL], lambda x: tf.reduce_mean(x, axis=[1, 2], keepdims=True)),
