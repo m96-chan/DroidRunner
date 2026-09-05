@@ -344,6 +344,31 @@ jobs:
             f32-device.json
           if-no-files-found: warn
 
+      # #140: the GPU, which every phone has and none of them exposes through
+      # NNAPI. Precision is a declared choice here, unlike the Hexagon, which
+      # computes f32 in fp16 without saying so (tools/ulp).
+      - name: The GPU, which is not an NNAPI driver
+        run: |
+          if ! droidrunner-device capabilities | grep -q '"supported":true'; then
+            echo "TFLite says its GPU delegate will not run here; skipping"
+            exit 0
+          fi
+          droidrunner-device test model int8.tflite --device gpu --iterations 20 \
+            --output gpu.json
+          grep -o '"executed":"[^"]*"\|"executedBy":"[^"]*"\|"medianUs":[^,]*' gpu.json
+          # It must be attributed to the GPU delegate, not reported as a CPU
+          # fallback — the rule it had to be threaded into predates any way of
+          # asking for something that is not an NNAPI driver.
+          grep -q '"executedBy":"TfLiteGpuDelegateV2:gpu"' gpu.json
+          echo "--- and the f32 arithmetic, where precision was asked for"
+          mkdir -p out-gpu-arith
+          droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
+            --device gpu \
+            --input tools/ulp/fixtures/input-0.bin \
+            --input tools/ulp/fixtures/input-1.bin \
+            --output-dir out-gpu-arith --iterations 1 > /dev/null || true
+          ls -l out-gpu-arith || true
+
       # #128: `executed: unknown` means the delegate ran and we could not read
       # what it took — the failure mode of parsing prose. It is the honest
       # answer and an invisible one, so a device run says so out loud.

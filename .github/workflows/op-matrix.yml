@@ -95,6 +95,11 @@ jobs:
           if droidrunner-device capabilities | grep -q '"version": *[0-9]'; then
             drivers="$drivers qnn-htp"
           fi
+          # The GPU is not an NNAPI driver either — it is TFLite's own delegate,
+          # and the one accelerator present on every phone (#140).
+          if droidrunner-device capabilities | grep -q '"supported":true'; then
+            drivers="$drivers gpu"
+          fi
           echo "$drivers" > drivers.txt
 
           for driver in $drivers; do

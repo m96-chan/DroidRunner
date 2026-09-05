@@ -3,6 +3,7 @@ package io.github.m96chan.droidrunner.npu
 import org.json.JSONArray
 import org.json.JSONObject
 import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.gpu.GpuDelegate
 import org.tensorflow.lite.nnapi.NnApiDelegate
 import java.io.File
 import java.nio.ByteBuffer
@@ -60,24 +61,33 @@ internal object ModelRunner {
         keepTimings: Boolean = false,
         /** Return what the delegate printed, verbatim (#128). */
         keepDelegateLog: Boolean = false,
+        /** Let the GPU delegate drop to fp16, which it will not do unasked. */
+        allowFp16: Boolean = false,
     ): String {
         // Zero is a real answer, not a mistake: "was this graph accepted" is
         // complete once tensors are allocated, and perhaps half of a sweep asks
         // nothing else (#94). Timing it anyway is what turns a sweep that fits
         // in a CI job into one that needs its own evening.
         val runs = iterations.coerceIn(0, 500)
-        var delegate: NnApiDelegate? = null
+        var delegate: AutoCloseable? = null
         var interpreter: Interpreter? = null
         return try {
             val options = Interpreter.Options()
-            if (deviceName != null) {
+            if (deviceName == GPU_DEVICE) {
+                // Precision is a declared choice here, which is the whole point
+                // of having this path: the Hexagon computes f32 in fp16 without
+                // saying so (tools/ulp), and the GPU is asked instead of
+                // discovered. Full precision unless a caller says otherwise.
+                delegate = GpuDelegate(
+                    GpuDelegate.Options().setPrecisionLossAllowed(allowFp16),
+                ).also { options.addDelegate(it) }
+            } else if (deviceName != null) {
                 delegate = NnApiDelegate(
                     NnApiDelegate.Options()
                         .setAcceleratorName(deviceName)
                         .setUseNnapiCpu(false)
                         .setAllowFp16(false),
-                )
-                options.addDelegate(delegate)
+                ).also { options.addDelegate(it) }
             }
             // The interpreter states its partitioning while it is being built,
             // and the NNAPI delegate names the operators it refuses. Neither
@@ -179,13 +189,14 @@ internal object ModelRunner {
                     // rather than from prose (#128). It says the delegate hit
                     // an error, not which operator — but unlike the log text,
                     // a TFLite upgrade cannot silently reword it.
-                    delegate?.let { attached ->
+                    (delegate as? NnApiDelegate)?.let { attached ->
                         runCatching {
                             if (attached.hasErrors()) {
                                 put("nnapiErrno", attached.getNnapiErrno())
                             }
                         }
                     }
+                    if (deviceName == GPU_DEVICE) put("precisionLossAllowed", allowFp16)
                 }
                 .put("iterations", runs)
                 .apply {

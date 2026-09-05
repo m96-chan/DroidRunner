@@ -277,3 +277,48 @@ class CapturedDelegateLogTest {
         assertNull(Delegation.parse("VERBOSE: Delegated 64 nodes to the accelerator."))
     }
 }
+
+
+/**
+ * Reaching the GPU, which is not an NNAPI driver (#140).
+ *
+ * The rule this had to be threaded into was written when NNAPI was the only
+ * way to ask for anything: "a device was pinned and something other than the
+ * NNAPI delegate took it" meant the pin had failed. A working GPU run looks
+ * exactly like that, and would have been reported as a CPU fallback — #93's
+ * mistake arriving from the other direction.
+ */
+class GpuAttributionTest {
+
+    private fun took(delegate: String) =
+        Delegation(delegated = 64, total = 64, partitions = 1, delegate = delegate)
+
+    @Test fun theGpuDelegateTakingAGpuRequestIsAnAccelerator() {
+        val (executed, by) = executedFor(took(GPU_DELEGATE), GPU_DEVICE)
+
+        assertEquals("accelerator", executed)
+        assertEquals("$GPU_DELEGATE:$GPU_DEVICE", by)
+    }
+
+    @Test fun xnnpackTakingAGpuRequestIsStillTheCpu() {
+        // The GPU delegate declining leaves the CPU to pick the graph up, and
+        // that must not be reported as the GPU having run it.
+        val (executed, by) = executedFor(took("TfLiteXNNPackDelegate"), GPU_DEVICE)
+
+        assertEquals("cpu-fallback", executed)
+        assertEquals("TfLiteXNNPackDelegate", by)
+    }
+
+    @Test fun theNnapiRulesAreUntouched() {
+        val (executed, by) = executedFor(took("TfLiteNnapiDelegate"), "mtk-mdla_shim")
+
+        assertEquals("accelerator", executed)
+        assertEquals("TfLiteNnapiDelegate:mtk-mdla_shim", by)
+    }
+
+    @Test fun theNameComesFromTheShippedLibraryAndNotFromMemory() {
+        // `strings libtensorflowlite_gpu_jni.so` has exactly one name the
+        // partitioning line can print, and this is it.
+        assertEquals("TfLiteGpuDelegateV2", GPU_DELEGATE)
+    }
+}

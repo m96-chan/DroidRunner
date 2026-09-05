@@ -25,6 +25,20 @@ object DeviceCapabilitiesJson {
             .put("unsupported", HexagonVersion.unsupportedReason(soc) ?: JSONObject.NULL)
     }
 
+    /**
+     * Whether TFLite's GPU delegate will run here, asked of the delegate.
+     *
+     * `CompatibilityList` is the supported way to ask, and it answers without
+     * building an interpreter. Failures are reported as unsupported rather
+     * than thrown: a capabilities payload that cannot be produced is worse
+     * than one that says no.
+     */
+    private fun gpu(): JSONObject = runCatching {
+        org.tensorflow.lite.gpu.CompatibilityList().use {
+            JSONObject().put("supported", it.isDelegateSupportedOnThisDevice)
+        }
+    }.getOrElse { JSONObject().put("supported", false).put("error", it.message.orEmpty()) }
+
     fun build(context: Context): String {
         val capabilities = DeviceCapabilities.detect()
         val thermal = if (Build.VERSION.SDK_INT >= 29) {
@@ -61,6 +75,11 @@ object DeviceCapabilitiesJson {
             .put("android", JSONObject().put("sdk", Build.VERSION.SDK_INT))
             .put("thermalStatus", thermal)
             .put("nnapi", JSONObject(NnapiProbe.devices()))
+            // The one accelerator every phone has, and the only one this
+            // project never asked about until #140. Reported separately from
+            // NNAPI because it is not an NNAPI driver: it is TFLite's own
+            // delegate, reached by the device name `gpu`.
+            .put("gpu", gpu())
             // What this device would need to reach its Hexagon NPU (#82).
             // Reported before anything can use it, so a job can see which
             // devices a future QNN adapter would cover — and so an
