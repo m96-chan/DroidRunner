@@ -241,6 +241,109 @@ jobs:
           test "$status" = 1
           echo "reported invalid-request, exit $status"
 
+      # Does the accelerator compute what it was asked to, or only run it?
+      # Nothing here has ever checked: the NPU verification counts delegated
+      # nodes, and the differential test compares a top-1 class on an int8
+      # network where there is no ULP to be off by. Prompted by NxPU finding
+      # 1024 of 1024 f32 ADD results high by exactly one ULP on a Hexagon V73.
+      - name: What the accelerator computed, not just who computed it
+        run: |
+          mkdir -p out-cpu-f32 out-dev-f32
+          # The CPU runs the same fixtures as a control: a reference the CPU
+          # disagrees with says nothing about any accelerator.
+          droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
+            --input tools/ulp/fixtures/input-0.bin \
+            --input tools/ulp/fixtures/input-1.bin \
+            --output-dir out-cpu-f32 --iterations 1 > /dev/null
+          if droidrunner-device capabilities | grep -q '"version": *[0-9]'; then
+            droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
+              --device qnn-htp \
+              --input tools/ulp/fixtures/input-0.bin \
+              --input tools/ulp/fixtures/input-1.bin \
+              --output-dir out-dev-f32 --iterations 1 --output f32-device.json > /dev/null
+            grep -o '"executedBy":"[^"]*"' f32-device.json || true
+          else
+            # Every other vendor reaches its accelerator through NNAPI, and the
+            # question is the same one: does it compute what it was asked to?
+            driver="$(droidrunner-device devices | grep -v nnapi-reference | head -1)"
+            if [ -n "$driver" ]; then
+              droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
+                --device "$driver" \
+                --input tools/ulp/fixtures/input-0.bin \
+                --input tools/ulp/fixtures/input-1.bin \
+                --output-dir out-dev-f32 --iterations 1 --output f32-device.json > /dev/null || true
+              grep -o '"executedBy":"[^"]*"' f32-device.json || true
+            else
+              echo "no accelerator on this phone; CPU only"
+            fi
+          fi
+          # The same question with results on both sides of zero. Floats are
+          # sign-and-magnitude, so "+1 to the raw word" and "+1 step toward
+          # positive" agree on positives and disagree on negatives — one run
+          # tells them apart. Suggested by NxPU.
+          mkdir -p out-cpu-signed out-dev-signed out-cpu-odd out-dev-odd \
+                   out-cpu-res out-dev-res
+          droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
+            --input tools/ulp/fixtures/signed-input-0.bin \
+            --input tools/ulp/fixtures/signed-input-1.bin \
+            --output-dir out-cpu-signed --iterations 1 > /dev/null
+          if [ -s f32-device.json ]; then
+            driver="$(grep -o '"requestedDevice":"[^"]*"' f32-device.json | cut -d'"' -f4)"
+            droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
+              --device "$driver" \
+              --input tools/ulp/fixtures/signed-input-0.bin \
+              --input tools/ulp/fixtures/signed-input-1.bin \
+              --output-dir out-dev-signed --iterations 1 > /dev/null || true
+          fi
+          # And the set whose sums already have an odd low mantissa bit: an
+          # increment carries there, a forced bit does nothing, and everything
+          # measured before was a multiple of 0.25 where the two agree.
+          droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
+            --input tools/ulp/fixtures/odd-input-0.bin \
+            --input tools/ulp/fixtures/odd-input-1.bin \
+            --output-dir out-cpu-odd --iterations 1 > /dev/null
+          if [ -s f32-device.json ]; then
+            driver="$(grep -o '"requestedDevice":"[^"]*"' f32-device.json | cut -d'"' -f4)"
+            droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
+              --device "$driver" \
+              --input tools/ulp/fixtures/odd-input-0.bin \
+              --input tools/ulp/fixtures/odd-input-1.bin \
+              --output-dir out-dev-odd --iterations 1 > /dev/null || true
+          fi
+          # And the sweep that asks where it stops resolving a difference at
+          # all, rather than assuming a rule about bits: 1.0 + 2^-k for k from
+          # 1 to 23. The coarse sets could not have answered this.
+          droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
+            --input tools/ulp/fixtures/resolution-input-0.bin \
+            --input tools/ulp/fixtures/resolution-input-1.bin \
+            --output-dir out-cpu-res --iterations 1 > /dev/null
+          if [ -s f32-device.json ]; then
+            driver="$(grep -o '"requestedDevice":"[^"]*"' f32-device.json | cut -d'"' -f4)"
+            droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
+              --device "$driver" \
+              --input tools/ulp/fixtures/resolution-input-0.bin \
+              --input tools/ulp/fixtures/resolution-input-1.bin \
+              --output-dir out-dev-res --iterations 1 > /dev/null || true
+          fi
+          # Compared off-device: the guest has no python, and ULP arithmetic in
+          # awk is not something to trust a finding to.
+          ls -l out-cpu-f32 out-dev-f32 out-cpu-signed out-dev-signed || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f32-outputs
+          path: |
+            out-cpu-f32/
+            out-dev-f32/
+            out-cpu-signed/
+            out-dev-signed/
+            out-cpu-odd/
+            out-dev-odd/
+            out-cpu-res/
+            out-dev-res/
+            f32-device.json
+          if-no-files-found: warn
+
       # #128: `executed: unknown` means the delegate ran and we could not read
       # what it took — the failure mode of parsing prose. It is the honest
       # answer and an invisible one, so a device run says so out loud.

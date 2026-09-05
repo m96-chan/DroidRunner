@@ -135,6 +135,14 @@ rather than a description.
 | `cpu` | no device was requested |
 | `unknown` | a device was requested and **the delegate did not say what it took** |
 
+**`accelerator` is a statement about who executed the graph, not about the
+arithmetic they used.** On the SM8650's Hexagon, through `qnn-htp`, an f32
+`ADD` is computed in fp16 and returned with the low bit of the word set — 4096
+of 4096 measured results predicted by that one rule, while MediaTek and the CPU
+are bit-exact on the same fixtures. A result can be honestly attributed and
+still not be the number binary32 would give. See
+[`tools/ulp/README.md`](../tools/ulp/README.md).
+
 `executedBy` names **both halves** — the delegate that claimed the nodes and the
 driver it was pinned to, e.g. `TfLiteNnapiDelegate:nnapi-reference`. That
 example is why: `accelerator` alone reads identically for a graph NNAPI handed
