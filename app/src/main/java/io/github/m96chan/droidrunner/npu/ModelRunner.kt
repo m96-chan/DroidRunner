@@ -96,7 +96,7 @@ internal object ModelRunner {
             interpreter.allocateTensors()
 
             val inputSpecs = specsOf(interpreter, input = true)
-            TensorIo.mismatch(inputSpecs, inputs)?.let { error(it) }
+            TensorIo.mismatch(inputSpecs, inputs)?.let { throw TensorIo.Mismatch(it) }
 
             val buffers = inputSpecs.map { spec ->
                 ByteBuffer.allocateDirect(spec.bytes).order(ByteOrder.nativeOrder()).apply {
@@ -249,10 +249,13 @@ internal object ModelRunner {
                 // times (#128 follow-up, reported by the first outside user).
                 .put(
                     "code",
-                    if (interpreter == null && modelIsUnloadable(model)) {
-                        ResultContract.Code.INVALID_MODEL
-                    } else {
-                        ResultContract.Code.FAILED
+                    when {
+                        // The caller's bytes did not fit the model's tensors:
+                        // their file and their byte count, so their code.
+                        failure is TensorIo.Mismatch -> ResultContract.Code.INVALID_REQUEST
+                        interpreter == null && modelIsUnloadable(model) ->
+                            ResultContract.Code.INVALID_MODEL
+                        else -> ResultContract.Code.FAILED
                     },
                 )
                 .put("model", model.name)

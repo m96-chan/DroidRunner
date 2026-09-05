@@ -60,6 +60,16 @@ internal object TensorIo {
      * mismatch rather than reporting a failure whose cause is somewhere else
      * entirely.
      */
+    /**
+     * What the caller supplied does not fit what the model declares.
+     *
+     * Its own type so the failure can be reported as the caller's rather than
+     * as something that went wrong inside — the same distinction `invalid-model`
+     * draws for the file itself. Reported by the first outside consumer, whose
+     * fixtures were 1024 elements for a model declaring 1.
+     */
+    class Mismatch(message: String) : IllegalArgumentException(message)
+
     fun mismatch(expected: List<Spec>, provided: List<File>): String? {
         if (provided.isEmpty()) return null
         if (provided.size != expected.size) {

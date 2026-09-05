@@ -224,6 +224,23 @@ jobs:
           test "$status" = 1
           echo "reported invalid-model, exit $status"
 
+      # An input that does not fit the model is the caller's mistake, and says
+      # so rather than arriving as a bare `failed`. Reported by the first
+      # consumer outside this project, whose fixtures were 1024 elements for a
+      # model declaring 1.
+      - name: An input of the wrong size is named as the caller's fault
+        run: |
+          head -c 64 /dev/urandom > wrong-size.bin
+          status=0
+          droidrunner-device test model int8.tflite --iterations 1 \
+            --input wrong-size.bin --output mismatch.json > /dev/null || status=$?
+          cat mismatch.json
+          grep -q '"code": *"invalid-request"' mismatch.json
+          # The message has to name what it wanted and what it got.
+          grep -q 'needs 150528 bytes' mismatch.json
+          test "$status" = 1
+          echo "reported invalid-request, exit $status"
+
       # Does the accelerator compute what it was asked to, or only run it?
       # Nothing here has ever checked: the NPU verification counts delegated
       # nodes, and the differential test compares a top-1 class on an int8
