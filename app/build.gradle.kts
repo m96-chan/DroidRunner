@@ -12,6 +12,21 @@ val hasReleaseKey = System.getenv("ANDROID_KEYSTORE_FILE") != null
 val semver: String? = releaseTag?.removePrefix("v")
     ?.takeIf { Regex("""\d+\.\d+\.\d+""").matches(it) }
 
+// Which commit this build came from. Every phone in a test fleet reports
+// versionName "0.0.0-dev", so the version alone cannot tell two development
+// builds apart — and telling two development builds apart is exactly what was
+// needed when one of them attributed an operator matrix to the wrong
+// processor. Empty where there is no git: the corresponding-source archive
+// (#116) ships without one and must still build.
+val gitCommit: String = runCatching {
+    val process = ProcessBuilder("git", "rev-parse", "--short", "HEAD")
+        .directory(rootDir)
+        .redirectErrorStream(true)
+        .start()
+    process.inputStream.bufferedReader().readText().trim()
+        .takeIf { process.waitFor() == 0 && Regex("^[0-9a-f]{7,40}$").matches(it) }
+}.getOrNull().orEmpty()
+
 android {
     namespace = "io.github.m96chan.droidrunner"
     compileSdk = 35
@@ -53,6 +68,7 @@ android {
             val pattern = Regex(name + "=\"\\$\\{" + name + ":-([^}]*)\\}\"")
             return pattern.find(prootScript)?.groupValues?.get(1).orEmpty()
         }
+        buildConfigField("String", "GIT_COMMIT", "\"$gitCommit\"")
         buildConfigField("String", "PROOT_COMMIT", "\"${pinnedValue("PROOT_COMMIT")}\"")
         buildConfigField("String", "TALLOC_VERSION", "\"${pinnedValue("TALLOC_VERSION")}\"")
 
