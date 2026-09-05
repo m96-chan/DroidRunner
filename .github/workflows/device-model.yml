@@ -246,7 +246,19 @@ jobs:
               --output-dir out-dev-f32 --iterations 1 --output f32-device.json > /dev/null
             grep -o '"executedBy":"[^"]*"' f32-device.json || true
           else
-            echo "no Hexagon here; CPU only"
+            # Every other vendor reaches its accelerator through NNAPI, and the
+            # question is the same one: does it compute what it was asked to?
+            driver="$(droidrunner-device devices | grep -v nnapi-reference | head -1)"
+            if [ -n "$driver" ]; then
+              droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
+                --device "$driver" \
+                --input tools/ulp/fixtures/input-0.bin \
+                --input tools/ulp/fixtures/input-1.bin \
+                --output-dir out-dev-f32 --iterations 1 --output f32-device.json > /dev/null || true
+              grep -o '"executedBy":"[^"]*"' f32-device.json || true
+            else
+              echo "no accelerator on this phone; CPU only"
+            fi
           fi
           # Compared off-device: the guest has no python, and ULP arithmetic in
           # awk is not something to trust a finding to.
