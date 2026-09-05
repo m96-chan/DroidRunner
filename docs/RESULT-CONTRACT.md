@@ -55,6 +55,10 @@ reading English.
 
 `4` is the one worth stopping a sweep for.
 
+Each of these is checked by `runtime/tests/test-droidrunner-device.sh`, against
+a stub agent on loopback, so the table is a promise with something behind it
+rather than a description.
+
 ## A model result
 
 ```json
