@@ -349,12 +349,15 @@ jobs:
       # computes f32 in fp16 without saying so (tools/ulp).
       - name: The GPU, which is not an NNAPI driver
         run: |
-          if ! droidrunner-device capabilities | grep -q '"supported":true'; then
-            echo "TFLite says its GPU delegate will not run here; skipping"
-            exit 0
-          fi
+          # Not gated on the compatibility list: it is a table shipped inside
+          # TFLite 2.16.1, an SM8650 is not in it, and "not in the table" is not
+          # "will not run". Ask the delegate instead.
+          droidrunner-device capabilities | grep -o '"gpu":{[^}]*}' || true
+          status=0
           droidrunner-device test model int8.tflite --device gpu --iterations 20 \
-            --output gpu.json
+            --output gpu.json || status=$?
+          cat gpu.json
+          [ "$status" = 0 ] || { echo "the GPU delegate would not run here"; exit 0; }
           grep -o '"executed":"[^"]*"\|"executedBy":"[^"]*"\|"medianUs":[^,]*' gpu.json
           # It must be attributed to the GPU delegate, not reported as a CPU
           # fallback — the rule it had to be threaded into predates any way of

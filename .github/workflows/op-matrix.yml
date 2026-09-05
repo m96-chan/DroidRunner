@@ -96,10 +96,11 @@ jobs:
             drivers="$drivers qnn-htp"
           fi
           # The GPU is not an NNAPI driver either — it is TFLite's own delegate,
-          # and the one accelerator present on every phone (#140).
-          if droidrunner-device capabilities | grep -q '"supported":true'; then
-            drivers="$drivers gpu"
-          fi
+          # and the one accelerator present on every phone (#140). Added
+          # unconditionally: TFLite's compatibility list is a table that
+          # predates these phones, and a refusal from the delegate is a row of
+          # data like any other.
+          drivers="$drivers gpu"
           echo "$drivers" > drivers.txt
 
           for driver in $drivers; do

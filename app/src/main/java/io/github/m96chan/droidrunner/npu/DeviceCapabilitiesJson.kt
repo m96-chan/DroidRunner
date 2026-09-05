@@ -26,18 +26,23 @@ object DeviceCapabilitiesJson {
     }
 
     /**
-     * Whether TFLite's GPU delegate will run here, asked of the delegate.
+     * What TFLite's bundled compatibility list says about this phone.
      *
-     * `CompatibilityList` is the supported way to ask, and it answers without
-     * building an interpreter. Failures are reported as unsupported rather
-     * than thrown: a capabilities payload that cannot be produced is worse
-     * than one that says no.
+     * Reported as `allowlisted`, not as `supported`, because that is what it
+     * is: a table shipped inside the library, matched against device strings.
+     * An SM8650 answers **false** here, which cannot mean the Adreno will not
+     * run a graph — it means the phone is newer than the table in 2.16.1.
+     *
+     * So this is advisory and nothing gates on it. Whether the delegate runs
+     * is decided by asking the delegate, which is the same rule the rest of
+     * this project follows: a driver's opinion beats a datasheet, and a
+     * datasheet is what an allowlist is.
      */
     private fun gpu(): JSONObject = runCatching {
         org.tensorflow.lite.gpu.CompatibilityList().use {
-            JSONObject().put("supported", it.isDelegateSupportedOnThisDevice)
+            JSONObject().put("allowlisted", it.isDelegateSupportedOnThisDevice)
         }
-    }.getOrElse { JSONObject().put("supported", false).put("error", it.message.orEmpty()) }
+    }.getOrElse { JSONObject().put("allowlisted", false).put("error", it.message.orEmpty()) }
 
     fun build(context: Context): String {
         val capabilities = DeviceCapabilities.detect()
