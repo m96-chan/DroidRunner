@@ -150,6 +150,8 @@ fun SetupScreen(
     }
 
     val statusText = status ?: when {
+        runner.state == RunnerState.PAUSED ->
+            "held" + (runner.pausedReason?.takeIf { it.isNotBlank() }?.let { " — $it" }.orEmpty())
         runner.state != RunnerState.STOPPED -> "runner active"
         // A registered device with no runtime is broken, not ready: say so
         // here rather than promising a runner that cannot start (issue #46).
@@ -681,9 +683,11 @@ fun SetupScreen(
                             onClick = { installRuntime() },
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("Update runtime") }
-                        if (runner.state != RunnerState.STOPPED) {
+                        blockedUntilStopped(
+                            runner.state, runner.pausedReason, "updating the runtime",
+                        )?.let {
                             Text(
-                                "Stop the runner first — updating swaps the directory it runs from.",
+                                it,
                                 color = BtopColors.Dim,
                                 style = MaterialTheme.typography.labelSmall,
                             )
@@ -721,9 +725,11 @@ fun SetupScreen(
                         onClick = { installRuntime() },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(RuntimeRecovery.installLabel(configured)) }
-                    if (runner.state != RunnerState.STOPPED) {
+                    blockedUntilStopped(
+                        runner.state, runner.pausedReason, "installing a runtime",
+                    )?.let {
                         Text(
-                            "Stop the runner first — installing replaces the directory it runs from.",
+                            it,
                             color = BtopColors.Dim,
                             style = MaterialTheme.typography.labelSmall,
                         )
@@ -981,13 +987,14 @@ fun SetupScreen(
                     },
                 )
             }
-            if (!alreadyRegistered && storedTarget != null && !runnerStopped) {
-                Text(
-                    "Stop the runner first — re-registering replaces its identity " +
-                        "(currently ${storedTarget.displayName}).",
-                    color = BtopColors.Dim,
-                    style = MaterialTheme.typography.labelSmall,
-                )
+            if (!alreadyRegistered && storedTarget != null) {
+                blockedUntilStopped(runner.state, runner.pausedReason, "re-registering")?.let {
+                    Text(
+                        "$it Currently ${storedTarget.displayName}.",
+                        color = BtopColors.Dim,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
             }
         }
 
