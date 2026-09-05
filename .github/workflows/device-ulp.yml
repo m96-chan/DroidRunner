@@ -1,0 +1,116 @@
+name: Device f32 arithmetic
+
+# Does an accelerator compute what it was asked to, or only run it?
+#
+# Nothing in this project has ever checked that. The NPU verification counts
+# delegated nodes; the differential test compares a top-1 class on an int8
+# network, where there is no ULP to be off by. `executed: accelerator` says who
+# executed a graph and has never said anything about the arithmetic.
+#
+# Prompted by NxPU, who found every one of 1024 f32 ADD results high by exactly
+# one ULP on a Snapdragon 8 Gen 2 (Hexagon V73) — uniform, so a bias rather
+# than rounding. This asks the same question of whichever phone it is pointed at.
+on:
+  workflow_dispatch:
+    inputs:
+      label:
+        description: "Extra runner label selecting the device"
+        required: true
+        default: "npu-qnn"
+      device:
+        description: "Driver to pin, e.g. qnn-htp"
+        required: true
+        default: "qnn-htp"
+
+permissions:
+  contents: read
+
+jobs:
+  fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install --quiet "tensorflow-cpu==2.20.0"
+      - run: python tools/ulp/make-add-f32.py fixtures
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ulp-fixtures
+          path: fixtures/
+
+  run:
+    needs: fixtures
+    runs-on: [self-hosted, android, "${{ inputs.label }}"]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ulp-fixtures
+          path: fixtures
+
+      - name: On the accelerator, and on the CPU as a control
+        run: |
+          ls -l fixtures
+          mkdir -p out-device out-cpu
+          # The control is not a formality. If the CPU also disagrees with the
+          # reference then the reference is wrong, and nothing can be concluded
+          # about any accelerator — the same reasoning as the operator matrix.
+          droidrunner-device test model fixtures/add-f32.tflite \
+            --input fixtures/input-0.bin --input fixtures/input-1.bin \
+            --output-dir out-cpu --iterations 1 --output cpu.json
+          echo
+          droidrunner-device test model fixtures/add-f32.tflite \
+            --device "${{ inputs.device }}" \
+            --input fixtures/input-0.bin --input fixtures/input-1.bin \
+            --output-dir out-device --iterations 1 --output device.json
+          echo
+          grep -o '"executed":"[^"]*"' device.json || true
+          grep -o '"executedBy":"[^"]*"' device.json || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ulp-outputs
+          path: |
+            out-cpu/
+            out-device/
+            cpu.json
+            device.json
+
+  compare:
+    needs: run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install --quiet numpy
+      - uses: actions/download-artifact@v4
+        with:
+          name: ulp-fixtures
+          path: fixtures
+      - uses: actions/download-artifact@v4
+        with:
+          name: ulp-outputs
+          path: outputs
+
+      - name: The CPU first — if this disagrees, the reference is wrong
+        run: |
+          python tools/ulp/compare.py fixtures/expected.bin outputs/out-cpu/output-0.bin \
+            | tee cpu-ulp.txt
+          grep -q "^1024 of 1024 bit-exact" cpu-ulp.txt
+
+      - name: Then the accelerator
+        run: |
+          python tools/ulp/compare.py fixtures/expected.bin outputs/out-device/output-0.bin \
+            | tee device-ulp.txt
+          {
+            echo '## f32 ADD, 1024 elements'
+            echo
+            echo '```'
+            echo "requested: ${{ inputs.device }}"
+            grep -o '"executedBy":"[^"]*"' outputs/device.json || true
+            cat device-ulp.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
