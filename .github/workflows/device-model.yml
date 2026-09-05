@@ -329,22 +329,6 @@ jobs:
           # awk is not something to trust a finding to.
           ls -l out-cpu-f32 out-dev-f32 out-cpu-signed out-dev-signed || true
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: f32-outputs
-          path: |
-            out-cpu-f32/
-            out-dev-f32/
-            out-cpu-signed/
-            out-dev-signed/
-            out-cpu-odd/
-            out-dev-odd/
-            out-cpu-res/
-            out-dev-res/
-            out-gpu-arith/
-            gpu.json
-            f32-device.json
-          if-no-files-found: warn
 
       # #140: the GPU, which every phone has and none of them exposes through
       # NNAPI. Precision is a declared choice here, unlike the Hexagon, which
@@ -373,6 +357,23 @@ jobs:
             --input tools/ulp/fixtures/input-1.bin \
             --output-dir out-gpu-arith --iterations 1 > /dev/null || true
           ls -l out-gpu-arith || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f32-outputs
+          path: |
+            out-cpu-f32/
+            out-dev-f32/
+            out-cpu-signed/
+            out-dev-signed/
+            out-cpu-odd/
+            out-dev-odd/
+            out-cpu-res/
+            out-dev-res/
+            out-gpu-arith/
+            gpu.json
+            f32-device.json
+          if-no-files-found: warn
 
       # #128: `executed: unknown` means the delegate ran and we could not read
       # what it took — the failure mode of parsing prose. It is the honest
