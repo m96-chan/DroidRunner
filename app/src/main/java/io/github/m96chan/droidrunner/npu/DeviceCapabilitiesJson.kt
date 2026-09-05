@@ -39,6 +39,14 @@ object DeviceCapabilitiesJson {
             // the CPU, and nothing in this payload said which build it was. It
             // had to be inferred from the shape of its answers.
             .put("appVersion", io.github.m96chan.droidrunner.BuildConfig.VERSION_NAME)
+            // The version is not enough on a test fleet, where every phone
+            // reports 0.0.0-dev. Absent rather than empty when the build had no
+            // git to ask — the corresponding-source archive has none.
+            .apply {
+                io.github.m96chan.droidrunner.BuildConfig.GIT_COMMIT
+                    .takeIf { it.isNotBlank() }
+                    ?.let { put("appBuild", it) }
+            }
             .put(
                 "device",
                 JSONObject()
