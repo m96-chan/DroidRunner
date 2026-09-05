@@ -44,6 +44,15 @@ outputs:
   median-us:
     description: Median latency in microseconds.
     value: ${{ steps.run.outputs.median-us }}
+  p90-us:
+    description: 90th percentile latency in microseconds — where a throttle shows.
+    value: ${{ steps.run.outputs.p90-us }}
+  stable:
+    description: >-
+      true when the thermal status held for the whole timing loop. A regression
+      gate should not fail a build on a run where this is false; it was the
+      phone, not the change.
+    value: ${{ steps.run.outputs.stable }}
   executed:
     description: accelerator, partial, cpu-fallback or cpu — who did the work.
     value: ${{ steps.run.outputs.executed }}
@@ -87,6 +96,11 @@ runs:
         {
           echo "avg-us=$(field avgUs)"
           echo "median-us=$(field medianUs)"
+          echo "p90-us=$(field p90Us)"
+          # Absent on an agent too old to report it, and absent is not `true`:
+          # a gate that reads a missing field as "conditions were fine" is the
+          # gate this was built to avoid.
+          echo "stable=$(field stable)"
           echo "executed=$(field executed)"
           echo "executed-by=$(field executedBy)"
           echo "results-path=$RESULTS"

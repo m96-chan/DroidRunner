@@ -36,10 +36,11 @@ class DeviceAgentServerTest {
         server = DeviceAgentServer(
             runtimeDir,
             requestedPort = 0,
-            qnnModel = { model, backend, iterations, inputs, outputTarget ->
+            qnnModel = { model, backend, iterations, inputs, outputTarget, keepTimings ->
                 qnnCalls += "${model.name}/$backend/$iterations" +
                     inputs.joinToString("") { "/in:${it.name}" } +
-                    (outputTarget?.let { "/out:${it.asJobSeesIt}" } ?: "")
+                    (outputTarget?.let { "/out:${it.asJobSeesIt}" } ?: "") +
+                    (if (keepTimings) "/timings" else "")
                 """{"ok":true,"backend":"$backend"}"""
             },
         ) { """{"stub":true}""" }

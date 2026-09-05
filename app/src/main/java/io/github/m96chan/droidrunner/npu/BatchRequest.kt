@@ -31,6 +31,8 @@ internal object BatchRequest {
         val iterations: Int = DEFAULT_ITERATIONS,
         val inputs: List<String> = emptyList(),
         val outputDir: String? = null,
+        /** Every iteration, in run order, for this row only (#98). */
+        val keepTimings: Boolean = false,
         /** Why this row cannot be run, when it cannot. */
         val rejection: String? = null,
     )
@@ -74,6 +76,7 @@ internal object BatchRequest {
                     (0 until array.length()).map { array.optString(it) }
                 }.orEmpty(),
                 outputDir = row.optString("outputDir").takeIf { it.isNotBlank() },
+                keepTimings = row.optBoolean("timings"),
             )
         }
     }

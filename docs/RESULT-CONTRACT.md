@@ -74,6 +74,13 @@ reading English.
   },
   "iterations": 30,
   "avgUs": 1369.02, "medianUs": 1224.58, "minUs": 976.66, "maxUs": 2408.85,
+  "p90Us": 1901.44, "p99Us": 2408.85,
+  "conditions": {
+    "stable": true,
+    "before": {"thermalStatus": 0, "thermalHeadroom": 0.42,
+               "batteryTemperatureC": 31.5, "charging": true, "screenOn": false},
+    "after":  {"thermalStatus": 0, "…": "the same fields"}
+  },
   "inputs":  [{"index": 0, "name": "images", "type": "UINT8",
                "shape": [1,224,224,3], "bytes": 150528,
                "quantizationParams": {"scale": 0.0125, "zeroPoint": 131}}],
@@ -116,6 +123,26 @@ like a contradiction and are not one.
 `unsupportedOps` appears when a delegate said which operators it would not
 take. "12 of 14 nodes went to the accelerator" says an operator table is wrong
 somewhere; this says where.
+
+### The conditions it was measured under
+
+A phone is not a stable benchmark host, and a job that starts cool can finish
+throttled. `conditions` reports what the device was doing at **each end of the
+timing loop**, so a regression gate can tell a slower kernel from a warmer
+phone. A gate that fires on both gets muted inside a week.
+
+`stable` is the blunt version and the field to branch on: **true only when both
+ends reported a thermal status and the two agree.** A device that would not say
+counts as unstable — silence is not a yes, and a gate must not read "we could
+not tell" as "it was fine". Any field the device could not read is absent
+rather than zero, because zero is a real battery temperature.
+
+`p90Us` and `p99Us` sit beside min/median/max because a throttle shows in the
+tail and not in the middle. They are nearest-rank, so every value published was
+produced by some iteration. `timings: true` in the request adds `timingsUs`:
+every iteration **in the order it ran**, which is the only view in which a
+throttle developing is visible at all. It is off by default — 500 iterations is
+500 numbers.
 
 ### Optional pieces
 
@@ -171,5 +198,6 @@ the manifest is a JSON array:
 - Field **order**. It is JSON.
 - The wording of `error`, or of `delegation.describe`.
 - Anything printed to stderr.
-- Timings as a promise about the hardware: a phone is not a stable benchmark
-  host, and what state it was in is [#98](https://github.com/m96-chan/DroidRunner/issues/98).
+- Timings as a promise about the hardware. A phone is not a stable benchmark
+  host; what state it was in is reported under `conditions`, and it is the
+  caller's to weigh.

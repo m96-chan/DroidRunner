@@ -73,6 +73,8 @@ internal class QnnClient(private val context: Context) {
         iterations: Int,
         inputs: List<File> = emptyList(),
         outputTarget: TensorIo.Target? = null,
+        /** Ask for every iteration in run order (#98). */
+        keepTimings: Boolean = false,
         timeoutMs: Long = RUN_TIMEOUT_MS,
     ): String {
         val libraries = QnnLibraries.loadOrder(htpVersion)
@@ -85,6 +87,7 @@ internal class QnnClient(private val context: Context) {
             extras.putString(QnnService.KEY_MODEL, model.absolutePath)
             extras.putString(QnnService.KEY_BACKEND, backend)
             extras.putInt(QnnService.KEY_ITERATIONS, iterations)
+            extras.putBoolean(QnnService.KEY_TIMINGS, keepTimings)
             extras.putStringArray(
                 QnnService.KEY_INPUTS,
                 inputs.map { it.absolutePath }.toTypedArray(),

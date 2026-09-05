@@ -302,6 +302,12 @@ separate the cases a sweep must treat differently:
 The prose in `error` is for a person and gets reworded; the code is for a program
 and does not.
 
+A timed result also says **what the phone was doing while it was measured** —
+thermal status, headroom, battery temperature, charging and screen at each end
+of the loop, plus `p90Us`/`p99Us` and a blunt `conditions.stable`. A regression
+gate that fails a build because the phone was warm gets muted inside a week, and
+then the real regressions arrive unnoticed.
+
 #### What that actually tells you
 
 EfficientNet-Lite0, median of 30 runs (int8) and 20 (float32), same model and the

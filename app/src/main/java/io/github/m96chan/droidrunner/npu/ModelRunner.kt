@@ -54,6 +54,10 @@ internal object ModelRunner {
         /** Also run the model with no delegate, in this same request (#93). */
         baseline: Boolean = false,
         diagnosticsDir: File? = null,
+        /** Samples what the phone was doing, at each end of the loop (#98). */
+        conditions: (() -> DeviceConditions)? = null,
+        /** Keep every iteration, in the order it ran (#98). */
+        keepTimings: Boolean = false,
     ): String {
         // Zero is a real answer, not a mistake: "was this graph accepted" is
         // complete once tensors are allocated, and perhaps half of a sweep asks
@@ -124,13 +128,18 @@ internal object ModelRunner {
             if (runs > 0) {
                 repeat(warmup) { invoke() }
             }
-            val timings = LongArray(runs)
+            val before = conditions?.invoke()
+            val measured = LongArray(runs)
             repeat(runs) { run ->
                 val started = System.nanoTime()
                 invoke()
-                timings[run] = System.nanoTime() - started
+                measured[run] = System.nanoTime() - started
             }
-            timings.sort()
+            val after = conditions?.invoke()
+            // Sorted separately: the run order is the whole value of the raw
+            // timings, since a throttle is visible as drift across the loop and
+            // in nothing else. Sorting in place would have thrown that away.
+            val timings = measured.copyOf().apply { sort() }
 
             JSONObject()
                 .put("ok", true)
@@ -164,7 +173,15 @@ internal object ModelRunner {
                         put("medianUs", timings[runs / 2] / 1000.0)
                         put("minUs", timings.first() / 1000.0)
                         put("maxUs", timings.last() / 1000.0)
+                        // The tail is where a throttle shows and the median
+                        // does not (#98).
+                        put("p90Us", Timings.percentile(timings, 90) / 1000.0)
+                        put("p99Us", Timings.percentile(timings, 99) / 1000.0)
+                        if (keepTimings) {
+                            put("timingsUs", JSONArray(measured.map { it / 1000.0 }))
+                        }
                     }
+                    DeviceConditions.describe(before, after)?.let { put("conditions", it) }
                 }
                 .put("inputs", JSONArray(inputSpecs.map(TensorIo::describe)))
                 .put(
@@ -179,7 +196,10 @@ internal object ModelRunner {
                         put(
                             "baseline",
                             JSONObject(
-                                run(model, null, runs, warmup, inputs, null, false, null),
+                                run(
+                                    model, null, runs, warmup, inputs, null, false, null,
+                                    conditions, keepTimings,
+                                ),
                             ),
                         )
                     }
