@@ -175,6 +175,15 @@ internal object QnnModelRunner {
                 .put("model", model.name)
                 .put("sizeBytes", model.length())
                 .put("requestedDevice", "qnn-$backend")
+                // The contract's headline field, and it was missing from the
+                // one path that reaches an NPU. A consumer branching on
+                // `executed` saw nothing here and had to guess; the operator
+                // matrix guessed "the Hexagon took none of it" for 62 models
+                // it had taken every one of. Attribution is already settled by
+                // then — refuseUnattributable above returns before this for
+                // anything that cannot be claimed.
+                .put("executed", if (delegation?.partial == true) "partial" else "accelerator")
+                .put("executedBy", "$QNN_DELEGATE:qnn-$backend")
                 .put("backend", backend)
                 .put("iterations", runs)
                 .apply {
@@ -194,6 +203,7 @@ internal object QnnModelRunner {
                                 .put("delegated", it.delegated)
                                 .put("total", it.total)
                                 .put("partitions", it.partitions)
+                                .put("delegate", QNN_DELEGATE)
                                 .put("describe", it.describe("the Hexagon"))
                                 .put("partial", it.partial),
                         )
