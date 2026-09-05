@@ -82,6 +82,11 @@ ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/<version> runtime/build-proot.sh
 Rebuild proot from source rather than trusting `app/src/main/jniLibs/` — it is
 gitignored, so a stale local copy is invisible to review.
 
+`tools/roll-fleet.sh` does the install half: builds, installs on every attached
+phone, checks the APK on each is the one just built, and waits for the runners
+to come back. It refuses to run while any runner is busy, and refuses a release
+tag outright — the fleet runs `0.0.0-dev` and must keep doing so.
+
 Then **install on a device and run a real job**. Every serious bug this project
 has hit was found here and not by tests: NNAPI tensor sizing, the listener
 losing its session, MIUI killing background work, `config.sh` refusing a
