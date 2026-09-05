@@ -43,6 +43,19 @@ internal object ResultContract {
         /** It ran, but nothing could be attributed to the accelerator asked for. */
         const val REFUSED = "refused"
 
+        /**
+         * No interpreter could be built from this file, with or without a
+         * delegate — so it says nothing about any driver.
+         *
+         * Told apart from [REFUSED] because a sweep does opposite things with
+         * them: a refusal is a row of data and the sweep carries on, while a
+         * file nothing can load will fail every remaining row identically and
+         * the sweep should stop and say whose fault it is. Reported by the
+         * first consumer outside this project, whose model was rejected before
+         * any delegate saw it and arrived as a bare `failed`.
+         */
+        const val INVALID_MODEL = "invalid-model"
+
         /** Anything else that stopped a run. */
         const val FAILED = "failed"
     }

@@ -118,6 +118,17 @@ internal data class Delegation(
 }
 
 /**
+ * Whether the file is loadable at all, asked after something went wrong.
+ *
+ * The same move the operator matrix makes with its CPU control (#119): run it
+ * with nothing attached, and if that fails too then the model is the defect and
+ * no driver has been implicated. Only reached on a failure, so the second load
+ * costs nothing in the normal case.
+ */
+internal fun modelIsUnloadable(model: java.io.File): Boolean =
+    runCatching { org.tensorflow.lite.Interpreter(model).close() }.isFailure
+
+/**
  * Who ran the graph, in the two words a result reports (issue #93).
  *
  * Naming the delegate is not enough on its own. Pinning to `mtk-mdla_shim` and

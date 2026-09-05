@@ -12,6 +12,7 @@ package io.github.m96chan.droidrunner.qnn
 
 import io.github.m96chan.droidrunner.npu.DeviceConditions
 import io.github.m96chan.droidrunner.npu.Delegation
+import io.github.m96chan.droidrunner.npu.modelIsUnloadable
 import io.github.m96chan.droidrunner.npu.refuseUnattributable
 import io.github.m96chan.droidrunner.npu.ResultContract
 import io.github.m96chan.droidrunner.npu.TensorIo
@@ -249,7 +250,16 @@ internal object QnnModelRunner {
                 model,
                 backend,
                 "${failed::class.java.simpleName}: ${failed.message.orEmpty()}",
+                // The vendor's own words, which are empty when the failure was
+                // upstream of the delegate — as it is for a model that would
+                // not load. That is the honest value, not a missing one.
                 QnnNative.error(),
+                // Asked only on a failure: does it load with nothing attached?
+                if (interpreter == null && modelIsUnloadable(model)) {
+                    ResultContract.Code.INVALID_MODEL
+                } else {
+                    ResultContract.Code.FAILED
+                },
             )
         } finally {
             step("done")

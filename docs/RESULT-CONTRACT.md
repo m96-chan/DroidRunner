@@ -47,13 +47,33 @@ reading English.
 | --- | --- | --- |
 | — | it ran | `0` |
 | `refused` | it ran, and nothing could be attributed to the accelerator asked for | `2` |
+| `invalid-model` | no interpreter could be built from the file, with or without a delegate | `1` |
 | `unknown-device` | no such accelerator on this phone | `3` |
 | `not-installed` | the vendor runtime this device would need is not installed | `3` |
 | `invalid-request` | malformed, or a path outside the job's home | `1` |
 | `failed` | anything else that stopped a run | `1` |
 | — | the agent did not answer | `4` |
 
-`4` is the one worth stopping a sweep for.
+`4` is the one worth stopping a sweep for. So, differently, is `invalid-model`:
+a refusal is a row of data and the sweep carries on, while a file nothing can
+load will fail every remaining row identically, and the fault is the caller's.
+It is told apart from `failed` by loading the model again with **nothing
+attached** — the same control the operator matrix runs against the CPU — so it
+is a statement about the file and not about any driver.
+
+Reported by the first consumer outside this project, whose model was rejected
+before any delegate saw it and arrived as a bare `failed`:
+
+```
+Cannot create interpreter: BytesRequired number of bytes overflowed.
+Tensor 0 is invalidly specified in schema.
+```
+
+`error` carries that text in full, naming each tensor. It is deliberately not
+summarised — it is what turns an afternoon into a minute. On the Qualcomm path
+`detail` carries the **vendor's** own error string beside it, which is empty
+when the failure was upstream of the delegate, as it is here. Empty is the
+honest value: QNN was never asked.
 
 Each of these is checked by `runtime/tests/test-droidrunner-device.sh`, against
 a stub agent on loopback, so the table is a promise with something behind it

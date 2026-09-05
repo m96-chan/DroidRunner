@@ -244,7 +244,17 @@ internal object ModelRunner {
             // cost two device round trips.
             JSONObject()
                 .put("ok", false)
-                .put("code", ResultContract.Code.FAILED)
+                // A file no interpreter can build is not a statement about any
+                // driver, and a sweep should stop rather than record it 61 more
+                // times (#128 follow-up, reported by the first outside user).
+                .put(
+                    "code",
+                    if (interpreter == null && modelIsUnloadable(model)) {
+                        ResultContract.Code.INVALID_MODEL
+                    } else {
+                        ResultContract.Code.FAILED
+                    },
+                )
                 .put("model", model.name)
                 .put("requestedDevice", deviceName ?: "default")
                 .put("error", failure::class.java.simpleName)
