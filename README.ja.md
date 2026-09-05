@@ -595,7 +595,12 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 - [x] 文書化された結果契約と、他リポジトリが使えるcomposite action([#95](https://github.com/m96-chan/DroidRunner/issues/95))
 - [x] マニフェストで複数モデルを1リクエストで実行([#94](https://github.com/m96-chan/DroidRunner/issues/94))
 - [ ] MediaTek Neuron — 保留:公開ランタイムは`.dla`しか受けず、それを作れる者がいない([#83](https://github.com/m96-chan/DroidRunner/issues/83))
-- [ ] データシートではなくシリコンで測ったオペレータ対応表([#96](https://github.com/m96-chan/DroidRunner/issues/96))
+- [x] データシートではなくシリコンで測ったオペレータ対応表([#96](https://github.com/m96-chan/DroidRunner/issues/96)) — 同一SoCの3ドライバが食い違う
+- [x] 数値を測ったときの端末の状態を返す([#98](https://github.com/m96-chan/DroidRunner/issues/98))
+- [x] 前回の対応表と比較し、取らなくなったドライバでビルドを赤にする([#126](https://github.com/m96-chan/DroidRunner/issues/126))
+- [x] 委譲レポートの解析対象をTFLiteが出力しなくなったらビルドを失敗させる([#128](https://github.com/m96-chan/DroidRunner/issues/128))
+- [x] 全消費者が通る `droidrunner-device` ラッパをテストする([#125](https://github.com/m96-chan/DroidRunner/issues/125))
+- [x] 接続中の全端末にビルドを配る1コマンド([#127](https://github.com/m96-chan/DroidRunner/issues/127))
 - [ ] Samsung Exynos — **優先度を下げる**。採用機種が少なく、あるものは超高価格帯か
       激安のキワモノに寄っていて、検証機の確保が正当化しにくい
 - [x] runtime manifestの署名検証
@@ -606,7 +611,7 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 - [x] トークン期限切れでサインインを失わず、更新する
 - [x] 1サンプルだけ条件に触れた程度でジョブを保留しない
 - [x] GitHub応答の読めない要素を飛ばし、一覧ごと失わない
-- [ ] runtime bundleの更新通知・自動導入([#14](https://github.com/m96-chan/DroidRunner/issues/14))
+- [x] runtime bundleの更新通知・自動導入([#14](https://github.com/m96-chan/DroidRunner/issues/14))
 - [ ] 複数端末の状態を表示する管理画面([#7](https://github.com/m96-chan/DroidRunner/issues/7))
 - [x] 配布しているGPLバイナリの対応ソースを同梱([#116](https://github.com/m96-chan/DroidRunner/issues/116))
 

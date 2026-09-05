@@ -234,6 +234,37 @@ nnapi-reference              1107.7      17.04</pre>
 </section>
 
 <section class="panel">
+  <h2>which operators the silicon will take</h2>
+  <p>
+    A whole network cannot tell you. One refused node pushes its entire partition back
+    to the CPU, so a fallback says a vendor's table is wrong somewhere without saying
+    where. So: one model per operator per precision, 62 of them, run on every driver
+    the phone exposes.
+  </p>
+  <table>
+    <tr><th>driver</th><th>float32</th><th>int8</th></tr>
+    <tr><td><code>qnn-htp</code> (SM8650 Hexagon)</td><td><b>31/31</b></td><td><b>31/31</b></td></tr>
+    <tr><td><code>mtk-neuron_shim</code> (MT6899)</td><td>28/31</td><td>30/31</td></tr>
+    <tr><td><code>mtk-mdla_shim</code> (MT6899)</td><td><b>0/31</b></td><td>30/31</td></tr>
+    <tr><td><code>mtk-dsp_shim</code> (MT6899)</td><td>10/31</td><td>19/31</td></tr>
+    <tr><td><code>google-edgetpu</code> (Tensor G4)</td><td>0/31</td><td>29/31</td></tr>
+  </table>
+  <div class="note">
+    <b>One SoC, three drivers, three different answers.</b> A table with no per-driver
+    axis is wrong for at least two of them whatever it says. The MDLA takes no float32
+    operator at all &mdash; which is <i>unsupported</i>, not <i>emulated with a
+    penalty</i>, and those make a compiler emit different code.<br><br>
+    <b>Every model is also run with no accelerator at all.</b> One that will not run on
+    the CPU either is a defect of ours, and it is excluded and marked as excluded
+    rather than filed as an operator some driver refuses.<br><br>
+    <b>Each phone's table is kept, and the next run is compared against it.</b> A
+    driver that stops taking an operator after a system update turns a build red. That
+    check needs the same phone, kept &mdash; it is not available to anyone renting
+    machines by the hour.
+  </div>
+</section>
+
+<section class="panel">
   <h2>status</h2>
   <div class="meter"><span class="name">runner lifecycle</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
   <div class="meter"><span class="name">dashboard UI</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
@@ -246,6 +277,8 @@ nnapi-reference              1107.7      17.04</pre>
   <div class="meter"><span class="name">your inputs, your outputs back</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
   <div class="meter"><span class="name">Qualcomm Hexagon (opt-in)</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
   <div class="meter"><span class="name">result contract + action</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
+  <div class="meter"><span class="name">operator support matrix</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
+  <div class="meter"><span class="name">conditions a number was measured under</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
   <div class="meter"><span class="name">MediaTek Neuron direct</span><span class="bar none"><i style="width:8%"></i></span><span class="val">blocked</span></div>
   <div class="meter"><span class="name">fleet dashboard</span><span class="bar none"><i style="width:8%"></i></span><span class="val">planned</span></div>
   <p style="color:var(--dim);font-size:.85rem;margin-bottom:0">
