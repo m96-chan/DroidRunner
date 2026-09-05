@@ -36,16 +36,27 @@ underneath.
 | `ok` | Whether a measurement was produced. |
 | `code` | Present when `ok` is false. From the closed set below. |
 | `error` | Prose, for a person. **Reworded without a schema bump — do not match on it.** |
-| `message` | The underlying exception's own words, on the NNAPI path. This is usually the useful half. |
-| `at` | Where it was thrown, on the NNAPI path. For a bug report, not for a program. |
+| `message` | What the layer below actually said, verbatim. Absent when nothing below was asked. |
+| `at` | Where it was thrown, when we know. For a bug report, not for a program. |
 
-**`error` and `message` are split differently on the two paths, and that is a
-wart rather than a design.** The NNAPI path puts the exception's class name in
-`error` and its text in `message`; the Qualcomm path puts `Class: text` in
-`error` and has no `message`. So a consumer wanting the readable reason should
-read `message` when it is there and `error` otherwise, and should expect the
-same failure to look different depending on which route ran it. Tracked as
-[#138](https://github.com/m96-chan/DroidRunner/issues/138).
+**Two fields, two owners.** `error` is ours: a sentence about what went wrong,
+reworded whenever a better one exists. `message` is theirs, unedited — the
+exception's own words, the vendor's own words, whatever the layer below said.
+It is never summarised and never folded into `error`, because it is the half
+that names the three bad tensors, and the consumer who received it said that is
+what turned an afternoon into a minute.
+
+**Absent, not empty**, when there is nothing. An empty string reads as *they
+said nothing quotable*; absence reads as *nobody below us was asked*, which is
+what is true when a request never reached a layer of its own.
+
+Until #138 this was three shapes. The NNAPI path put the exception's class name
+in `error` and its text in `message`; the Qualcomm path glued both into `error`
+and had no `message`; and a third field, `detail`, held our **loader's** last
+error under a name that read as the vendor's — empty for most failures,
+including the ones where Qualcomm's runtime had plenty to say, because those
+words arrive through TFLite's exception and never touch our loader. `detail` is
+gone.
 
 ## Codes
 
@@ -89,11 +100,8 @@ Cannot create interpreter: BytesRequired number of bytes overflowed.
 Tensor 0 is invalidly specified in schema.
 ```
 
-`error` carries that text in full, naming each tensor. It is deliberately not
-summarised — it is what turns an afternoon into a minute. On the Qualcomm path
-`detail` carries the **vendor's** own error string beside it, which is empty
-when the failure was upstream of the delegate, as it is here. Empty is the
-honest value: QNN was never asked.
+`message` carries that text in full, naming each tensor, on every path. It is
+deliberately not summarised — it is what turns an afternoon into a minute.
 
 Each of these is checked by `runtime/tests/test-droidrunner-device.sh`, against
 a stub agent on loopback, so the table is a promise with something behind it

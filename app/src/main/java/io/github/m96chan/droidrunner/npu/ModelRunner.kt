@@ -253,27 +253,35 @@ internal object ModelRunner {
             // Buffer-size failures carry no message, so report the shapes the
             // interpreter actually settled on — guessing at them from outside
             // cost two device round trips.
-            JSONObject()
-                .put("ok", false)
-                // A file no interpreter can build is not a statement about any
-                // driver, and a sweep should stop rather than record it 61 more
-                // times (#128 follow-up, reported by the first outside user).
-                .put(
-                    "code",
-                    when {
-                        // The caller's bytes did not fit the model's tensors:
-                        // their file and their byte count, so their code.
-                        failure is TensorIo.Mismatch -> ResultContract.Code.INVALID_REQUEST
-                        interpreter == null && modelIsUnloadable(model) ->
-                            ResultContract.Code.INVALID_MODEL
-                        else -> ResultContract.Code.FAILED
-                    },
-                )
+            // A file no interpreter can build is not a statement about any
+            // driver, and a sweep should stop rather than record it 61 more
+            // times (#128 follow-up, reported by the first outside user).
+            val code = when {
+                // The caller's bytes did not fit the model's tensors: their
+                // file and their byte count, so their code.
+                failure is TensorIo.Mismatch -> ResultContract.Code.INVALID_REQUEST
+                interpreter == null && modelIsUnloadable(model) ->
+                    ResultContract.Code.INVALID_MODEL
+                else -> ResultContract.Code.FAILED
+            }
+            ResultContract.failure(
+                code = code,
+                // Ours, and a sentence. This field held the exception's class
+                // name until #138, which is not one.
+                error = when (code) {
+                    ResultContract.Code.INVALID_REQUEST ->
+                        "the inputs given do not fit this model"
+                    ResultContract.Code.INVALID_MODEL ->
+                        "no interpreter could be built from this file, " +
+                            "with or without a delegate"
+                    else -> "the run failed on ${deviceName ?: "the CPU"}"
+                },
+                // Theirs, verbatim: the half that names the tensors.
+                message = failure.message,
+                at = failure.stackTrace.firstOrNull()?.toString(),
+            )
                 .put("model", model.name)
                 .put("requestedDevice", deviceName ?: "default")
-                .put("error", failure::class.java.simpleName)
-                .put("message", failure.message ?: "")
-                .put("at", failure.stackTrace.firstOrNull()?.toString() ?: "")
                 .apply {
                     interpreter?.let { live ->
                         runCatching {

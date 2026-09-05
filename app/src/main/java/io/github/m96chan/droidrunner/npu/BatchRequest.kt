@@ -100,14 +100,11 @@ internal object BatchRequest {
         .toString()
 
     /** A row that was never attempted, in the same shape as one that was. */
-    fun skipped(entry: Entry, reason: String): String = JSONObject()
-        .put("schema", ResultContract.SCHEMA)
-        .put("ok", false)
-        .put("code", ResultContract.Code.FAILED)
-        .put("id", entry.id)
-        .put("model", entry.path.substringAfterLast('/'))
-        .put("error", reason)
-        .toString()
+    fun skipped(entry: Entry, reason: String): String =
+        ResultContract.failure(code = ResultContract.Code.FAILED, error = reason)
+            .put("id", entry.id)
+            .put("model", entry.path.substringAfterLast('/'))
+            .toString()
 
     /** Stamps a per-model result with the row it came from. */
     fun identify(result: String, entry: Entry): String =
