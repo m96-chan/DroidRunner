@@ -36,6 +36,21 @@ The resolution sweep is where it becomes legible:
 The cliff is fp16's ULP at 1.0, and 2^-11 falls on the far side of it for the
 right reason: it is a half-ULP tie, and 1.0 has the even significand.
 
+## The same phone, the other accelerator
+
+Once the GPU delegate existed (#140), the comparison that settles what this is
+became available on one device, with one set of fixtures and one harness:
+
+| path | precision | result |
+| --- | --- | --- |
+| `TfLiteGpuDelegateV2:gpu`, `precisionLossAllowed=false` | asked for | **1024 / 1024 bit-exact** |
+| `TfLiteQnnDelegate:qnn-htp` | never asked | 1016 / 1024 off by +1 ULP, computed in fp16 |
+
+Same SoC, same vendor, same model, same bytes. One path honours binary32 when
+told to; the other does not, and does not say so. That is the difference
+between a precision that is *declared* and one that is *discovered*, and it is
+why the GPU was worth adding for something other than speed.
+
 ## What is claimed, and what is not
 
 Claimed: on that phone, through that delegate build, an f32 `ADD` behaves as
