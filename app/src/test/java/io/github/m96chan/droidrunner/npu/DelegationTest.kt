@@ -230,54 +230,50 @@ class CpuDriverTest {
 
 
 /**
- * The wording the parse depends on, kept verbatim (issue #128).
+ * The parse, against output captured from a phone (issue #128).
  *
- * These are renderings of the one format string TFLite 2.16.1 actually
- * contains, read out of the library this project ships:
+ * Every line here was printed by a real delegate on a real device and taken
+ * out of a result with `--delegate-log`. The fixture this replaced was a line
+ * I wrote myself, and it was wrong in two ways at once: the device prints
+ * `VERBOSE:` and not `INFO:`, and it prints two of these lines and not one.
+ * The regex survived both, which is luck, and the test could not have told
+ * anyone otherwise — it was reading a string from the same imagination that
+ * wrote the regex.
  *
- *     Replacing %d out of %d node(s) with delegate (%s) node,
- *     yielding %zu partitions for the whole graph.
- *
- * `tools/check-tflite-wording.sh` asserts that string is still in the binary;
- * this asserts the regex still reads it. Both are needed — the first catches a
- * TFLite that stopped printing it, the second catches a regex edited until it
- * no longer matches what is printed.
- *
- * The pair replaces a test that proved the parser handled
- * `Operator RESHAPE (v1) is not supported by the NNAPI delegate` — a line no
- * version of TFLite or of Qualcomm's delegate emits. It was green for as long
- * as it existed, and the field it fed never once appeared in a result.
+ * `tools/check-tflite-wording.sh` guards the other end: it fails when the
+ * format string these render leaves the shipped library.
  */
-class ShippedWordingTest {
+class CapturedDelegateLogTest {
 
-    @Test fun theLineTfLitePrintsIsTheLineTheParserReads() {
-        val log = "INFO: Replacing 64 out of 64 node(s) with delegate " +
-            "(TfLiteNnapiDelegate) node, yielding 1 partitions for the whole graph."
+    private fun captured(name: String): String =
+        javaClass.classLoader!!.getResourceAsStream("delegate-logs/$name")!!
+            .bufferedReader().readText()
 
-        val delegation = Delegation.parse(log)!!
+    @Test fun theLastDelegateToSpeakIsTheOneThatRanTheGraph() {
+        // NNAPI takes 5 of 64 nodes, XNNPACK then takes 59 of the remaining 62.
+        // Reading the first line would report a partial NNAPI acceleration for
+        // a graph the CPU ran — the claim #93 exists to prevent.
+        val delegation = Delegation.parse(captured("mtk-dsp_shim-int8.txt"))!!
 
-        assertEquals(64, delegation.delegated)
-        assertEquals(64, delegation.total)
-        assertEquals(1, delegation.partitions)
-        assertEquals("TfLiteNnapiDelegate", delegation.delegate)
+        assertEquals("TfLiteXNNPackDelegate", delegation.delegate)
+        assertEquals(59, delegation.delegated)
+        assertEquals(62, delegation.total)
+        assertEquals(5, delegation.partitions)
     }
 
-    @Test fun aPartialSplitIsReadFromTheSameLine() {
-        val log = "INFO: Replacing 12 out of 14 node(s) with delegate " +
-            "(TfLiteXNNPackDelegate) node, yielding 3 partitions for the whole graph."
+    @Test fun aDriverThatKeptFiveNodesStillCountsAsTheCpuHavingRunIt() {
+        val log = captured("mtk-dsp_shim-int8.txt")
 
-        val delegation = Delegation.parse(log)!!
+        val (executed, by) = executedFor(Delegation.parse(log), "mtk-dsp_shim")
 
-        assertEquals("partial", delegation.executed)
-        assertEquals("TfLiteXNNPackDelegate", delegation.delegate)
+        assertEquals("cpu-fallback", executed)
+        assertEquals("TfLiteXNNPackDelegate", by)
     }
 
     @Test fun anUnrecognisedLineParsesToNothingRatherThanToZero() {
         // If a TFLite upgrade rewords this, every result becomes
         // `executed: unknown`. That is the honest answer and an invisible one,
         // which is what tools/check-tflite-wording.sh exists to make loud.
-        val log = "INFO: Delegated 64 nodes to the accelerator."
-
-        assertNull(Delegation.parse(log))
+        assertNull(Delegation.parse("VERBOSE: Delegated 64 nodes to the accelerator."))
     }
 }
