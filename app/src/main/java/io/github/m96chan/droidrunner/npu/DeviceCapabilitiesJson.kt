@@ -37,6 +37,10 @@ object DeviceCapabilitiesJson {
                 JSONObject()
                     .put("manufacturer", capabilities.manufacturer)
                     .put("model", capabilities.model)
+                    // The tables a compiler keeps are keyed by SoC, not by
+                    // handset model: two phones with the same silicon have the
+                    // same drivers and one name says so (#96).
+                    .put("soc", capabilities.soc)
                     .put("labels", JSONArray(capabilities.labels().sorted())),
             )
             .put("android", JSONObject().put("sdk", Build.VERSION.SDK_INT))

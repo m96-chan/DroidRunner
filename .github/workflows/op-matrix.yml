@@ -1,0 +1,139 @@
+name: Operator support matrix
+
+# Which operators this phone's drivers actually take, at which precision
+# (issue #96). Not read off a datasheet — asked of the silicon, one operator at
+# a time, because a whole network cannot answer it: one refused node pushes its
+# entire partition back to the CPU, and the result says nothing about which
+# node it was.
+on:
+  workflow_dispatch:
+    inputs:
+      label:
+        description: "Extra runner label selecting the device (e.g. npu-neuron)"
+        required: true
+        default: "android-npu"
+
+permissions:
+  contents: read
+
+jobs:
+  # The models are built where TensorFlow's converter can run, which is not the
+  # phone. Hand-written flatbuffers would drop this job and the dependency with
+  # it, and would also make an invalid quantization indistinguishable from an
+  # unsupported operator — the wrong answer this whole workflow exists to avoid.
+  models:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install --quiet "tensorflow-cpu==2.20.0"
+      - name: Build one model per operator and precision
+        run: python tools/op-matrix/generate.py --out models
+      - run: cat models/models.index
+      - uses: actions/upload-artifact@v4
+        with:
+          name: op-matrix-models
+          path: models/
+
+  sweep:
+    needs: models
+    runs-on: [self-hosted, android, "${{ inputs.label }}"]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: op-matrix-models
+          path: models
+
+      - name: What this phone has
+        run: |
+          droidrunner-device capabilities > capabilities.json
+          droidrunner-device devices
+
+      - name: Ask every driver about every operator
+        run: |
+          # One entry per model, `iterations: 0` throughout: the question is
+          # whether the graph was accepted, and that is answered once tensors
+          # are allocated. Timing 62 models on every driver would turn a
+          # two-minute sweep into an evening for numbers nobody asked for.
+          manifest() {  # manifest [device]
+            local separator=""
+            printf '['
+            while IFS=$'\t' read -r id file operator precision; do
+              printf '%s{"id":"%s","path":"%s/models/%s","iterations":0' \
+                "$separator" "$id" "$PWD" "${file#models/}"
+              if [ -n "${1:-}" ]; then printf ',"device":"%s"' "$1"; fi
+              printf '}'
+              separator=","
+            done < models/models.index
+            printf ']\n'
+          }
+
+          # The control: every model with no device at all. A model that will
+          # not run on the CPU either is a defect of ours, and filing it as an
+          # operator a driver refuses would put that defect into a table other
+          # people compile against.
+          manifest > manifest-cpu.json
+          droidrunner-device test batch manifest-cpu.json --budget-ms 600000 \
+            --output sweep-cpu.json >/dev/null
+          echo "control: $(grep -o '"id":' sweep-cpu.json | wc -l) rows"
+
+          drivers="$(droidrunner-device devices)"
+          # qnn-htp is not an NNAPI device name and never appears in that list:
+          # it is Qualcomm's own runtime in a separate process. It is a column
+          # here only on the phones that have it installed.
+          if droidrunner-device capabilities | grep -q '"version": *[0-9]'; then
+            drivers="$drivers qnn-htp"
+          fi
+          echo "$drivers" > drivers.txt
+
+          for driver in $drivers; do
+            echo "=== $driver"
+            manifest "$driver" > "manifest-$driver.json"
+            droidrunner-device test batch "manifest-$driver.json" --budget-ms 600000 \
+              --output "sweep-$driver.json" >/dev/null
+            echo "$driver: $(grep -o '"id":' "sweep-$driver.json" | wc -l) rows, $(grep -o '"executed": *"accelerator"' "sweep-$driver.json" | wc -l) accelerated"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: op-matrix-sweep
+          path: |
+            sweep-*.json
+            drivers.txt
+            capabilities.json
+
+  matrix:
+    needs: sweep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: op-matrix-models
+          path: models
+      - uses: actions/download-artifact@v4
+        with:
+          name: op-matrix-sweep
+          path: sweep
+
+      - name: Reduce the sweep to a matrix
+        run: |
+          sweeps=""
+          for driver in $(cat sweep/drivers.txt); do
+            sweeps="$sweeps --sweep $driver=sweep/sweep-$driver.json"
+          done
+          python tools/op-matrix/reduce.py \
+            --models models/models.json \
+            --control sweep/sweep-cpu.json \
+            --capabilities sweep/capabilities.json \
+            $sweeps --out matrix
+
+      - name: Put it where the run can be read
+        run: cat matrix/matrix.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: op-matrix
+          path: matrix/
