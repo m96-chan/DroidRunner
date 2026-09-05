@@ -214,6 +214,7 @@ nnapi-reference              1107.7      17.04</pre>
     <tr><th>device</th><th>driver</th><th>int8</th><th>float32</th></tr>
     <tr><td>Tensor G4</td><td><code>google-edgetpu</code></td><td><b>0.65 ms</b></td><td>16.7 ms</td></tr>
     <tr><td>SM8650</td><td><code>qnn-htp</code> (Hexagon)</td><td>1.22 ms</td><td><b>2.78 ms</b></td></tr>
+    <tr><td>SM8650</td><td><code>gpu</code> (Adreno, TFLite delegate)</td><td>4.95 ms</td><td>&mdash;</td></tr>
     <tr><td>MT6899</td><td><code>mtk-neuron_shim</code></td><td>2.12 ms</td><td>7.29 ms</td></tr>
     <tr><td>MT6899</td><td><code>mtk-mdla_shim</code></td><td>2.69 ms</td><td><i>fell back to the CPU</i></td></tr>
     <tr><td>Tensor G4</td><td><i>NNAPI's own choice</i></td><td>5.65 ms</td><td>&mdash;</td></tr>
@@ -279,6 +280,7 @@ nnapi-reference              1107.7      17.04</pre>
   <div class="meter"><span class="name">result contract + action</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
   <div class="meter"><span class="name">operator support matrix</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
   <div class="meter"><span class="name">conditions a number was measured under</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
+  <div class="meter"><span class="name">GPU, on every phone</span><span class="bar"><i style="width:100%"></i></span><span class="val">working</span></div>
   <div class="meter"><span class="name">MediaTek Neuron direct</span><span class="bar none"><i style="width:8%"></i></span><span class="val">blocked</span></div>
   <div class="meter"><span class="name">fleet dashboard</span><span class="bar none"><i style="width:8%"></i></span><span class="val">planned</span></div>
   <p style="color:var(--dim);font-size:.85rem;margin-bottom:0">

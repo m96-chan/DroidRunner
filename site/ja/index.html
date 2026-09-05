@@ -213,6 +213,7 @@ nnapi-reference              1107.7      17.04</pre>
     <tr><th>端末</th><th>ドライバ</th><th>int8</th><th>float32</th></tr>
     <tr><td>Tensor G4</td><td><code>google-edgetpu</code></td><td><b>0.65 ms</b></td><td>16.7 ms</td></tr>
     <tr><td>SM8650</td><td><code>qnn-htp</code>(Hexagon)</td><td>1.22 ms</td><td><b>2.78 ms</b></td></tr>
+    <tr><td>SM8650</td><td><code>gpu</code>（Adreno、TFLiteデリゲート）</td><td>4.95 ms</td><td>&mdash;</td></tr>
     <tr><td>MT6899</td><td><code>mtk-neuron_shim</code></td><td>2.12 ms</td><td>7.29 ms</td></tr>
     <tr><td>MT6899</td><td><code>mtk-mdla_shim</code></td><td>2.69 ms</td><td><i>CPUに落ちた</i></td></tr>
     <tr><td>Tensor G4</td><td><i>NNAPI任せ</i></td><td>5.65 ms</td><td>&mdash;</td></tr>
@@ -272,6 +273,7 @@ nnapi-reference              1107.7      17.04</pre>
   <div class="meter"><span class="name">結果契約 + composite action</span><span class="bar"><i style="width:100%"></i></span><span class="val">動作</span></div>
   <div class="meter"><span class="name">オペレータ対応表</span><span class="bar"><i style="width:100%"></i></span><span class="val">動作</span></div>
   <div class="meter"><span class="name">測定時の端末状態</span><span class="bar"><i style="width:100%"></i></span><span class="val">動作</span></div>
+  <div class="meter"><span class="name">全端末のGPU</span><span class="bar"><i style="width:100%"></i></span><span class="val">動作</span></div>
   <div class="meter"><span class="name">MediaTek Neuron 直接</span><span class="bar none"><i style="width:8%"></i></span><span class="val">保留</span></div>
   <div class="meter"><span class="name">フリート ダッシュボード</span><span class="bar none"><i style="width:8%"></i></span><span class="val">計画</span></div>
   <p style="color:var(--dim);font-size:.85rem;margin-bottom:0">

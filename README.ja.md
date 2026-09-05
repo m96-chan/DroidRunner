@@ -188,12 +188,36 @@ nubia NX769J(Snapdragon 8 Gen 3)、EfficientNet-Lite0での実測:
 | int8 | `nnapi-reference`(NNAPIの唯一の選択肢) | 113.2 ms |
 | int8 | CPU | 4.46 ms |
 | int8 | **Hexagon** | **1.22 ms** |
+| int8 | Adreno（TFLiteのGPUデリゲート経由） | 4.95 ms |
 | float32 | `nnapi-reference` | 39.8 ms |
 | float32 | **Hexagon** | **2.78 ms** |
 
 `qnn-htp` を指定したジョブは、黙ってCPUに落ちるのではなく**拒否**されます。
 `droidrunner-device test model x.tflite --device qnn-htp` は、delegateが
 「グラフのどれだけを引き受けたか」を答えない限り失敗します。
+
+### 全端末にあるGPU
+
+`--device gpu` で TFLite 自身の GPU デリゲートに届きます。どの端末でも最速では
+ありません（Hexagon の4倍遅い）が、**全端末に存在する**唯一のアクセラレータで、
+ベンダーが NNAPI ドライバを出していない端末にもあります。そして精度が
+**発見されるのではなく宣言される**唯一の経路です:
+
+| 同じAdrenoへの経路 | EfficientNet-Lite0 int8 |
+| --- | --- |
+| `gpu` — TFLiteのデリゲート、OpenCL | 全64演算子、4.95 ms、フル精度 |
+| `qnn-gpu` — Qualcomm自身のGPUバックエンド | graph finalize で拒否、error 6020 |
+
+同じシリコン、2社のソフトウェア、モデルを走らせるのは片方だけ。
+
+宣言された精度には意味があります。同じ端末で、厳密和が表現可能な f32 入力を
+与えると、フル精度を要求した GPU は **1024/1024 が bit-exact**、Hexagon は
+1016/1024 が 1 ULP ずれます — 要求されてもいないのに fp16 で計算しているためです。
+[`tools/ulp/README.md`](tools/ulp/README.md) を参照。
+
+なお TFLite 自身の互換リストはこの端末を「非対応」と言います。だから何もそれで
+判定しません — あの表はライブラリ同梱で、端末より古いからです。`capabilities`
+は `allowlisted` として報告します(参考値)。デリゲートには関係なく聞きます。
 
 ## Workflow例
 
@@ -602,6 +626,8 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 - [x] 委譲レポートの解析対象をTFLiteが出力しなくなったらビルドを失敗させる([#128](https://github.com/m96-chan/DroidRunner/issues/128))
 - [x] 全消費者が通る `droidrunner-device` ラッパをテストする([#125](https://github.com/m96-chan/DroidRunner/issues/125))
 - [x] 接続中の全端末にビルドを配る1コマンド([#127](https://github.com/m96-chan/DroidRunner/issues/127))
+- [x] 全端末にある唯一のアクセラレータ、GPUに到達する([#140](https://github.com/m96-chan/DroidRunner/issues/140)) — Adrenoで4.95 ms、f32はbit-exact
+- [x] どの層が出しても失敗の形をひとつにする([#138](https://github.com/m96-chan/DroidRunner/issues/138))
 - [ ] Samsung Exynos — **優先度を下げる**。採用機種が少なく、あるものは超高価格帯か
       激安のキワモノに寄っていて、検証機の確保が正当化しにくい
 - [x] runtime manifestの署名検証
