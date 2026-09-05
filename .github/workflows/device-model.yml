@@ -224,6 +224,43 @@ jobs:
           test "$status" = 1
           echo "reported invalid-model, exit $status"
 
+      # Does the accelerator compute what it was asked to, or only run it?
+      # Nothing here has ever checked: the NPU verification counts delegated
+      # nodes, and the differential test compares a top-1 class on an int8
+      # network where there is no ULP to be off by. Prompted by NxPU finding
+      # 1024 of 1024 f32 ADD results high by exactly one ULP on a Hexagon V73.
+      - name: What the accelerator computed, not just who computed it
+        run: |
+          mkdir -p out-cpu-f32 out-dev-f32
+          # The CPU runs the same fixtures as a control: a reference the CPU
+          # disagrees with says nothing about any accelerator.
+          droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
+            --input tools/ulp/fixtures/input-0.bin \
+            --input tools/ulp/fixtures/input-1.bin \
+            --output-dir out-cpu-f32 --iterations 1 > /dev/null
+          if droidrunner-device capabilities | grep -q '"version": *[0-9]'; then
+            droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
+              --device qnn-htp \
+              --input tools/ulp/fixtures/input-0.bin \
+              --input tools/ulp/fixtures/input-1.bin \
+              --output-dir out-dev-f32 --iterations 1 --output f32-device.json > /dev/null
+            grep -o '"executedBy":"[^"]*"' f32-device.json || true
+          else
+            echo "no Hexagon here; CPU only"
+          fi
+          # Compared off-device: the guest has no python, and ULP arithmetic in
+          # awk is not something to trust a finding to.
+          ls -l out-cpu-f32 out-dev-f32 || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f32-outputs
+          path: |
+            out-cpu-f32/
+            out-dev-f32/
+            f32-device.json
+          if-no-files-found: warn
+
       # #128: `executed: unknown` means the delegate ran and we could not read
       # what it took — the failure mode of parsing prose. It is the honest
       # answer and an invisible one, so a device run says so out loud.
