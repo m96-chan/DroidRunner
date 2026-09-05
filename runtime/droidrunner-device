@@ -127,18 +127,36 @@ shift || true
 
 case "$cmd" in
     capabilities)
+        # The usage above says --output works everywhere, and for a while this
+        # command silently ignored it: the option was accepted and dropped, so
+        # a job asking for a file got no file and no error (#125).
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --output) output_file="$2"; shift 2 ;;
+                --json) shift ;;   # already the only thing on stdout
+                *) die "unknown option: $1" ;;
+            esac
+        done
         emit "$(ask GET /v1/capabilities)"
         ;;
 
     devices)
         as_json=""
-        [ "${1:-}" = "--json" ] && as_json=1
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --json) as_json=1; shift ;;
+                --output) output_file="$2"; shift 2 ;;
+                *) die "unknown option: $1" ;;
+            esac
+        done
         if [ -n "$as_json" ]; then
             names=""
             for dev in $(device_names); do names="$names\"$dev\","; done
             emit "{\"schema\":1,\"ok\":true,\"devices\":[${names%,}]}"
         else
-            device_names
+            # Through emit, so --output catches this form too rather than only
+            # the JSON one.
+            emit "$(device_names)"
         fi
         ;;
 

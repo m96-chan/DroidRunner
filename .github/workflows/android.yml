@@ -49,3 +49,9 @@ jobs:
         with:
           python-version: "3.11"
       - run: python -m unittest discover -s tools/op-matrix -v
+
+      # The wrapper is the only path a consumer takes and nothing compiles it.
+      # Its exit statuses are published in docs/RESULT-CONTRACT.md as something
+      # another repository may pin to, and until #125 they had nothing behind
+      # them — one of them was wrong, and a phone is what found it.
+      - run: runtime/tests/test-droidrunner-device.sh
