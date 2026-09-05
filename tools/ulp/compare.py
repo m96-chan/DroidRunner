@@ -17,13 +17,25 @@ import sys
 import numpy as np
 
 
-def ulp_difference(expected, actual):
-    """Signed distance in representable steps, which is subtraction on the bits.
-
-    Monotonic for same-signed finite floats, so the integer difference of the
-    bit patterns *is* the number of representable values between them.
-    """
+def raw_word_difference(expected, actual):
+    """Difference of the bit patterns as written, sign bit and all."""
     return actual.view(np.int32).astype(np.int64) - expected.view(np.int32).astype(np.int64)
+
+
+def monotonic(values):
+    """Bits reordered so that comparing them orders the floats themselves.
+
+    binary32 is sign-and-magnitude, so the raw words only increase with value
+    for positives. Folding the negatives makes one step of this key one
+    representable value, whatever the sign.
+    """
+    bits = values.view(np.int32).astype(np.int64)
+    return np.where(bits < 0, np.int64(-0x80000000) - bits, bits)
+
+
+def ulp_difference(expected, actual):
+    """Distance in representable values, counted toward positive."""
+    return monotonic(actual) - monotonic(expected)
 
 
 def main():
@@ -37,6 +49,17 @@ def main():
     difference = ulp_difference(expected, actual)
     counts = {int(k): int(v) for k, v in zip(*np.unique(difference, return_counts=True))}
     print(f"ULP difference histogram: {counts}")
+
+    # The two readings agree on positives and disagree on negatives, which is
+    # what separates "+1 to the word" from "+1 step toward positive".
+    if np.any(expected < 0):
+        raw = raw_word_difference(expected, actual)
+        raw_counts = {int(k): int(v) for k, v in zip(*np.unique(raw, return_counts=True))}
+        print(f"raw-word difference histogram: {raw_counts}")
+        negatives = expected < 0
+        print(f"on the {int(negatives.sum())} negative results: "
+              f"toward-positive {sorted(set(difference[negatives].tolist()))}, "
+              f"raw-word {sorted(set(raw[negatives].tolist()))}")
 
     exact = counts.get(0, 0)
     print(f"{exact} of {expected.size} bit-exact")
