@@ -60,6 +60,12 @@ end up in a table other people compile against.
 - **Nothing about a phone you did not run it on.** The table is keyed by SoC
   because that is what determines the drivers, and it is generated per device.
 
+The header names the SoC, the driver and the DroidRunner build that answered,
+because a table nobody can trace back to a build is a table nobody should stand
+behind. One phone in this fleet reported `nnapi-reference` as an accelerator for
+a whole matrix, on a build that predated the rule that a CPU driver is the CPU,
+and the only way to tell was the shape of its answers.
+
 What it does say is the thing a hand-written table cannot: that on this
 silicon, this driver, today, this operator at this precision was or was not
 taken — with the device's own attribution behind every cell.

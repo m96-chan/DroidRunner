@@ -32,6 +32,13 @@ object DeviceCapabilitiesJson {
         } else -1
         return JSONObject()
             .put("agent", "droidrunner/0.1")
+            // Which build answered, as distinct from which version of this API
+            // it speaks. A fleet does not update all at once: one phone in ours
+            // reported `nnapi-reference` as an accelerator for a whole operator
+            // matrix because its build predated the rule that a CPU driver is
+            // the CPU, and nothing in this payload said which build it was. It
+            // had to be inferred from the shape of its answers.
+            .put("appVersion", io.github.m96chan.droidrunner.BuildConfig.VERSION_NAME)
             .put(
                 "device",
                 JSONObject()

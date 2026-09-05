@@ -127,6 +127,9 @@ def main():
             ("model", hardware.get("model")),
             ("soc", hardware.get("soc")),
             ("sdk", capabilities.get("android", {}).get("sdk")),
+            # A table nobody can trace back to a build is a table nobody should
+            # stand behind.
+            ("droidrunner", capabilities.get("appVersion")),
         ) if value is not None}
 
     rows, excluded = [], 0
