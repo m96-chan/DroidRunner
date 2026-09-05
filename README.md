@@ -276,6 +276,16 @@ sweep is largely *made of* rejections, and each one is the data. `iterations: 0`
 means load, delegate and allocate but do not time, for the rows that only ask
 whether a graph was accepted.
 
+That sweep has a workflow of its own: **Operator support matrix** builds one
+model per operator and precision, runs every one on every driver the phone
+exposes, and prints which operators were taken and which were not. A whole
+network cannot answer that — one refused node pushes its entire partition back
+to the CPU, so a fallback says a table is wrong somewhere without saying where.
+Every model is also run with no device at all, so a model that is simply broken
+is excluded rather than filed as an operator some driver refuses. See
+[`docs/OPERATOR-MATRIX.md`](docs/OPERATOR-MATRIX.md) for what a cell claims, and
+the rather longer list of what it does not.
+
 ### What another repository pins to
 
 [`docs/RESULT-CONTRACT.md`](docs/RESULT-CONTRACT.md) — a `schema` on every response,

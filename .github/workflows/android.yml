@@ -36,3 +36,16 @@ jobs:
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+
+  # The operator matrix is reduced in Python, and every mistake in that
+  # reduction reads as a statement about somebody's silicon. It has no
+  # dependencies, so it is checked on every push rather than only where
+  # TensorFlow is installed.
+  tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m unittest discover -s tools/op-matrix -v
