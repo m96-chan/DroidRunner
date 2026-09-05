@@ -142,6 +142,30 @@ jobs:
       - name: Put it where the run can be read
         run: cat matrix/matrix.md >> "$GITHUB_STEP_SUMMARY"
 
+      # The half that makes owning a phone worth something: a driver arrives
+      # with the system image and is replaced by OTA updates nobody asks
+      # permission for, so the same question asked twice is the only way to
+      # notice it changed its mind (#126).
+      - name: Compare against the matrix last committed for this phone
+        run: |
+          baseline="$(python tools/op-matrix/baseline-path.py matrix/matrix.json)"
+          if [ ! -f "$baseline" ]; then
+            echo "No baseline for this phone yet. To start one:"
+            echo "  cp matrix/matrix.json $baseline"
+            echo "(from the op-matrix artifact of this run)"
+            exit 0
+          fi
+          python tools/op-matrix/compare.py "$baseline" matrix/matrix.json \
+            --json matrix/comparison.json | tee comparison.txt
+          {
+            echo
+            echo '## Against the committed baseline'
+            echo
+            echo '```'
+            cat comparison.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v4
         with:
           name: op-matrix
