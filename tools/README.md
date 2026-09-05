@@ -40,6 +40,18 @@ with nothing failing anywhere.
 
 Runs on every build. See [#128](https://github.com/m96-chan/DroidRunner/issues/128).
 
+## `ulp/`
+
+Does an accelerator compute what it was asked to, or only run it? Nothing in
+this project asked until an outside consumer found f32 results deviating on a
+Hexagon. `make-add-f32.py` builds four fixture sets, `compare.py` reports the
+difference in ULP, and `resolution.py` finds the finest step a device still
+resolves.
+
+The fixtures are committed rather than generated in CI: 12 KB, deterministic,
+and the device job has no Python. The full result, and the two traps it cost to
+get there, are in [`ulp/README.md`](ulp/README.md).
+
 ## `roll-fleet.sh`
 
 Builds and installs the working tree on every phone attached over USB, checks the

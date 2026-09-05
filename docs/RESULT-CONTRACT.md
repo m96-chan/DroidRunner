@@ -36,6 +36,16 @@ underneath.
 | `ok` | Whether a measurement was produced. |
 | `code` | Present when `ok` is false. From the closed set below. |
 | `error` | Prose, for a person. **Reworded without a schema bump — do not match on it.** |
+| `message` | The underlying exception's own words, on the NNAPI path. This is usually the useful half. |
+| `at` | Where it was thrown, on the NNAPI path. For a bug report, not for a program. |
+
+**`error` and `message` are split differently on the two paths, and that is a
+wart rather than a design.** The NNAPI path puts the exception's class name in
+`error` and its text in `message`; the Qualcomm path puts `Class: text` in
+`error` and has no `message`. So a consumer wanting the readable reason should
+read `message` when it is there and `error` otherwise, and should expect the
+same failure to look different depending on which route ran it. Tracked as
+[#138](https://github.com/m96-chan/DroidRunner/issues/138).
 
 ## Codes
 
@@ -234,6 +244,10 @@ throttle developing is visible at all. It is off by default — 500 iterations i
   sees them**, under `/home/runner`.
 - `quantizationParams` — on quantized tensors only, so a caller holding int8
   bytes is not inferring a scale from the numbers.
+- `backend` — Qualcomm only: which QNN backend ran it, e.g. `htp`.
+- `profilingBytes` — Qualcomm only: how much profiling data the delegate
+  produced. Zero is normal; it exists because a run that reports nothing *and*
+  profiles nothing cannot be attributed at all, and is refused.
 - `baseline` — present when `baseline: true` was asked for: a complete result
   for the same model with no delegate, measured in the same request and so at
   the same thermal state.
