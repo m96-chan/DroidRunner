@@ -209,6 +209,21 @@ jobs:
           echo
           echo "END-DELEGATE-RESULT>>>"
 
+      # A file no interpreter can build says so, rather than arriving as a bare
+      # `failed` that a sweep would record and carry on from. Reported by the
+      # first consumer outside this project.
+      - name: A model nothing can load is named as the caller's fault
+        run: |
+          head -c 4096 /dev/urandom > broken.tflite
+          printf 'TFL3' | dd of=broken.tflite bs=1 seek=4 conv=notrunc status=none
+          status=0
+          droidrunner-device test model broken.tflite --iterations 1 \
+            --output broken.json > /dev/null || status=$?
+          cat broken.json
+          grep -q '"code": *"invalid-model"' broken.json
+          test "$status" = 1
+          echo "reported invalid-model, exit $status"
+
       # #128: `executed: unknown` means the delegate ran and we could not read
       # what it took — the failure mode of parsing prose. It is the honest
       # answer and an invisible one, so a device run says so out loud.

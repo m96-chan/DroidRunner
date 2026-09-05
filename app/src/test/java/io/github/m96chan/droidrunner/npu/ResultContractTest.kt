@@ -66,6 +66,22 @@ class ResultContractTest {
         assertEquals("no such accelerator", body.getString("error"))
     }
 
+    @Test fun aBrokenFileIsNotAStatementAboutADriver() {
+        // The first outside consumer sent a model with -1 in a tensor shape.
+        // No interpreter could build it, on any device, with or without an
+        // accelerator — and it arrived as a bare `failed`, which is the code a
+        // sweep records and carries on from. It will fail every remaining row
+        // identically, so it has its own.
+        val stamped = JSONObject(
+            ResultContract.stamp(
+                """{"ok":false,"code":"invalid-model",""" +
+                    """"error":"Cannot create interpreter: BytesRequired overflowed"}""",
+            ),
+        )
+
+        assertEquals(ResultContract.Code.INVALID_MODEL, stamped.getString("code"))
+    }
+
     @Test fun theCodesAreTheOnesTheDocumentLists() {
         // docs/RESULT-CONTRACT.md is what another repository pins to; a code
         // renamed here and not there is a broken promise.
@@ -73,6 +89,7 @@ class ResultContractTest {
         assertEquals("unknown-device", ResultContract.Code.UNKNOWN_DEVICE)
         assertEquals("not-installed", ResultContract.Code.NOT_INSTALLED)
         assertEquals("refused", ResultContract.Code.REFUSED)
+        assertEquals("invalid-model", ResultContract.Code.INVALID_MODEL)
         assertEquals("failed", ResultContract.Code.FAILED)
     }
 }

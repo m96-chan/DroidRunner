@@ -98,6 +98,11 @@ for code in unknown-device not-installed; do
     check "$code exits 3" 3 "$(status_of)"
 done
 
+says '{"schema":1,"ok":false,"code":"invalid-model","error":"Cannot create interpreter"}'
+run test model "$WORK/model.tflite" >/dev/null
+check "a file no interpreter can load exits 1, so a sweep stops rather than recording it 61 times" \
+    1 "$(status_of)"
+
 says '{"schema":1,"ok":false,"code":"failed","error":"something else"}'
 run test model "$WORK/model.tflite" >/dev/null
 check "anything else that stopped a run exits 1" 1 "$(status_of)"
