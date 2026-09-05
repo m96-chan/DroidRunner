@@ -7,6 +7,13 @@ Run it with the **Operator support matrix** workflow, giving the runner label
 that selects the phone. It leaves `matrix.md` and `matrix.json` as artifacts,
 and prints the table into the run summary.
 
+The header names the SoC and the DroidRunner build that answered — `appVersion`
+and `appBuild`, the latter being the commit, because every development build
+reports `0.0.0-dev` and a fleet does not update all at once. The last matrix for
+each phone is kept in [`docs/matrices/`](matrices/), and the next run is
+compared against it: a driver that stops taking an operator turns the build red
+([#126](https://github.com/m96-chan/DroidRunner/issues/126)).
+
 ## Why one operator per model
 
 A whole network cannot answer this. TFLite partitions a graph, and one refused
@@ -42,7 +49,12 @@ end up in a table other people compile against.
 | `—` | excluded: the model did not run on the CPU either |
 
 `matrix.json` carries the same cells with the device's own words beside them —
-`executedBy`, and `unsupportedOps` where the delegate named what it refused.
+`executedBy`, and whether the phone was thermally stable while it answered.
+
+Nothing names the operators a driver refused: TFLite does not print them, and
+neither does Qualcomm's delegate ([#128](https://github.com/m96-chan/DroidRunner/issues/128)).
+Asking one operator at a time is how that question gets answered at all, which
+is what this is.
 
 ## What a cell does not say
 
