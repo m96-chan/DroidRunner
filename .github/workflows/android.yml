@@ -32,6 +32,11 @@ jobs:
       - name: Build proot jniLibs
         run: ANDROID_NDK_ROOT="$ANDROID_NDK_LATEST_HOME" runtime/build-proot.sh
       - run: ./gradlew testDebugUnitTest assembleDebug
+
+      # Everything this project says about who ran a graph is a regex over
+      # prose TFLite prints. This fails when the library stops printing it,
+      # instead of every result quietly becoming `executed: unknown` (#128).
+      - run: tools/check-tflite-wording.sh
       - uses: actions/upload-artifact@v7
         with:
           name: app-debug

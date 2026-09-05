@@ -88,7 +88,6 @@ internal object ModelRunner {
             }
             interpreter = built.first
             val delegation = Delegation.parse(built.second)
-            val refused = Delegation.unsupported(built.second)
             // Tensor sizes are only final once allocation has run — and with a
             // delegate attached they can differ from the pre-allocation values,
             // which is how the first attempt ended up sizing every buffer wrong.
@@ -164,7 +163,17 @@ internal object ModelRunner {
                                 .put("partial", it.partial),
                         )
                     }
-                    if (refused.isNotEmpty()) put("unsupportedOps", JSONArray(refused))
+                    // The one thing about a delegate that comes from an API
+                    // rather than from prose (#128). It says the delegate hit
+                    // an error, not which operator — but unlike the log text,
+                    // a TFLite upgrade cannot silently reword it.
+                    delegate?.let { attached ->
+                        runCatching {
+                            if (attached.hasErrors()) {
+                                put("nnapiErrno", attached.getNnapiErrno())
+                            }
+                        }
+                    }
                 }
                 .put("iterations", runs)
                 .apply {

@@ -91,23 +91,12 @@ internal data class Delegation(
                 )
             }
 
-        /**
-         * Operators a delegate turned down, with the name it used.
-         *
-         * "12 of 14 nodes went to the accelerator" tells a compiler its
-         * operator table is wrong somewhere; this tells it where. The NNAPI
-         * delegate names them as it walks the graph, and nothing else does.
-         */
-        fun unsupported(log: String): List<String> =
-            REFUSED.findAll(log)
-                .map { it.groupValues[1].trim() }
-                .filter { it.isNotBlank() }
-                .distinct()
-                .take(MAX_REFUSALS)
-                .toList()
 
-        private const val MAX_REFUSALS = 40
-
+        // Checked against the shipped library by tools/check-tflite-wording.sh:
+        // this is a regex over prose, and prose is not an API. TFLite 2.16.1
+        // exposes nothing about partitioning — `InterpreterApi` has tensors and
+        // timings, `NnApiDelegate` has an errno — so there is no alternative to
+        // read instead, only a canary that fails when the wording moves (#128).
         /**
          * Two ways the same fact gets stated, and both are looked for. TFLite
          * announces the partitioning itself and names the delegate that took
@@ -125,10 +114,6 @@ internal data class Delegation(
         private val DELEGATE_REPORT =
             Regex("""(\d+) nodes delegated out of (\d+) nodes with (\d+) partitions""")
 
-        /** How the NNAPI delegate reports an operator it will not take. */
-        private val REFUSED = Regex(
-            """(?:Operator|OP) ([A-Z_0-9]+)(?: \(v\d+\))? (?:is not supported|refused)""",
-        )
     }
 }
 

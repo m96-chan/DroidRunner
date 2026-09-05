@@ -134,17 +134,6 @@ class TfLiteDelegationReportTest {
         assertEquals("cpu-fallback", Delegation(0, 64, 0).executed)
     }
 
-    @Test fun refusedOperatorsAreNamedSoATableCanBeCorrected() {
-        // "12 of 14 nodes went to the accelerator" says an operator table is
-        // wrong somewhere; this says where.
-        val log = """
-            Operator RESHAPE (v1) is not supported by the NNAPI delegate
-            Operator PACK (v2) is not supported by the NNAPI delegate
-            Operator RESHAPE (v1) is not supported by the NNAPI delegate
-        """.trimIndent()
-
-        assertEquals(listOf("RESHAPE", "PACK"), Delegation.unsupported(log))
-    }
 }
 
 
@@ -236,5 +225,59 @@ class CpuDriverTest {
             "accelerator",
             executedFor(Delegation(64, 64, 1, "TfLiteNnapiDelegate"), "mtk-mdla_shim").first,
         )
+    }
+}
+
+
+/**
+ * The wording the parse depends on, kept verbatim (issue #128).
+ *
+ * These are renderings of the one format string TFLite 2.16.1 actually
+ * contains, read out of the library this project ships:
+ *
+ *     Replacing %d out of %d node(s) with delegate (%s) node,
+ *     yielding %zu partitions for the whole graph.
+ *
+ * `tools/check-tflite-wording.sh` asserts that string is still in the binary;
+ * this asserts the regex still reads it. Both are needed — the first catches a
+ * TFLite that stopped printing it, the second catches a regex edited until it
+ * no longer matches what is printed.
+ *
+ * The pair replaces a test that proved the parser handled
+ * `Operator RESHAPE (v1) is not supported by the NNAPI delegate` — a line no
+ * version of TFLite or of Qualcomm's delegate emits. It was green for as long
+ * as it existed, and the field it fed never once appeared in a result.
+ */
+class ShippedWordingTest {
+
+    @Test fun theLineTfLitePrintsIsTheLineTheParserReads() {
+        val log = "INFO: Replacing 64 out of 64 node(s) with delegate " +
+            "(TfLiteNnapiDelegate) node, yielding 1 partitions for the whole graph."
+
+        val delegation = Delegation.parse(log)!!
+
+        assertEquals(64, delegation.delegated)
+        assertEquals(64, delegation.total)
+        assertEquals(1, delegation.partitions)
+        assertEquals("TfLiteNnapiDelegate", delegation.delegate)
+    }
+
+    @Test fun aPartialSplitIsReadFromTheSameLine() {
+        val log = "INFO: Replacing 12 out of 14 node(s) with delegate " +
+            "(TfLiteXNNPackDelegate) node, yielding 3 partitions for the whole graph."
+
+        val delegation = Delegation.parse(log)!!
+
+        assertEquals("partial", delegation.executed)
+        assertEquals("TfLiteXNNPackDelegate", delegation.delegate)
+    }
+
+    @Test fun anUnrecognisedLineParsesToNothingRatherThanToZero() {
+        // If a TFLite upgrade rewords this, every result becomes
+        // `executed: unknown`. That is the honest answer and an invisible one,
+        // which is what tools/check-tflite-wording.sh exists to make loud.
+        val log = "INFO: Delegated 64 nodes to the accelerator."
+
+        assertNull(Delegation.parse(log))
     }
 }
