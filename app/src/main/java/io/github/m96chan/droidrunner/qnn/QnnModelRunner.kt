@@ -124,7 +124,7 @@ internal object QnnModelRunner {
             interpreter.allocateTensors()
 
             val inputSpecs = specsOf(interpreter, input = true)
-            TensorIo.mismatch(inputSpecs, inputs)?.let { error(it) }
+            TensorIo.mismatch(inputSpecs, inputs)?.let { throw TensorIo.Mismatch(it) }
             val buffers = inputSpecs.map { spec ->
                 ByteBuffer.allocateDirect(spec.bytes).order(ByteOrder.nativeOrder()).apply {
                     if (inputs.isEmpty()) {
@@ -254,11 +254,13 @@ internal object QnnModelRunner {
                 // upstream of the delegate — as it is for a model that would
                 // not load. That is the honest value, not a missing one.
                 QnnNative.error(),
-                // Asked only on a failure: does it load with nothing attached?
-                if (interpreter == null && modelIsUnloadable(model)) {
-                    ResultContract.Code.INVALID_MODEL
-                } else {
-                    ResultContract.Code.FAILED
+                when {
+                    // Their file and their byte count, so their code.
+                    failed is TensorIo.Mismatch -> ResultContract.Code.INVALID_REQUEST
+                    // Asked only on a failure: does it load with nothing attached?
+                    interpreter == null && modelIsUnloadable(model) ->
+                        ResultContract.Code.INVALID_MODEL
+                    else -> ResultContract.Code.FAILED
                 },
             )
         } finally {

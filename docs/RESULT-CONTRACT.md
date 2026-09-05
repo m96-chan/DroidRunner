@@ -50,7 +50,7 @@ reading English.
 | `invalid-model` | no interpreter could be built from the file, with or without a delegate | `1` |
 | `unknown-device` | no such accelerator on this phone | `3` |
 | `not-installed` | the vendor runtime this device would need is not installed | `3` |
-| `invalid-request` | malformed, or a path outside the job's home | `1` |
+| `invalid-request` | malformed, a path outside the job's home, **or inputs that do not fit the model** | `1` |
 | `failed` | anything else that stopped a run | `1` |
 | — | the agent did not answer | `4` |
 
@@ -60,6 +60,16 @@ load will fail every remaining row identically, and the fault is the caller's.
 It is told apart from `failed` by loading the model again with **nothing
 attached** — the same control the operator matrix runs against the CPU — so it
 is a statement about the file and not about any driver.
+
+`invalid-request` covers the other half of the same idea. Supplying an input
+file that is not the size the model's tensor declares is the caller's mistake in
+the same way a broken model is, and it used to arrive as `failed` — the bucket
+that means *something went wrong in here*. The message names the tensor, its
+dtype, its extent, the bytes wanted and the bytes given:
+
+```
+input 0 a (FLOAT32 1, 4 bytes) needs 4 bytes, but input-0.bin is 4096
+```
 
 Reported by the first consumer outside this project, whose model was rejected
 before any delegate saw it and arrived as a bare `failed`:
