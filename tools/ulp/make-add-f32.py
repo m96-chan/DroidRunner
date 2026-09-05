@@ -34,6 +34,25 @@ def exact_values(count):
     return a.astype("float32"), b.astype("float32")
 
 
+def odd_mantissa_values(count):
+    """Sums whose low mantissa bit is already 1, half the time.
+
+    The set that separates the last two explanations. Everything run so far is
+    a multiple of 0.25, so every low mantissa bit is 0 — and on such values
+    "add one to the word" and "set the low bit of the word" are the same
+    output. They are different faults: an increment carries and accumulates, a
+    forced bit is idempotent and leaves an already-odd mantissa alone.
+
+    `1.0 + i * 2^-23` is exactly representable for i below 2^23 and needs no
+    rounding, and its low mantissa bit is `i & 1`. Signs alternate so the
+    answer is not read off positives only.
+    """
+    steps = np.arange(count) % 512
+    a = np.where(np.arange(count) % 2 == 0, 1.0, -1.0)
+    b = np.where(np.arange(count) % 2 == 0, 1.0, -1.0) * steps * np.float32(2.0) ** -23
+    return a.astype("float32"), b.astype("float32")
+
+
 def signed_values(count):
     """The same, shifted so results land on both sides of zero.
 
@@ -62,6 +81,7 @@ def main():
     for prefix, (a, b) in (
         ("", exact_values(COUNT)),
         ("signed-", signed_values(COUNT)),
+        ("odd-", odd_mantissa_values(COUNT)),
     ):
         (out / f"{prefix}input-0.bin").write_bytes(a.tobytes())
         (out / f"{prefix}input-1.bin").write_bytes(b.tobytes())

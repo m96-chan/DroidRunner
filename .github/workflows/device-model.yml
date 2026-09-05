@@ -264,7 +264,7 @@ jobs:
           # sign-and-magnitude, so "+1 to the raw word" and "+1 step toward
           # positive" agree on positives and disagree on negatives — one run
           # tells them apart. Suggested by NxPU.
-          mkdir -p out-cpu-signed out-dev-signed
+          mkdir -p out-cpu-signed out-dev-signed out-cpu-odd out-dev-odd
           droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
             --input tools/ulp/fixtures/signed-input-0.bin \
             --input tools/ulp/fixtures/signed-input-1.bin \
@@ -276,6 +276,21 @@ jobs:
               --input tools/ulp/fixtures/signed-input-0.bin \
               --input tools/ulp/fixtures/signed-input-1.bin \
               --output-dir out-dev-signed --iterations 1 > /dev/null || true
+          fi
+          # And the set whose sums already have an odd low mantissa bit: an
+          # increment carries there, a forced bit does nothing, and everything
+          # measured before was a multiple of 0.25 where the two agree.
+          droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
+            --input tools/ulp/fixtures/odd-input-0.bin \
+            --input tools/ulp/fixtures/odd-input-1.bin \
+            --output-dir out-cpu-odd --iterations 1 > /dev/null
+          if [ -s f32-device.json ]; then
+            driver="$(grep -o '"requestedDevice":"[^"]*"' f32-device.json | cut -d'"' -f4)"
+            droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
+              --device "$driver" \
+              --input tools/ulp/fixtures/odd-input-0.bin \
+              --input tools/ulp/fixtures/odd-input-1.bin \
+              --output-dir out-dev-odd --iterations 1 > /dev/null || true
           fi
           # Compared off-device: the guest has no python, and ULP arithmetic in
           # awk is not something to trust a finding to.
@@ -289,6 +304,8 @@ jobs:
             out-dev-f32/
             out-cpu-signed/
             out-dev-signed/
+            out-cpu-odd/
+            out-dev-odd/
             f32-device.json
           if-no-files-found: warn
 

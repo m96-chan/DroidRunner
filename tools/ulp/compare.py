@@ -68,6 +68,17 @@ def main():
               f"device 0x{actual[index].view(np.uint32):08x} "
               f"({difference[index]:+d} ULP)")
 
+    # Where the low mantissa bit is already 1, an increment carries and a
+    # forced bit does nothing. Everything measured before this set was a
+    # multiple of 0.25, so the two were indistinguishable.
+    odd = (expected.view(np.uint32) & 1).astype(bool)
+    if odd.any():
+        raw = raw_word_difference(expected, actual)
+        print(f"of the {int(odd.sum())} results whose low mantissa bit was already 1: "
+              f"raw-word {sorted(set(raw[odd].tolist()))}")
+        print(f"of the {int((~odd).sum())} whose low bit was 0: "
+              f"raw-word {sorted(set(raw[~odd].tolist()))}")
+
     if exact == expected.size:
         return 0
     # Not a failure by itself: a device may legitimately differ. It is a
