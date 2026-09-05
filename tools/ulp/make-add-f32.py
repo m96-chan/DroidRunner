@@ -34,6 +34,25 @@ def exact_values(count):
     return a.astype("float32"), b.astype("float32")
 
 
+def resolution_values(count):
+    """1.0 plus a step, sweeping the step from 2^-1 down to 2^-23.
+
+    Asks where the accelerator stops resolving a difference rather than
+    assuming a rule about bits. The coarse sets could not have answered it: a
+    multiple of 0.25 needs seven significand bits, and everything is
+    resolvable at that granularity, so a path that keeps only the top bits
+    looks bit-exact except for whatever it does to the last one.
+
+    Each step size is repeated so a single wrong value cannot be read as a
+    threshold, and the exponent is the row: the finest step that still comes
+    back distinct is the answer.
+    """
+    exponents = np.repeat(np.arange(1, 24), count // 23 + 1)[:count]
+    a = np.ones(count)
+    b = np.float32(2.0) ** -exponents.astype("float32")
+    return a.astype("float32"), b.astype("float32")
+
+
 def odd_mantissa_values(count):
     """Sums whose low mantissa bit is already 1, half the time.
 
@@ -82,6 +101,7 @@ def main():
         ("", exact_values(COUNT)),
         ("signed-", signed_values(COUNT)),
         ("odd-", odd_mantissa_values(COUNT)),
+        ("resolution-", resolution_values(COUNT)),
     ):
         (out / f"{prefix}input-0.bin").write_bytes(a.tobytes())
         (out / f"{prefix}input-1.bin").write_bytes(b.tobytes())

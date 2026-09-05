@@ -264,7 +264,8 @@ jobs:
           # sign-and-magnitude, so "+1 to the raw word" and "+1 step toward
           # positive" agree on positives and disagree on negatives — one run
           # tells them apart. Suggested by NxPU.
-          mkdir -p out-cpu-signed out-dev-signed out-cpu-odd out-dev-odd
+          mkdir -p out-cpu-signed out-dev-signed out-cpu-odd out-dev-odd \
+                   out-cpu-res out-dev-res
           droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
             --input tools/ulp/fixtures/signed-input-0.bin \
             --input tools/ulp/fixtures/signed-input-1.bin \
@@ -292,6 +293,21 @@ jobs:
               --input tools/ulp/fixtures/odd-input-1.bin \
               --output-dir out-dev-odd --iterations 1 > /dev/null || true
           fi
+          # And the sweep that asks where it stops resolving a difference at
+          # all, rather than assuming a rule about bits: 1.0 + 2^-k for k from
+          # 1 to 23. The coarse sets could not have answered this.
+          droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
+            --input tools/ulp/fixtures/resolution-input-0.bin \
+            --input tools/ulp/fixtures/resolution-input-1.bin \
+            --output-dir out-cpu-res --iterations 1 > /dev/null
+          if [ -s f32-device.json ]; then
+            driver="$(grep -o '"requestedDevice":"[^"]*"' f32-device.json | cut -d'"' -f4)"
+            droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
+              --device "$driver" \
+              --input tools/ulp/fixtures/resolution-input-0.bin \
+              --input tools/ulp/fixtures/resolution-input-1.bin \
+              --output-dir out-dev-res --iterations 1 > /dev/null || true
+          fi
           # Compared off-device: the guest has no python, and ULP arithmetic in
           # awk is not something to trust a finding to.
           ls -l out-cpu-f32 out-dev-f32 out-cpu-signed out-dev-signed || true
@@ -306,6 +322,8 @@ jobs:
             out-dev-signed/
             out-cpu-odd/
             out-dev-odd/
+            out-cpu-res/
+            out-dev-res/
             f32-device.json
           if-no-files-found: warn
 
