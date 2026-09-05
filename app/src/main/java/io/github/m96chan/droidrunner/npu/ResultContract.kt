@@ -79,10 +79,46 @@ internal object ResultContract {
     }
 
     /** An error body in the shape the contract promises. */
-    fun error(code: String, message: String): String = JSONObject()
+    /**
+     * One failure, in one shape, whichever layer produced it (issue #138).
+     *
+     * Two fields with two owners, because the halves have different lifetimes
+     * and different readers:
+     *
+     *  - [error] is ours. A sentence about what went wrong, reworded whenever
+     *    a better sentence exists, and never matched on by a program — that is
+     *    what [Code] is for.
+     *  - [message] is theirs, verbatim: the exception's own words, the vendor's
+     *    own words, whatever the layer below actually said. Never summarised,
+     *    never merged into [error], and absent rather than empty when there is
+     *    nothing.
+     *
+     * The two runners used to disagree about which field held which — a class
+     * name in `error` and the text in `message` on one path, both combined in
+     * `error` on the other — so the first consumer outside this project had to
+     * read both and guess. The text naming three bad tensors is what turned
+     * their diagnosis into a minute, and it was reachable by two different
+     * routes depending on which processor they had asked for.
+     */
+    fun failure(
+        code: String,
+        error: String,
+        message: String? = null,
+        at: String? = null,
+    ): JSONObject = JSONObject()
         .put("schema", SCHEMA)
         .put("ok", false)
         .put("code", code)
-        .put("error", message)
-        .toString()
+        .put("error", error)
+        .apply {
+            message?.takeIf { it.isNotBlank() }?.let { put("message", it) }
+            at?.takeIf { it.isNotBlank() }?.let { put("at", it) }
+        }
+
+    /**
+     * A failure with nothing underneath it: the request never reached a layer
+     * that could have said anything of its own, so there is no [message].
+     */
+    fun error(code: String, message: String): String =
+        failure(code = code, error = message).toString()
 }

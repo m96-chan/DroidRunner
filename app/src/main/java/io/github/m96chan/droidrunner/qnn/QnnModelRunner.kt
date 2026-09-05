@@ -249,11 +249,15 @@ internal object QnnModelRunner {
             failure(
                 model,
                 backend,
-                "${failed::class.java.simpleName}: ${failed.message.orEmpty()}",
-                // The vendor's own words, which are empty when the failure was
-                // upstream of the delegate — as it is for a model that would
-                // not load. That is the honest value, not a missing one.
-                QnnNative.error(),
+                // Ours. The exception's own words go to `message`, whole.
+                "the run failed on the ${backend.uppercase()}",
+                // The deepest words anyone said. The exception's text first:
+                // it is where the vendor's own errors arrive, carried out
+                // through TFLite — `qnn_graph_finalize failed. Error 6020` is
+                // Qualcomm's, and it comes this way and not through our loader.
+                // The loader's own last error only when there is no exception
+                // text to prefer.
+                failed.message?.takeIf { it.isNotBlank() } ?: QnnNative.error(),
                 when {
                     // Their file and their byte count, so their code.
                     failed is TensorIo.Mismatch -> ResultContract.Code.INVALID_REQUEST
@@ -270,20 +274,26 @@ internal object QnnModelRunner {
         }
     }
 
+    /**
+     * One failure, in the shape every other path uses (issue #138).
+     *
+     * `detail` is gone. It held our loader's last error under a name that
+     * read as the vendor's, and was empty whenever the loader had worked —
+     * which is most failures, including the ones where Qualcomm's runtime had
+     * plenty to say. What it did hold now arrives as [message] when it is the
+     * deepest thing anyone said, and nothing pretends to be the vendor's words
+     * unless they are.
+     */
     private fun failure(
         model: File,
         backend: String,
         reason: String,
-        detail: String,
+        message: String,
         code: String = ResultContract.Code.FAILED,
     ) =
-        JSONObject()
-            .put("ok", false)
-            .put("code", code)
+        ResultContract.failure(code = code, error = reason, message = message)
             .put("model", model.name)
             .put("requestedDevice", "qnn-$backend")
-            .put("error", reason)
-            .put("detail", detail)
             .toString()
 
     /** What the interpreter settled on, which is only final after allocation. */

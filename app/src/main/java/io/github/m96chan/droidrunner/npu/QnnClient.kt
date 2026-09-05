@@ -121,12 +121,11 @@ internal class QnnClient(private val context: Context) {
         }
     }
 
-    private fun refusal(reason: String, code: String = ResultContract.Code.FAILED) =
-        org.json.JSONObject()
-            .put("ok", false)
-            .put("code", code)
-            .put("error", reason)
-            .toString()
+    private fun refusal(
+        reason: String,
+        code: String = ResultContract.Code.FAILED,
+        message: String? = null,
+    ) = ResultContract.failure(code = code, error = reason, message = message).toString()
 
     /**
      * Binds, sends one message, waits for the answer and unbinds.
