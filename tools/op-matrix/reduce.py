@@ -156,6 +156,13 @@ def main():
     print(f"{len(rows)} rows x {len(drivers)} drivers: "
           + ", ".join(f"{count} {status}" for status, count in sorted(counted.items())),
           file=sys.stderr)
+    # An all-excluded table is not a matrix, and publishing one as though it
+    # were is worse than publishing nothing: it looks like an answer. The first
+    # run of this on hardware produced exactly that, from models the agent
+    # could not read, and came back green.
+    if rows and excluded == len(rows):
+        sys.exit("every row was excluded: no model ran on the CPU, so this "
+                 "sweep says nothing about any driver")
 
 
 if __name__ == "__main__":
