@@ -112,6 +112,13 @@ def convert(shapes, build, precision):
         converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
         converter.inference_input_type = tf.int8
         converter.inference_output_type = tf.int8
+        # NNAPI accepts per-channel weights for convolutions and not for
+        # FULLY_CONNECTED, and the converter quantizes both per channel by
+        # default. Every driver on every phone answered the resulting model
+        # with ANEURALNETWORKS_BAD_DATA — one operator reading as broken
+        # everywhere, which is what a defect of ours looks like next to a
+        # driver's opinion. Convolutions keep their per-channel scales.
+        converter._experimental_disable_per_channel_quantization_for_dense_layers = True
     return converter.convert()
 
 
