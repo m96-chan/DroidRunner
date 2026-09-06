@@ -84,6 +84,38 @@ thermal  <span class="ok">none</span> &middot; battery <span class="ok">93%</spa
 </section>
 
 <section class="panel">
+  <h2>なぜシングルボードではなくスマホか</h2>
+  <p>
+    スマホの正直な比較対象は仮想マシンではなく、棚に置くRaspberry Piか、ホストされた
+    ARM64の従量課金です。GitHubの<code>linux-arm64</code> Runnerは公開リポジトリなら
+    無料ですが、プライベートは課金されます。つまりプライベートリポジトリでの実際の
+    選択は、<b>買うボード</b>と<b>すでに持っている端末</b>の比較になります。
+  </p>
+  <table>
+    <tr><th></th><th>Raspberry Pi 5</th><th>引き出しの中のスマホ</th></tr>
+    <tr><td>費用</td><td>本体・電源・ストレージ・ケース</td><td><b>支払い済み</b></td></tr>
+    <tr><td>NPU</td><td>無し</td><td><b>このプロジェクトの存在理由</b></td></tr>
+    <tr><td>計算に使えるGPU</td><td>実質無し</td><td>TFLite delegateから到達可能</td></tr>
+    <tr><td>停電</td><td>止まる。UPSは別料金</td><td><b>バッテリーがUPS</b></td></tr>
+    <tr><td>状態表示</td><td>画面を足す</td><td>最初から在る</td></tr>
+    <tr><td>Linux</td><td><b>普通に使える。root有り</b></td><td>PRoot、root不可、ベンダーの電源管理</td></tr>
+  </table>
+  <div class="note">
+    <b>過小評価されがちなのはバッテリーです。</b>ボードは電源の一瞬の揺らぎでビルドを
+    落とします。スマホは気付きもしません。そして再起動が実際に起きたときは、DroidRunnerが
+    無人だった時間を記録するので、その空白が見えないまま埋もれることもありません。<br><br>
+    <b>ボードが勝つのは「普通のコンピュータであること」です。</b>root、予想通りに動くLinux、
+    GPIO、そしてバックグラウンドで何を動かしてよいかをベンダーが決めないこと。CIがビルドと
+    テストだけで、アクセラレータに触れないなら、ボードを買うべきです。そちらが単純な機械で、
+    このプロジェクトはそれを止めようとはしていません。<br><br>
+    <b>スマホが勝つのは、問いがシリコンに関わった瞬間です。</b>このページの以降にあるもの
+    ——どのドライバが実際にグラフを走らせたか、どの演算子をベンダーが拒否するか、誰が計算
+    したかではなく何を計算したか——は、NPUの無いボードでは答えられません。VMで答えられない
+    のと同じ理由です。
+  </div>
+</section>
+
+<section class="panel">
   <h2>ダッシュボード</h2>
   <div class="shot">
     <img src="../assets/dashboard.png" alt="CPU・メモリ・ディスク・電源・Runnerの各パネルを表示したbtop風ダッシュボード">

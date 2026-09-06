@@ -84,6 +84,40 @@ thermal  <span class="ok">none</span> &middot; battery <span class="ok">93%</spa
 </section>
 
 <section class="panel">
+  <h2>why a phone and not a single-board computer</h2>
+  <p>
+    The honest alternative to a phone is not a virtual machine &mdash; it is a Raspberry
+    Pi on the shelf, or paying for hosted ARM64 minutes. Hosted <code>linux-arm64</code>
+    runners are free for public repositories and billed for private ones, so for a
+    private repo the real comparison is a board you buy against a handset you already
+    own.
+  </p>
+  <table>
+    <tr><th></th><th>Raspberry Pi 5</th><th>a phone from the drawer</th></tr>
+    <tr><td>cost</td><td>board, PSU, storage, case</td><td><b>already paid for</b></td></tr>
+    <tr><td>NPU</td><td>none</td><td><b>the reason this project exists</b></td></tr>
+    <tr><td>GPU for compute</td><td>not in practice</td><td>reached by the TFLite delegate</td></tr>
+    <tr><td>power cut</td><td>it stops; a UPS costs extra</td><td><b>the battery is the UPS</b></td></tr>
+    <tr><td>state display</td><td>add a screen</td><td>it has one</td></tr>
+    <tr><td>Linux</td><td><b>ordinary, with root</b></td><td>PRoot, no root, vendor power management</td></tr>
+  </table>
+  <div class="note">
+    <b>The battery is the part people underrate.</b> A board loses a build to a flicker
+    in the mains. A phone does not notice &mdash; and when a reboot does happen,
+    DroidRunner records how long the device went unserved rather than leaving the gap
+    invisible.<br><br>
+    <b>The board wins on being a normal computer.</b> Root, predictable Linux, GPIO, and
+    no vendor deciding what may run in the background. If your CI is a build and a test
+    suite and nothing touches an accelerator, buy the board &mdash; it is the simpler
+    machine, and this project is not trying to talk you out of it.<br><br>
+    <b>The phone wins the moment the question involves silicon.</b> Everything further
+    down this page &mdash; which driver actually ran a graph, which operators a vendor
+    refuses, what an accelerator computed rather than merely who computed it &mdash; is
+    unanswerable on a board with no NPU, and unanswerable on a VM for the same reason.
+  </div>
+</section>
+
+<section class="panel">
   <h2>dashboard</h2>
   <div class="shot">
     <img src="assets/dashboard.png" alt="DroidRunner's btop-style dashboard showing CPU, memory, disk, power and runner panels">
