@@ -43,7 +43,6 @@ fun AboutPanel(capabilities: DeviceCapabilities, runtime: RuntimeInstaller) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
-    var copiedDiagnostics by remember { mutableStateOf(false) }
 
     fun open(url: String) {
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
@@ -82,22 +81,11 @@ fun AboutPanel(capabilities: DeviceCapabilities, runtime: RuntimeInstaller) {
 
         Spacer(Modifier.padding(top = 8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Link(if (copied) "copied ✓" else "copy device info") {
+            Link(if (copied) "copied" else "copy device info") {
                 clipboard.setText(AnnotatedString(deviceReport(capabilities, runtime)))
                 copied = true
             }
-            Link(if (copiedDiagnostics) "copied ✓" else "copy diagnostics") {
-                clipboard.setText(
-                    AnnotatedString(
-                        diagnosticsReport(
-                            capabilities,
-                            runtime,
-                            RunnerLog.readTail(context.applicationContext.filesDir),
-                        ),
-                    ),
-                )
-                copiedDiagnostics = true
-            }
+            CopyDiagnosticsLink(capabilities, runtime)
         }
     }
 }
@@ -110,7 +98,7 @@ fun AboutPanel(capabilities: DeviceCapabilities, runtime: RuntimeInstaller) {
  * taken off the phone at all. This is the way out, and it goes to the clipboard
  * because the destination is the text box in an issue.
  */
-private fun diagnosticsReport(
+internal fun diagnosticsReport(
     capabilities: DeviceCapabilities,
     runtime: RuntimeInstaller,
     tail: List<String>,
@@ -126,7 +114,7 @@ private fun diagnosticsReport(
 }
 
 /** Everything worth pasting into a bug report. */
-private fun deviceReport(capabilities: DeviceCapabilities, runtime: RuntimeInstaller): String =
+internal fun deviceReport(capabilities: DeviceCapabilities, runtime: RuntimeInstaller): String =
     buildString {
         appendLine("DroidRunner ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
         appendLine("device: ${capabilities.manufacturer} ${capabilities.model}")
@@ -150,8 +138,18 @@ private fun Field(label: String, value: String) {
     }
 }
 
+/**
+ * A tappable label.
+ *
+ * Keep labels to plain text. A tick — "copied ✓" — is drawn from a fallback
+ * font whose line box is taller than the body font's, and swapping it in grew
+ * the disk panel on the dashboard by 9px, broke its alignment with the mem
+ * panel beside it, and pushed everything below down. Measured on device, and
+ * not fixed by pinning `lineHeight`: Compose sizes the line from the font's own
+ * metrics whatever the style asks for.
+ */
 @Composable
-private fun Link(label: String, onClick: () -> Unit) {
+internal fun Link(label: String, onClick: () -> Unit) {
     Text(
         label,
         color = BtopColors.Cyan,
