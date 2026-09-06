@@ -64,7 +64,7 @@ fun DashboardScreen(
         CpuPanel(system)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             MemPanel(system, Modifier.weight(1f))
-            DiskPanel(system, Modifier.weight(1f))
+            DiskPanel(system, capabilities, runtime, Modifier.weight(1f))
         }
         PowerNetPanel(system)
         // Claims the space the monitors leave, so the log grows with the
@@ -144,7 +144,12 @@ private fun MemPanel(system: SystemSnapshot, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun DiskPanel(system: SystemSnapshot, modifier: Modifier = Modifier) {
+private fun DiskPanel(
+    system: SystemSnapshot,
+    capabilities: DeviceCapabilities,
+    runtime: RuntimeInstaller,
+    modifier: Modifier = Modifier,
+) {
     Panel("disk", modifier) {
         Spacer(Modifier.padding(top = 6.dp))
         Meter("", system.diskFraction)
@@ -155,6 +160,11 @@ private fun DiskPanel(system: SystemSnapshot, modifier: Modifier = Modifier) {
         )
         Spacer(Modifier.padding(top = 8.dp))
         Text("app-private storage", color = BtopColors.Dim, style = MaterialTheme.typography.labelSmall)
+        // The line the mem panel's graph leaves spare beside this one, and the
+        // storage the runner log is written to is the storage this panel is
+        // about — so the offer sits where it is already true. Bare, because a
+        // second frame inside the box would read as a second panel.
+        CopyDiagnosticsLink(capabilities, runtime)
     }
 }
 
