@@ -35,12 +35,22 @@ object RuntimeRecovery {
         !busy && runnerState == RunnerState.STOPPED
 
     /**
-     * A device that had already registered was a working runner until its
-     * runtime went missing; putting one back finishes the repair, so it should
-     * not also need a trip to the dashboard to press Start. A device that was
-     * never registered has nothing to run yet and is left alone.
+     * Whether a setup step that has just finished should leave a runner running
+     * (issues #46, #150).
+     *
+     * Two paths end here. A device that had already registered was a working
+     * runner until its runtime went missing, and putting one back finishes the
+     * repair. A device that has just registered — to its first repository or to
+     * a different one — is a runner nobody has started. Neither should need a
+     * trip to the dashboard to press Start, and a device that never registered
+     * has nothing to run and is left alone.
+     *
+     * Named for the step and not for a caller. While this was
+     * `shouldStartRunnerAfterInstall`, registering was the path that did not
+     * call it: switching repositories wrote the registration, ran `config.sh`,
+     * and left the device silent — registered, healthy, and not running.
      */
-    fun shouldStartRunnerAfterInstall(registered: Boolean, runnerState: RunnerState): Boolean =
+    fun shouldStartRunnerAfterSetup(registered: Boolean, runnerState: RunnerState): Boolean =
         registered && runnerState == RunnerState.STOPPED
 
     /** Says which of the two situations the user is in, since the fix is the same. */

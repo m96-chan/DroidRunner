@@ -330,7 +330,7 @@ fun SetupScreen(
             // Read both back from disk rather than trusting what the screen
             // believed before the install: the install is what decides whether
             // the registration made it across.
-            val startRunner = RuntimeRecovery.shouldStartRunnerAfterInstall(
+            val startRunner = RuntimeRecovery.shouldStartRunnerAfterSetup(
                 registered = RunnerRegistration.isConfigured(runtime.runtimeDir),
                 runnerState = RunnerStatus.snapshot.value.state,
             )
@@ -469,6 +469,16 @@ fun SetupScreen(
             }
             progress = null
             busy = false
+            // Registering is the other way a device becomes a runner, and it
+            // used to end here without starting one. Switching repositories
+            // then looked like it had failed: the runner went away and did not
+            // come back, while everything the screen could show said it had
+            // worked (#150).
+            val startRunner = RuntimeRecovery.shouldStartRunnerAfterSetup(
+                registered = RunnerRegistration.isConfigured(runtime.runtimeDir),
+                runnerState = RunnerStatus.snapshot.value.state,
+            )
+            if (status == null && startRunner) onStartRunner()
         }
     }
 
@@ -980,11 +990,12 @@ fun SetupScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    when {
-                        alreadyRegistered -> "Registered: ${selectedTarget.displayName}"
-                        storedTarget != null -> "Re-register as ${selectedTarget.displayName}"
-                        else -> "Register ${selectedTarget.displayName}"
-                    },
+                    registerButtonLabel(
+                        target = selectedTarget.displayName,
+                        alreadyRegistered = alreadyRegistered,
+                        firstRegistration = storedTarget == null,
+                        runnerStopped = runnerStopped,
+                    ),
                 )
             }
             if (!alreadyRegistered && storedTarget != null) {
