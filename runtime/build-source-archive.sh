@@ -53,8 +53,18 @@ rm -rf "$STAGE/proot/proot/.git"
 
 echo "talloc $TALLOC_VERSION" >&2
 talloc_archive="$STAGE/talloc/talloc-$TALLOC_VERSION.tar.gz"
-wget -qO "$talloc_archive" "https://www.samba.org/ftp/talloc/talloc-$TALLOC_VERSION.tar.gz" \
-    || die "cannot download talloc"
+# Same two sources, same order and same hash check as build-proot.sh. This one
+# runs during a release, and it is the archive that discharges the source
+# obligation — so an upstream outage here does not merely fail a build, it
+# fails the thing a recipient is owed, after a tag has already been pushed.
+for source in \
+    "https://www.samba.org/ftp/talloc/talloc-$TALLOC_VERSION.tar.gz" \
+    "https://github.com/m96-chan/DroidRunner/releases/download/deps-talloc-$TALLOC_VERSION/talloc-$TALLOC_VERSION.tar.gz"
+do
+    wget -qO "$talloc_archive" "$source" && break
+    echo "talloc: $source did not answer, trying the next source" >&2
+done
+[ -s "$talloc_archive" ] || die "cannot download talloc from any source"
 echo "$TALLOC_SHA256  $talloc_archive" | sha256sum -c - >/dev/null \
     || die "talloc archive does not match its pinned SHA-256"
 
