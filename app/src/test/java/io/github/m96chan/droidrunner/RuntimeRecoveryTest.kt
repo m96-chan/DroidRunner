@@ -36,15 +36,22 @@ class RuntimeRecoveryTest {
     }
 
     @Test fun aRepairedRunnerComesBackUpOnItsOwn() {
-        assertTrue(RuntimeRecovery.shouldStartRunnerAfterInstall(registered = true, RunnerState.STOPPED))
+        assertTrue(RuntimeRecovery.shouldStartRunnerAfterSetup(registered = true, RunnerState.STOPPED))
+    }
+
+    @Test fun aDeviceMovedToAnotherRepositoryComesBackUpToo() {
+        // Registration reaches this with the runtime already installed and the
+        // listener stopped for the swap, which is the same state a finished
+        // repair leaves behind. Issue #150 was that only the repair acted on it.
+        assertTrue(RuntimeRecovery.shouldStartRunnerAfterSetup(registered = true, RunnerState.STOPPED))
     }
 
     @Test fun aDeviceThatNeverRegisteredHasNothingToStart() {
-        assertFalse(RuntimeRecovery.shouldStartRunnerAfterInstall(registered = false, RunnerState.STOPPED))
+        assertFalse(RuntimeRecovery.shouldStartRunnerAfterSetup(registered = false, RunnerState.STOPPED))
     }
 
     @Test fun aRunnerThatIsSomehowAlreadyUpIsNotStartedTwice() {
-        assertFalse(RuntimeRecovery.shouldStartRunnerAfterInstall(registered = true, RunnerState.LISTENING))
+        assertFalse(RuntimeRecovery.shouldStartRunnerAfterSetup(registered = true, RunnerState.LISTENING))
     }
 
     @Test fun theButtonSaysWhetherThisIsARepairOrAFirstInstall() {
