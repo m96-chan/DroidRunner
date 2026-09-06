@@ -87,6 +87,11 @@ class SystemMonitor(private val context: Context) {
                 val scale = it.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
                 if (level < 0 || scale <= 0) 0 else level * 100 / scale
             } ?: 0,
+            // EXTRA_PLUGGED and deliberately not `status == CHARGING`: a full
+            // battery reports BATTERY_STATUS_FULL while still on the cable, and
+            // reading that as "not charging" would put every device in the fleet
+            // on hold at 100% — with admission control naming a reason the owner
+            // can see is false, since the phone is plainly plugged in.
             charging = battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)?.let { it != 0 } ?: false,
             batteryTempC = battery?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
                 ?.takeIf { it != Int.MIN_VALUE }?.let { it / 10f },

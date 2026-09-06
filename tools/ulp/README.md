@@ -26,6 +26,39 @@ fp16(a) + fp16(b)  ->  back to f32  ->  low bit of the word set, unless the resu
 **4096 of 4096, bit for bit.** Reimplemented independently by NxPU against the
 same words, which is why it is stated as a rule rather than as a curve fit.
 
+## The same expression on a second Hexagon generation
+
+NxPU then ran these fixtures on an **SM8550 (Hexagon V73)** — the same files,
+each checked against its sha256 in this repository at `v0.10.0` — and again
+implemented the rule from the prose above rather than from the code here.
+
+| fixture set | V75, here | V73, NxPU |
+| --- | --- | --- |
+| `input-*` | 1024 / 1024 | 1024 / 1024 |
+| `signed-*` | 1024 / 1024 | 1024 / 1024 |
+| `odd-*` | 1024 / 1024 | 1024 / 1024 |
+| `resolution-*` | 1024 / 1024 | 1024 / 1024 |
+
+**8192 words between the two, and no disagreement.** `input-*` and `signed-*`
+come back bit-identical across the generations — `{0: 8, 1: 1016}` and
+`{0: 16, 1: 1008}` on both — which is what moves this from "that chip does
+that" to "the Qualcomm f32 path does that".
+
+The resolution sweep is where V73 shows the cliff directly rather than by
+inference: **eleven distinct device words for 1024 inputs**, with the deltas
+landing on -255, -511, -1023, -2047 and -4095 — each one less than a power of
+two, which is what a device holding a single word while the expected value
+sweeps a whole binade produces.
+
+The structural limit holds there for the same reason it holds here. Every one
+of those device words came back from a path where the f32 is converted from an
+fp16, so its low bit is clear before anything sets it: **`+1` and `set the low
+bit` remain indistinguishable on V73**, and no number is reported for it.
+
+Two generations, two implementations written from a description rather than
+from shared code. A defect shared between two copies of one implementation
+would look exactly like agreement; this cannot.
+
 The resolution sweep is where it becomes legible:
 
 ```
@@ -53,9 +86,10 @@ why the GPU was worth adding for something other than speed.
 
 ## What is claimed, and what is not
 
-Claimed: on that phone, through that delegate build, an f32 `ADD` behaves as
-above. **Not** claimed: other operators, other shapes, other delegate builds,
-Hexagon V73, or that this is documented Qualcomm behaviour rather than a defect.
+Claimed: on the SM8650 and the SM8550, through those delegate builds, an f32
+`ADD` behaves as above. **Not** claimed: other operators, other shapes, other
+delegate builds, Hexagon generations neither of us has run, or that this is
+documented Qualcomm behaviour rather than a defect.
 
 MediaTek's `mtk-dsp_shim` through NNAPI is **bit-exact on every one of these
 sets**, and so is the CPU. So this is the Qualcomm path and not accelerators in

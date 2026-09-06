@@ -46,6 +46,7 @@ cannot produce, and the reason this exists.
 - **btop-style dashboard** — live CPU, memory, battery, thermal, disk, and network monitor together with runner status
 - **Self-protecting** — holds jobs while the device is unplugged, low, hot, or short on space, and restarts the listener on its own after a failure. A held device really does go offline to GitHub, rather than only believing it has
 - **Says what it is doing** — the notification carries the runner state and, when work is held, the reason; a picture-in-picture window keeps it on screen while the phone is used for something else
+- **Hands over its own log** — the device report and the tail of the runner log, on the clipboard. A release build refuses `run-as`, so this is the only way a phone that is not yours can say what happened to it
 - **Ephemeral mode** — optionally re-registers and wipes the work directory after every job
 - **Usable from another repository** — a composite action, a documented result contract, and exit statuses that tell a refusal apart from a phone that stopped answering
 
