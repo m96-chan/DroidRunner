@@ -81,7 +81,7 @@ fun AboutPanel(capabilities: DeviceCapabilities, runtime: RuntimeInstaller) {
 
         Spacer(Modifier.padding(top = 8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Link(if (copied) "copied ✓" else "copy device info") {
+            Link(if (copied) "copied" else "copy device info") {
                 clipboard.setText(AnnotatedString(deviceReport(capabilities, runtime)))
                 copied = true
             }
@@ -138,6 +138,16 @@ private fun Field(label: String, value: String) {
     }
 }
 
+/**
+ * A tappable label.
+ *
+ * Keep labels to plain text. A tick — "copied ✓" — is drawn from a fallback
+ * font whose line box is taller than the body font's, and swapping it in grew
+ * the disk panel on the dashboard by 9px, broke its alignment with the mem
+ * panel beside it, and pushed everything below down. Measured on device, and
+ * not fixed by pinning `lineHeight`: Compose sizes the line from the font's own
+ * metrics whatever the style asks for.
+ */
 @Composable
 internal fun Link(label: String, onClick: () -> Unit) {
     Text(

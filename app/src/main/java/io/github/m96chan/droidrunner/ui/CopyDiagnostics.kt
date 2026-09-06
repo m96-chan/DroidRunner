@@ -31,7 +31,7 @@ internal fun CopyDiagnosticsLink(
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
 
-    Link(if (copied) "copied ✓" else label) {
+    Link(if (copied) "copied" else label) {
         clipboard.setText(
             AnnotatedString(
                 diagnosticsReport(
