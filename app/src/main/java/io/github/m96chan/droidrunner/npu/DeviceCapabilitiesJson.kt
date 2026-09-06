@@ -44,11 +44,41 @@ object DeviceCapabilitiesJson {
         }
     }.getOrElse { JSONObject().put("allowlisted", false).put("error", it.message.orEmpty()) }
 
+    /**
+     * Every value `--device` accepts on this phone (issue #158).
+     *
+     * `devices` lists what NNAPI exposes, which is the majority of them and
+     * not all of them: `gpu` reaches the TFLite GPU delegate and `qnn-*` reach
+     * Qualcomm's own runtime, and neither is an NNAPI driver. A consumer
+     * enumerating accelerators from `devices` therefore misses the GPU — which
+     * on a Snapdragon is the only accelerator NNAPI cannot reach at all, and
+     * on an MT6899 accepted more operators than the NPU did.
+     *
+     * `capabilities.gpu.allowlisted` is not that list and must not be used as
+     * one: it is TFLite's bundled table, it answers false on an SM8650 whose
+     * Adreno works, and nothing here gates on it.
+     *
+     * Pure so the shape is tested without a device attached.
+     */
+    internal fun accepts(nnapiPayload: String, qnnInstalled: Boolean): List<String> {
+        val nnapi = runCatching {
+            val devices = JSONObject(nnapiPayload).optJSONArray("devices")
+            (0 until (devices?.length() ?: 0)).mapNotNull {
+                devices?.optJSONObject(it)?.optString("name")?.takeIf(String::isNotBlank)
+            }
+        }.getOrDefault(emptyList())
+        // The GPU delegate ships inside the APK, so it is reachable whatever
+        // the phone says about itself; QNN has to have been fetched first.
+        return nnapi + listOf(GPU_DEVICE) +
+            if (qnnInstalled) QnnBackend.names() else emptyList()
+    }
+
     fun build(context: Context): String {
         val capabilities = DeviceCapabilities.detect()
         val thermal = if (Build.VERSION.SDK_INT >= 29) {
             context.getSystemService(PowerManager::class.java).currentThermalStatus
         } else -1
+        val nnapiPayload = NnapiProbe.devices()
         return JSONObject()
             .put("agent", "droidrunner/0.1")
             // Which build answered, as distinct from which version of this API
@@ -79,7 +109,15 @@ object DeviceCapabilitiesJson {
             )
             .put("android", JSONObject().put("sdk", Build.VERSION.SDK_INT))
             .put("thermalStatus", thermal)
-            .put("nnapi", JSONObject(NnapiProbe.devices()))
+            .put("nnapi", JSONObject(nnapiPayload))
+            // Every value `--device` accepts here, in one place, because the
+            // alternative is finding out by being refused. Plain strings and
+            // not objects: the shell wrapper reads this payload with grep, and
+            // another `"name"` in it would be picked up as an NNAPI driver.
+            .put(
+                "accepts",
+                JSONArray(accepts(nnapiPayload, QnnInstaller(context).installed != null)),
+            )
             // The one accelerator every phone has, and the only one this
             // project never asked about until #140. Reported separately from
             // NNAPI because it is not an NNAPI driver: it is TFLite's own

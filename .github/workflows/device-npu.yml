@@ -19,6 +19,12 @@ jobs:
       - name: NNAPI devices
         run: droidrunner-device devices
 
+      # The NNAPI drivers are a subset. Enumerating accelerators from the step
+      # above misses `gpu`, which on a Snapdragon is the only one NNAPI cannot
+      # reach at all (#158).
+      - name: Every device this phone accepts
+        run: droidrunner-device devices --all
+
       - name: CONV_2D benchmark across all accelerators
         run: droidrunner-device bench-all --iterations 50 --size 64
 

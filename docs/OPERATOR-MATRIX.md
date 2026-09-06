@@ -61,6 +61,14 @@ is what this is.
 - **Nothing about a different shape.** Each operator is measured at one fixed
   shape. Acceleration is routinely conditional on kernel size, channel count,
   stride or rank, and a driver that takes `CONV_2D` here may refuse yours.
+- **Nothing about how an operand is supplied.** Every weight here is a
+  compile-time constant, because that is what a converter emits. A driver can
+  require exactly that: on an MT6899, `mtk-neuron_shim` accelerates a
+  convolution whose filter is constant and refuses the identical convolution
+  whose filter is a graph input. Two matrices, both correctly produced from
+  real sweeps, can therefore disagree about `CONV_2D` on one driver and both be
+  right — which is what happened between this project and NxPU, and cost a day
+  to explain ([#158](https://github.com/m96-chan/DroidRunner/issues/158)).
 - **Nothing about fused patterns.** Drivers match patterns, not just operators.
   An operator refused on its own can still run inside a fusion the driver
   recognises, and one accepted on its own can still be refused in a graph whose
