@@ -127,6 +127,11 @@ object RunnerRegistration {
             if (rejected.status != 401 || userToken == null) throw rejected
             api.createRegistrationToken(config.target, session.renew())
         }
+        // Leave the previous repository first. `config.sh remove` reads the
+        // credentials the next line deletes, so once the device is attached
+        // elsewhere there is no way left to deregister properly — only an API
+        // delete by name, which never tells the old runner anything (#154).
+        detachFromPrevious(context, runtimeDir, config, credential, api, onLine)
         // config.sh refuses to run while a local configuration exists; --replace
         // only settles the server-side duplicate.
         clearLocalRegistration(runtimeDir)
@@ -149,6 +154,51 @@ object RunnerRegistration {
             throw interrupted
         }
         save(runtimeDir, config)
+    }
+
+    /**
+     * The target to leave before registering somewhere else, or null when
+     * there is nothing to leave (issue #154).
+     *
+     * Registering to the target already stored is not a move: `--replace`
+     * settles that on its own, and removing first would throw away a working
+     * registration in order to rebuild an identical one.
+     */
+    fun targetToDetachFrom(stored: RunnerConfig?, wanted: RunnerConfig): RunnerTarget? =
+        stored?.target?.takeIf { it != wanted.target }
+
+    /**
+     * Leaves the previous repository, best effort.
+     *
+     * Never throws. The switch is what was asked for; the tidying is not, so a
+     * deleted repository, a revoked token or no network costs the cleanup
+     * alone. What it costs is said out loud instead, because an entry nobody
+     * knows about is one somebody has to find later — and an offline entry
+     * carrying live labels can be handed a job that then never starts.
+     */
+    private fun detachFromPrevious(
+        context: Context,
+        runtimeDir: File,
+        config: RunnerConfig,
+        credential: String,
+        api: GitHubApi,
+        onLine: (String) -> Unit,
+    ) {
+        val previous = targetToDetachFrom(load(runtimeDir), config) ?: return
+        onLine("leaving ${previous.displayName}")
+        runCatching {
+            val token = api.createRemovalToken(previous, credential)
+            val process = RunnerCommand.remove(context, runtimeDir, token)
+                .redirectErrorStream(true)
+                .start()
+            process.inputStream.bufferedReader().forEachLine(onLine)
+            check(process.waitFor() == 0) { "config.sh remove exited non-zero" }
+        }.onFailure {
+            onLine(
+                "could not remove this runner from ${previous.displayName}" +
+                    " (${it.message}) — it still holds an entry there",
+            )
+        }
     }
 
     /**

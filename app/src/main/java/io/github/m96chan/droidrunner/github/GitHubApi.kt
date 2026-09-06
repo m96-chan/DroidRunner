@@ -56,6 +56,24 @@ class GitHubApi {
         )
     }
 
+    /**
+     * Short-lived token `config.sh remove` exchanges to deregister (issue #154).
+     *
+     * The same shape and the same permission as the registration token above,
+     * because it is the same operation read backwards.
+     */
+    fun createRemovalToken(target: RunnerTarget, token: String): String {
+        val path = when (target) {
+            is RunnerTarget.Repository ->
+                "repos/${target.owner}/${target.name}/actions/runners/remove-token"
+            is RunnerTarget.Organization ->
+                "orgs/${target.org}/actions/runners/remove-token"
+        }
+        return GitHubResponses.registrationToken(
+            request("POST", "https://api.github.com/$path", token),
+        )
+    }
+
     /** Installations of the DroidRunner GitHub App visible to the signed-in user. */
     fun listInstallations(token: String): List<Installation> =
         GitHubResponses.installations(

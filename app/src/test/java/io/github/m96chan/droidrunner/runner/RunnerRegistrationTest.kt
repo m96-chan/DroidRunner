@@ -4,6 +4,7 @@ import io.github.m96chan.droidrunner.model.RunnerConfig
 import io.github.m96chan.droidrunner.model.RunnerTarget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -55,5 +56,54 @@ class RunnerRegistrationTest {
         RunnerRegistration.copyDetails(old, fresh)
 
         assertFalse(RunnerRegistration.isConfigured(fresh))
+    }
+
+    // --- leaving the previous repository (issue #154) ------------------------
+
+    private fun config(owner: String, name: String) =
+        RunnerConfig(RunnerTarget.Repository(owner, name), "android-test-abc123", setOf("android"))
+
+    @Test fun movingToAnotherRepositoryLeavesTheFirstOne() {
+        val detach = RunnerRegistration.targetToDetachFrom(
+            stored = config("m96-chan", "DroidRunner"),
+            wanted = config("m96-chan", "NxPU"),
+        )
+
+        assertEquals(RunnerTarget.Repository("m96-chan", "DroidRunner"), detach)
+    }
+
+    @Test fun registeringAgainstTheSameTargetIsNotAMove() {
+        // `config.sh --replace` settles a same-target duplicate on its own.
+        // Removing first would throw away a working registration to rebuild an
+        // identical one, and would cost a runner id for nothing.
+        assertNull(
+            RunnerRegistration.targetToDetachFrom(
+                stored = config("m96-chan", "DroidRunner"),
+                wanted = config("m96-chan", "DroidRunner"),
+            ),
+        )
+    }
+
+    @Test fun aFirstRegistrationHasNothingToLeave() {
+        assertNull(
+            RunnerRegistration.targetToDetachFrom(
+                stored = null,
+                wanted = config("m96-chan", "DroidRunner"),
+            ),
+        )
+    }
+
+    @Test fun movingBetweenScopesCountsAsAMove() {
+        // A device going from a repository to the organization that owns it is
+        // still leaving an entry behind, and the two are different targets even
+        // though the same jobs may reach it afterwards.
+        val detach = RunnerRegistration.targetToDetachFrom(
+            stored = config("m96-chan", "DroidRunner"),
+            wanted = RunnerConfig(
+                RunnerTarget.Organization("m96-chan"), "android-test-abc123", setOf("android"),
+            ),
+        )
+
+        assertEquals(RunnerTarget.Repository("m96-chan", "DroidRunner"), detach)
     }
 }
