@@ -53,6 +53,27 @@ internal fun RunnerState.color(): Color = when (this) {
  * reasonable conclusion is that the button is broken — which is the report that
  * produced this.
  */
+/**
+ * What the register button says, including why it cannot be pressed (#150).
+ *
+ * The reason was already on the screen, under the button, dim and small. It
+ * lost: a disabled control is what a user looks at, and the note explaining it
+ * is what they do not. So the control says it itself, and the note below stays
+ * for the part a label has no room for — which target is stored, and that a
+ * held runner will start itself again.
+ */
+internal fun registerButtonLabel(
+    target: String,
+    alreadyRegistered: Boolean,
+    firstRegistration: Boolean,
+    runnerStopped: Boolean,
+): String = when {
+    alreadyRegistered -> "Registered: $target"
+    firstRegistration -> "Register $target"
+    !runnerStopped -> "Stop the runner to re-register"
+    else -> "Re-register as $target"
+}
+
 internal fun blockedUntilStopped(
     state: RunnerState,
     pausedReason: String?,

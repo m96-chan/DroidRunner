@@ -990,11 +990,12 @@ fun SetupScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    when {
-                        alreadyRegistered -> "Registered: ${selectedTarget.displayName}"
-                        storedTarget != null -> "Re-register as ${selectedTarget.displayName}"
-                        else -> "Register ${selectedTarget.displayName}"
-                    },
+                    registerButtonLabel(
+                        target = selectedTarget.displayName,
+                        alreadyRegistered = alreadyRegistered,
+                        firstRegistration = storedTarget == null,
+                        runnerStopped = runnerStopped,
+                    ),
                 )
             }
             if (!alreadyRegistered && storedTarget != null) {
