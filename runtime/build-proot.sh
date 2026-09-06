@@ -48,8 +48,26 @@ TALLOC_SRC="$TALLOC_DIR/source"
 if [ ! -e "$TALLOC_SRC" ]; then
     mkdir -p "$TALLOC_SRC"
     archive="$TALLOC_DIR/talloc.tar.gz"
-    wget -qO "$archive" "https://www.samba.org/ftp/talloc/talloc-$TALLOC_VERSION.tar.gz" \
-        || die "Unable to download talloc"
+    # Upstream first, then our own copy of the same bytes.
+    #
+    # talloc is linked into libproot.so, so every build fetches it, and on
+    # 2026-09-07 samba.org went unreachable and took every build with it —
+    # branches and main alike. Integrity was never the exposure: the hash below
+    # is checked whichever URL answered, so a mirror cannot weaken it, only
+    # change where the archive was read from. Availability was, and a release
+    # that stops halfway is worse than one that never started.
+    #
+    # No distribution carries this version to fall back on: Debian publishes
+    # 2.3.1, 2.4.0 and 2.4.2 and stops. So the fallback is ours, attached to
+    # the `deps-talloc-2.4.3` tag, verified before it was uploaded.
+    for source in \
+        "https://www.samba.org/ftp/talloc/talloc-$TALLOC_VERSION.tar.gz" \
+        "https://github.com/m96-chan/DroidRunner/releases/download/deps-talloc-$TALLOC_VERSION/talloc-$TALLOC_VERSION.tar.gz"
+    do
+        wget -qO "$archive" "$source" && break
+        echo "talloc: $source did not answer, trying the next source" >&2
+    done
+    [ -s "$archive" ] || die "Unable to download talloc from any source"
     echo "$TALLOC_SHA256  $archive" | sha256sum -c - >/dev/null \
         || die "talloc SHA-256 mismatch"
     tar -xf "$archive" --strip-components=1 -C "$TALLOC_SRC" \
