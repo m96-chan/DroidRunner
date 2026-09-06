@@ -8,6 +8,10 @@ on:
       label:
         description: "Extra runner label selecting the device (e.g. soc-qti-sm8650-qcom)"
         required: true
+      pair:
+        description: "Two accelerators joined by + (e.g. nnapi-reference+gpu)"
+        required: false
+        default: "nnapi-reference+gpu"
 
 permissions: {}
 
@@ -32,3 +36,15 @@ jobs:
 
       - name: CONV_2D across every driver
         run: droidrunner-device bench-all --iterations 20 --size 32
+
+      # Asks for two engines on one graph (#159). Experimental, so it names the
+      # feature; without that the joined form is an unknown device and this
+      # step would say so rather than doing something surprising. Here and not
+      # in the unattended probe for the same reason `devices --all` is: this
+      # workflow is pointed at one phone by hand.
+      - uses: actions/checkout@v4
+
+      - name: Two engines on one graph
+        run: |
+          droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
+            --iterations 10 --device "${{ inputs.pair }}" --feature multi-delegate

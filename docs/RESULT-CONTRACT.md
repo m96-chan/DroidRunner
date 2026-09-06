@@ -174,6 +174,51 @@ always there — the delegate ships inside the APK.
 compatibility table and it answers `false` on an SM8650 whose Adreno runs
 graphs; nothing here gates on it, and neither should you.
 
+### Naming two accelerators (experimental)
+
+`--device` names one. A partitioned run — some nodes on one engine, the rest on
+another — has no way to be asked for, so the cost of crossing between two
+engines cannot be measured at all ([#159](https://github.com/m96-chan/DroidRunner/issues/159)).
+
+Joining names with `+` asks for that, and **only when the caller opts in**:
+
+```
+droidrunner-device test conv --device 'mtk-neuron_shim+gpu' --feature multi-delegate
+```
+
+Without `--feature multi-delegate` the joined form is not a device name, and
+comes back `unknown-device` — the code a caller already branches on. Nothing
+that does not ask for it behaves differently in any way.
+
+**Order is meaningful and is not normalised.** TFLite offers each delegate what
+the previous one did not claim, so the first name gets the graph first.
+
+The result then carries **`delegations`**, one entry per delegate that claimed
+anything, in the order the claims were made:
+
+```json
+"delegations": [
+  {"delegate": "TfLiteNnapiDelegate",  "delegated": 3, "total": 7, "partitions": 2},
+  {"delegate": "TfLiteGpuDelegateV2",  "delegated": 4, "total": 7, "partitions": 1}
+]
+```
+
+`delegation` is unchanged and still answers *what happened to this graph*. It
+reports the last claim, which is the whole story while one delegate is attached
+and one delegate's share when two are — which is why the array exists rather
+than the field changing shape underneath the callers that read it.
+
+**`qnn-*` cannot appear in the list**, and is refused with that reason rather
+than a generic one. Qualcomm's runtime is in a separate process, two delegates
+need one address space, and the process split is there because the FSF's line
+for "one program" is the shared address space and PRoot's GPL-2.0 code is in
+the main process ([#82](https://github.com/m96-chan/DroidRunner/issues/82)). On
+that vendor a crossing is IPC and no interpreter spans both engines — which is
+a fact about the device, not a gap waiting to be filled.
+
+Experimental means the spelling may change. The refusal without the flag will
+not.
+
 `devices` itself still lists the NNAPI drivers and only those. It has always
 meant that, and a consumer parsing it should not have the meaning change
 underneath them.

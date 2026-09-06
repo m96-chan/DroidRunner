@@ -160,6 +160,19 @@ check "devices --json returns the array shape" \
 # it exists is that enumerating accelerators from `devices` misses the GPU —
 # which on a Snapdragon is the only one NNAPI cannot reach at all (#158).
 capabilities '{"nnapi":{"devices":[{"name":"nnapi-reference"}]},"accepts":["nnapi-reference","gpu","qnn-gpu","qnn-htp"]}'
+
+# --feature names an experiment the agent would otherwise refuse. Repeatable,
+# and absent from the body when nobody asked — so a request that does not use
+# it is byte-for-byte the request it was before (#159).
+says '{"schema":1,"ok":true,"avgUs":1.0}'
+run test model "$WORK/model.tflite" --device gpu >/dev/null
+check "no --feature means no features field at all" 0 \
+    "$(grep -c '"features"' "$WORK/last-request.json" 2>/dev/null || true)"
+run test model "$WORK/model.tflite" --device 'mtk-neuron_shim+gpu' \
+    --feature multi-delegate >/dev/null
+check "--feature travels as an array" '"features":["multi-delegate"]' \
+    "$(grep -o '"features":\[[^]]*\]' "$WORK/last-request.json" 2>/dev/null)"
+
 check "devices still lists only what NNAPI exposes" "nnapi-reference" "$(run devices)"
 check "devices --all lists every value --device accepts" "nnapi-reference
 gpu

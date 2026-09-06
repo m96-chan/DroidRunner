@@ -321,4 +321,33 @@ class GpuAttributionTest {
         // partitioning line can print, and this is it.
         assertEquals("TfLiteGpuDelegateV2", GPU_DELEGATE)
     }
+
+    // --- every claim, not only the last (issue #159) -------------------------
+
+    private val twoDelegates = """
+        Replacing 3 out of 7 node(s) with delegate (TfLiteNnapiDelegate) node, yielding 2 partitions.
+        Replacing 4 out of 7 node(s) with delegate (TfLiteGpuDelegateV2) node, yielding 1 partitions.
+    """.trimIndent()
+
+    @Test fun parseAllKeepsEachDelegatesShareInTheOrderItWasMade() {
+        val all = Delegation.parseAll(twoDelegates)
+
+        assertEquals(2, all.size)
+        assertEquals("TfLiteNnapiDelegate", all[0].delegate)
+        assertEquals(3, all[0].delegated)
+        assertEquals("TfLiteGpuDelegateV2", all[1].delegate)
+        assertEquals(4, all[1].delegated)
+    }
+
+    @Test fun parseStillAnswersWhatHappenedToTheGraph() {
+        // Unchanged on purpose: with one delegate attached the last line is the
+        // whole story, and every existing consumer reads this field.
+        val one = Delegation.parse(twoDelegates)!!
+
+        assertEquals("TfLiteGpuDelegateV2", one.delegate)
+    }
+
+    @Test fun parseAllOfNothingIsEmptyRatherThanNull() {
+        assertEquals(emptyList<Delegation>(), Delegation.parseAll("nothing here"))
+    }
 }

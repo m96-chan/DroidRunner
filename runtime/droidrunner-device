@@ -14,6 +14,7 @@
 #   droidrunner-device test conv [--device NAME] [--iterations N]
 #                                [--size N] [--channels N] [--filters N]
 #   droidrunner-device test model <file.tflite> [--device NAME] [--iterations N]
+#                                              [--feature NAME]
 #                                   [--input FILE]... [--output-dir DIR] [--baseline]
 #                                   [--timings] [--delegate-log]
 #   droidrunner-device test batch <manifest.json> [--budget-ms N]
@@ -214,9 +215,15 @@ case "$cmd" in
             model="$(cd "$(dirname "$model")" && pwd)/$(basename "$model")"
         fi
         device=""; iterations=""; size=""; channels=""; filters=""; timings=""; delegate_log=""
+        features=""
         while [ $# -gt 0 ]; do
             case "$1" in
                 --device) device="$2"; shift 2 ;;
+                # Repeatable. Names an experiment the agent will otherwise
+                # refuse, so that everything unasked-for keeps behaving as it
+                # did — `--device a+b` without `--feature multi-delegate` is
+                # not a device name, it is an unknown one (#159).
+                --feature) features="$features\"$2\","; shift 2 ;;
                 # Repeatable, one per input tensor, in the model's own order.
                 --input)
                     [ -r "$2" ] || die "cannot read $2"
@@ -252,6 +259,7 @@ case "$cmd" in
         [ -n "$timings" ] && body="$body\"timings\":true,"
         [ -n "$delegate_log" ] && body="$body\"delegateLog\":true,"
         [ -n "$device" ] && body="$body\"device\":\"$device\","
+        [ -n "$features" ] && body="$body\"features\":[${features%,}],"
         [ -n "$iterations" ] && body="$body\"iterations\":$iterations,"
         [ -n "$size" ] && body="$body\"size\":$size,"
         [ -n "$channels" ] && body="$body\"channels\":$channels,"
