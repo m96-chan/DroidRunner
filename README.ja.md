@@ -630,6 +630,9 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 - [x] どの層が出しても失敗の形をひとつにする([#138](https://github.com/m96-chan/DroidRunner/issues/138))
 - [ ] Samsung Exynos — **優先度を下げる**。採用機種が少なく、あるものは超高価格帯か
       激安のキワモノに寄っていて、検証機の確保が正当化しにくい
+- [ ] Qualcommの旧世代Hexagon DSP — 保留:公開ランタイムが覆うのはV66ちょうどで、
+      検証できるSnapdragon 855世代の端末が手元にない
+      ([#147](https://github.com/m96-chan/DroidRunner/issues/147))
 - [x] runtime manifestの署名検証
 - [x] Runner状態と保留理由を出す通知、およびGitHubには見えないことだけを伝える警告
 - [x] スマホを他の用途で使いながらRunnerを見ておくPicture-in-Picture
@@ -639,6 +642,8 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 - [x] 1サンプルだけ条件に触れた程度でジョブを保留しない
 - [x] GitHub応答の読めない要素を飛ばし、一覧ごと失わない
 - [x] runtime bundleの更新通知・自動導入([#14](https://github.com/m96-chan/DroidRunner/issues/14))
+- [ ] Android 9 — 最初のコミットから対応と宣言しているが、その世代の実機で一度も
+      動かしたことがない([#146](https://github.com/m96-chan/DroidRunner/issues/146))
 - [ ] 複数端末の状態を表示する管理画面([#7](https://github.com/m96-chan/DroidRunner/issues/7))
 - [x] 配布しているGPLバイナリの対応ソースを同梱([#116](https://github.com/m96-chan/DroidRunner/issues/116))
 
