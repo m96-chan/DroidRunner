@@ -155,6 +155,20 @@ out="$(run devices --json)"
 check "devices --json returns the array shape" \
     '{"schema":1,"ok":true,"devices":["mtk-mdla_shim","nnapi-reference"]}' "$out"
 
+# `devices` is the NNAPI drivers and always was; a consumer parsing it should
+# not have that change underneath them. `--all` is the superset, and the reason
+# it exists is that enumerating accelerators from `devices` misses the GPU —
+# which on a Snapdragon is the only one NNAPI cannot reach at all (#158).
+capabilities '{"nnapi":{"devices":[{"name":"nnapi-reference"}]},"accepts":["nnapi-reference","gpu","qnn-gpu","qnn-htp"]}'
+check "devices still lists only what NNAPI exposes" "nnapi-reference" "$(run devices)"
+check "devices --all lists every value --device accepts" "nnapi-reference
+gpu
+qnn-gpu
+qnn-htp" "$(run devices --all)"
+check "devices --all --json returns the same array shape" \
+    '{"schema":1,"ok":true,"devices":["nnapi-reference","gpu","qnn-gpu","qnn-htp"]}' \
+    "$(run devices --all --json)"
+
 says '{"schema":1,"ok":true,"avgUs":172.3,"gflops":27.38}'
 run bench-all --iterations 1 --size 8 >/dev/null
 check "bench-all exits 0 after printing its table" 0 "$(status_of)"

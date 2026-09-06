@@ -9,7 +9,7 @@
 #
 # Usage:
 #   droidrunner-device capabilities
-#   droidrunner-device devices [--json]
+#   droidrunner-device devices [--all] [--json]
 #   droidrunner-device test add  [--device NAME] [--iterations N]
 #   droidrunner-device test conv [--device NAME] [--iterations N]
 #                                [--size N] [--channels N] [--filters N]
@@ -110,6 +110,17 @@ device_names() {
     api GET /v1/capabilities | grep -o '"name":"[^"]*"' | cut -d'"' -f4
 }
 
+# Every value --device accepts, which is a superset of the NNAPI drivers above:
+# `gpu` is TFLite's own delegate and `qnn-*` is Qualcomm's runtime, and neither
+# is an NNAPI driver. Enumerating accelerators from `devices` alone misses the
+# GPU, which on a Snapdragon is the only one NNAPI cannot reach (#158).
+accepted_names() {
+    api GET /v1/capabilities \
+        | grep -o '"accepts":\[[^]]*\]' \
+        | sed 's/^"accepts":\[//; s/\]$//' \
+        | tr ',' '\n' | tr -d '"' | grep -v '^$'
+}
+
 # Turns the agent's own code into this wrapper's exit status, so a caller can
 # branch without parsing anything.
 status_for() {  # status_for <json>
@@ -142,21 +153,26 @@ case "$cmd" in
 
     devices)
         as_json=""
+        list=device_names
         while [ $# -gt 0 ]; do
             case "$1" in
                 --json) as_json=1; shift ;;
+                # Default stays the NNAPI drivers, because that is what this
+                # has always printed and a consumer parsing it should not have
+                # the meaning change underneath them.
+                --all) list=accepted_names; shift ;;
                 --output) output_file="$2"; shift 2 ;;
                 *) die "unknown option: $1" ;;
             esac
         done
         if [ -n "$as_json" ]; then
             names=""
-            for dev in $(device_names); do names="$names\"$dev\","; done
+            for dev in $($list); do names="$names\"$dev\","; done
             emit "{\"schema\":1,\"ok\":true,\"devices\":[${names%,}]}"
         else
             # Through emit, so --output catches this form too rather than only
             # the JSON one.
-            emit "$(device_names)"
+            emit "$($list)"
         fi
         ;;
 

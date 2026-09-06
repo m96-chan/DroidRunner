@@ -20,6 +20,15 @@ internal object QnnBackend {
             )
     }
 
+    /**
+     * The `--device` values this object accepts, so a caller can be told what
+     * to ask for rather than discovering it by being refused (issue #158).
+     *
+     * Derived from [SUPPORTED] rather than written out again: a second list
+     * would be a list that eventually disagrees with the one that decides.
+     */
+    fun names(): List<String> = SUPPORTED.sorted().map { PREFIX + it }
+
     private const val PREFIX = "qnn-"
 
     /**
