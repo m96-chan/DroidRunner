@@ -63,17 +63,47 @@ internal object ModelRunner {
         keepDelegateLog: Boolean = false,
         /** Let the GPU delegate drop to fp16, which it will not do unasked. */
         allowFp16: Boolean = false,
+        /**
+         * Several accelerators, in order, for a partitioned run (issue #159).
+         *
+         * Empty means the single-delegate path this has always taken, byte for
+         * byte. When it is not, [deviceName] is still what the caller wrote and
+         * is what comes back in `requestedDevice`; these are what get attached.
+         */
+        multiDevices: List<String> = emptyList(),
     ): String {
         // Zero is a real answer, not a mistake: "was this graph accepted" is
         // complete once tensors are allocated, and perhaps half of a sweep asks
         // nothing else (#94). Timing it anyway is what turns a sweep that fits
         // in a CI job into one that needs its own evening.
         val runs = iterations.coerceIn(0, 500)
+        // Plural since #159: TFLite offers each delegate what the previous one
+        // did not claim, so all of them have to stay open for the interpreter's
+        // life and be closed after it.
+        val attached = mutableListOf<AutoCloseable>()
         var delegate: AutoCloseable? = null
         var interpreter: Interpreter? = null
         return try {
             val options = Interpreter.Options()
-            if (deviceName == GPU_DEVICE) {
+            if (multiDevices.isNotEmpty()) {
+                // Order is the whole point: it decides which delegate is offered
+                // the graph first and therefore what the second one is left.
+                multiDevices.forEach { name ->
+                    val each: AutoCloseable = if (name == GPU_DEVICE) {
+                        GpuDelegate(GpuDelegate.Options().setPrecisionLossAllowed(allowFp16))
+                    } else {
+                        NnApiDelegate(
+                            NnApiDelegate.Options()
+                                .setAcceleratorName(name)
+                                .setUseNnapiCpu(false)
+                                .setAllowFp16(false),
+                        )
+                    }
+                    attached += each
+                    options.addDelegate(each as org.tensorflow.lite.Delegate)
+                }
+                delegate = attached.lastOrNull()
+            } else if (deviceName == GPU_DEVICE) {
                 // Precision is a declared choice here, which is the whole point
                 // of having this path: the Hexagon computes f32 in fp16 without
                 // saying so (tools/ulp), and the GPU is asked instead of
@@ -169,6 +199,27 @@ internal object ModelRunner {
                     // disagrees with us can say why. Included whenever the
                     // attribution failed, because that is when it is needed and
                     // when nobody thought to ask for it in advance (#128).
+                    // One entry per delegate that claimed anything, only when
+                    // several were attached. `delegation` above still answers
+                    // "what happened to this graph"; this answers "and who took
+                    // which part", which is the question a partitioned run is
+                    // asked in order to answer (#159).
+                    if (multiDevices.isNotEmpty()) {
+                        put(
+                            "delegations",
+                            org.json.JSONArray().apply {
+                                Delegation.parseAll(built.second).forEach { each ->
+                                    put(
+                                        JSONObject()
+                                            .put("delegate", each.delegate ?: JSONObject.NULL)
+                                            .put("delegated", each.delegated)
+                                            .put("total", each.total)
+                                            .put("partitions", each.partitions),
+                                    )
+                                }
+                            },
+                        )
+                    }
                     val unattributed = delegation == null && deviceName != null
                     if (keepDelegateLog || unattributed) {
                         put("delegateLog", built.second.takeLast(MAX_LOG_CHARS))
@@ -295,7 +346,8 @@ internal object ModelRunner {
                 .toString()
         } finally {
             runCatching { interpreter?.close() }
-            runCatching { delegate?.close() }
+            attached.forEach { runCatching { it.close() } }
+            if (attached.isEmpty()) runCatching { delegate?.close() }
         }
     }
 

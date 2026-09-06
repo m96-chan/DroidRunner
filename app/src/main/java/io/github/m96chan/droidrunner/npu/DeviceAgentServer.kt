@@ -197,10 +197,28 @@ internal class DeviceAgentServer(
         return diff == 0
     }
 
+    /**
+     * These two probes call NNAPI directly rather than through TFLite, so
+     * there is no interpreter to attach a second delegate to (#159). Said here
+     * rather than letting the name fall through to NNAPI and come back
+     * `device_not_found`, which is true and explains nothing.
+     */
+    private fun refuseMultiDevice(request: JSONObject): Pair<Int, String>? {
+        val device = request.optString("device").takeIf { it.isNotBlank() } ?: return null
+        if (!device.contains(DeviceRequest.SEPARATOR)) return null
+        return 400 to ResultContract.error(
+            ResultContract.Code.UNKNOWN_DEVICE,
+            "'$device' names two accelerators, and these built-in probes run NNAPI " +
+                "directly rather than through TFLite — there is no interpreter here to " +
+                "attach two delegates to. Use `test model` for a partitioned run.",
+        )
+    }
+
     private fun nnapiTest(body: String): Pair<Int, String> {
         val request = runCatching { JSONObject(body.ifBlank { "{}" }) }.getOrElse {
             return 400 to """{"error":"invalid JSON body"}"""
         }
+        refuseMultiDevice(request)?.let { return it }
         return 200 to NnapiProbe.benchmark(
             request.optString("device").takeIf { it.isNotBlank() },
             request.optInt("iterations", 100),
@@ -211,6 +229,7 @@ internal class DeviceAgentServer(
         val request = runCatching { JSONObject(body.ifBlank { "{}" }) }.getOrElse {
             return 400 to """{"error":"invalid JSON body"}"""
         }
+        refuseMultiDevice(request)?.let { return it }
         return 200 to NnapiProbe.conv(
             request.optString("device").takeIf { it.isNotBlank() },
             request.optInt("iterations", 50),
@@ -240,6 +259,16 @@ internal class DeviceAgentServer(
                 "model must be a file under /home/runner (the job workspace)",
             )
         val device = request.optString("device").takeIf { it.isNotBlank() }
+        // Experiments a caller has to name before they happen. Absent, every
+        // path below is the one it has always been (#159).
+        val features = request.optJSONArray("features")?.let { array ->
+            (0 until array.length()).mapNotNull { array.optString(it).takeIf(String::isNotBlank) }
+        }?.toSet().orEmpty()
+        val deviceRequest = DeviceRequest.parse(device, features)
+        if (deviceRequest is DeviceRequest.Parsed.Refused) {
+            return 400 to ResultContract.error(deviceRequest.code, deviceRequest.reason)
+        }
+        val multiDevices = (deviceRequest as? DeviceRequest.Parsed.Several)?.devices.orEmpty()
         val iterations = request.optInt("iterations", 50)
         // Off by default: 500 iterations is 500 numbers, and most callers want
         // the percentiles rather than the loop (#98).
@@ -272,8 +301,10 @@ internal class DeviceAgentServer(
         }
 
         // "qnn-htp" and friends are not NNAPI device names; they mean the
-        // Qualcomm delegate in its own process, which NNAPI cannot reach.
-        val backend = runCatching { QnnBackend.of(device) }.getOrElse { unknown ->
+        // Qualcomm delegate in its own process, which NNAPI cannot reach. A
+        // list form never reaches here: DeviceRequest has already refused it
+        // for naming a backend that cannot share an address space.
+        val backend = runCatching { QnnBackend.of(device.takeIf { multiDevices.isEmpty() }) }.getOrElse { unknown ->
             return 400 to ResultContract.error(
                 ResultContract.Code.UNKNOWN_DEVICE,
                 unknown.message ?: "unknown QNN backend",
@@ -290,6 +321,7 @@ internal class DeviceAgentServer(
         return 200 to ModelRunner.run(
             model = model,
             deviceName = device,
+            multiDevices = multiDevices,
             iterations = iterations,
             inputs = inputs,
             outputTarget = outputTarget,

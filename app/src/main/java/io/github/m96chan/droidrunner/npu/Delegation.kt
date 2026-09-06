@@ -75,6 +75,25 @@ internal data class Delegation(
          * The last, not the first: warmup and the timed run each apply the
          * delegate, and an older line may belong to a previous model.
          */
+        /**
+         * Every claim in the log, in the order TFLite made them (issue #159).
+         *
+         * [parse] answers "what happened to this graph" and takes the last
+         * line, which is the right answer while one delegate is attached. With
+         * two, the last line is one delegate's share and reads as the whole —
+         * so a partitioned run needs each claim kept apart, and the order is
+         * what says which delegate was offered the graph first.
+         */
+        fun parseAll(log: String): List<Delegation> =
+            TFLITE_REPORT.findAll(log).map { match ->
+                Delegation(
+                    delegated = match.groupValues[1].toInt(),
+                    total = match.groupValues[2].toInt(),
+                    partitions = match.groupValues[4].toInt(),
+                    delegate = match.groupValues[3],
+                )
+            }.toList()
+
         fun parse(log: String): Delegation? =
             TFLITE_REPORT.findAll(log).lastOrNull()?.let { match ->
                 Delegation(
