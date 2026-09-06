@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       label:
-        description: "Extra runner label selecting the device (e.g. npu-neuron)"
+        description: "Extra runner label selecting the device (e.g. npu-qnn)"
         required: true
         default: "android-npu"
 
