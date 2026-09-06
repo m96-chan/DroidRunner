@@ -57,6 +57,22 @@ jobs:
           # whether the graph was accepted, and that is answered once tensors
           # are allocated. Timing 62 models on every driver would turn a
           # two-minute sweep into an evening for numbers nobody asked for.
+          # A self-hosted runner keeps its workspace between jobs, and this
+          # job has no checkout to clean it — the two in this file are in the
+          # ubuntu-latest jobs. So a sweep of a phone with fewer drivers than
+          # the last one uploads the last one's answers alongside its own, for
+          # drivers it never asked about (#163).
+          #
+          # The matrix is unaffected either way: the reduce step pairs its
+          # sweeps from drivers.txt, which is rewritten every run. What is
+          # affected is the artifact, which exists to be read by a person.
+          # Only the per-driver files: they are the ones whose *set* can
+          # shrink between runs. capabilities.json and drivers.txt are written
+          # with `>` every run and can never be stale — and capabilities.json
+          # is written by the step before this one, so deleting it here would
+          # remove what is about to be uploaded.
+          rm -f sweep-*.json manifest-*.json
+
           manifest() {  # manifest [device]
             local separator=""
             printf '['
