@@ -21,5 +21,14 @@ jobs:
       - name: NNAPI drivers
         run: droidrunner-device devices
 
+      # The drivers above are a subset of what --device accepts: `gpu` is
+      # TFLite's own delegate and `qnn-*` is Qualcomm's runtime, and neither is
+      # an NNAPI driver (#158). Here rather than in the unattended probe,
+      # because this workflow is dispatched at one device by label — the probe
+      # runs on whatever answers, and a phone deliberately kept on the last
+      # release has an older CLI that does not know the option.
+      - name: Every device this one accepts
+        run: droidrunner-device devices --all
+
       - name: CONV_2D across every driver
         run: droidrunner-device bench-all --iterations 20 --size 32

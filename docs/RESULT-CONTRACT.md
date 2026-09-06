@@ -151,12 +151,32 @@ rather than a description.
 | `partial` | some did; the rest ran on the CPU, and the split is in `delegation` |
 | `cpu-fallback` | the delegate took nothing |
 | `cpu` | no device was requested |
+| `unknown` | a device was requested and **the delegate did not say what it took** |
 
 Device names a job may ask for: an NNAPI driver as `capabilities` lists it,
 `qnn-htp` or `qnn-gpu` for Qualcomm's own runtime, and **`gpu`** for TFLite's
 GPU delegate — the one accelerator present on every phone, and not an NNAPI
 driver.
-| `unknown` | a device was requested and **the delegate did not say what it took** |
+
+That sentence used to be the only place the full set appeared, and prose is a
+poor thing to enumerate from: a consumer building the list from `devices` got
+the NNAPI drivers and missed the GPU, which on the phone that reported it
+accepted more operators than the NPU did ([#158](https://github.com/m96-chan/DroidRunner/issues/158)).
+So `capabilities` carries **`accepts`**, a flat array of every value `--device`
+takes on that phone, and `droidrunner-device devices --all` prints it.
+
+`accepts` is what the agent will actually honour, not what the hardware might
+manage: `qnn-*` appears only once the Qualcomm runtime is installed, because a
+name that answers `not-installed` is worse than a name that is absent. `gpu` is
+always there — the delegate ships inside the APK.
+
+**Do not enumerate from `capabilities.gpu.allowlisted`.** It is TFLite's bundled
+compatibility table and it answers `false` on an SM8650 whose Adreno runs
+graphs; nothing here gates on it, and neither should you.
+
+`devices` itself still lists the NNAPI drivers and only those. It has always
+meant that, and a consumer parsing it should not have the meaning change
+underneath them.
 
 **`accelerator` is a statement about who executed the graph, not about the
 arithmetic they used.** On the SM8650's Hexagon, through `qnn-htp`, an f32
