@@ -30,6 +30,17 @@ object RunnerCommand {
             ) + if (ephemeral) listOf("--ephemeral") else emptyList(),
         )
 
+    /**
+     * Deregisters from whatever the runner is currently configured against
+     * (issue #154). It reads `.credentials`, so it only works before those are
+     * cleared — which is why detaching has to come before attaching, not after.
+     */
+    fun remove(context: Context, runtimeDir: File, token: String): ProcessBuilder =
+        proot(
+            context, runtimeDir,
+            listOf("/home/runner/config.sh", "remove", "--token", token),
+        )
+
     fun run(context: Context, runtimeDir: File, extraEnv: Map<String, String> = emptyMap()): ProcessBuilder =
         proot(context, runtimeDir, listOf("/home/runner/run.sh")).also {
             it.environment().putAll(extraEnv)
