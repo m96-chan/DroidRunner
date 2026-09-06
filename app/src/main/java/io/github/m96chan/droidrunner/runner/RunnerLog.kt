@@ -4,6 +4,7 @@ import java.io.BufferedWriter
 import java.io.Closeable
 import java.io.File
 import java.io.FileWriter
+import java.io.RandomAccessFile
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
@@ -116,6 +117,81 @@ class RunnerLog(
          * talkative listener — long enough to cover a night that went wrong.
          */
         const val MAX_BYTES = 4L * 1024 * 1024
+
+        /**
+         * Lines a person will read in an issue. The file holds days; a bug
+         * report wants the end of it.
+         */
+        const val REPORT_LINES = 200
+
+        /**
+         * Read no further back than this in each generation. The cap on the
+         * file is 4MB and a report never needs it, so the tail is taken by
+         * seeking rather than by reading the whole thing and throwing it away.
+         */
+        const val REPORT_BYTES = 128L * 1024
+
+        /**
+         * The box the listener draws around its version banner. It was 70 of
+         * 1481 lines on the first device this was measured on, and it says
+         * nothing that survives being pasted somewhere narrower.
+         */
+        fun isDecoration(line: String): Boolean {
+            val body = line.substringAfter("] ", line).trim()
+            return body.isNotEmpty() &&
+                body.all { it == '-' || it == '|' || it == '_' || it == ' ' } &&
+                body.any { it != ' ' }
+        }
+
+        /**
+         * The end of the log, newest last, trimmed to what is worth reading.
+         *
+         * Attempt headers survive: a file that is nothing but restarts is the
+         * whole finding in the cases this exists for, and dropping them would
+         * leave a report that looks like one long uneventful run.
+         */
+        fun reportTail(lines: List<String>, maxLines: Int = REPORT_LINES): List<String> =
+            lines.filterNot(::isDecoration)
+                // Blank ends are what an absent log looks like after splitting:
+                // one empty string, which would otherwise be reported as a line
+                // of content that is not there.
+                .dropLastWhile { it.isBlank() }
+                .takeLast(maxLines)
+                .dropWhile { it.isBlank() }
+
+        /**
+         * The tail of both generations, oldest first, or empty when there is
+         * nothing to read (issue #152).
+         *
+         * The previous generation is included because a rotation that has just
+         * happened leaves the current file nearly empty, and that is not the
+         * moment to have nothing to say. Failure is empty rather than thrown:
+         * a report missing its log is still worth pasting, and an exception
+         * raised while someone is filing a bug is a second bug.
+         */
+        fun readTail(
+            directory: File,
+            maxLines: Int = REPORT_LINES,
+            maxBytes: Long = REPORT_BYTES,
+        ): List<String> {
+            val text = listOf(PREVIOUS_FILE_NAME, FILE_NAME)
+                .map { File(directory, it) }
+                .filter { it.isFile }
+                .joinToString("\n") { tailOf(it, maxBytes) }
+            return reportTail(text.lines(), maxLines)
+        }
+
+        /** The last [maxBytes] of a file, minus the partial line seeking lands in. */
+        private fun tailOf(file: File, maxBytes: Long): String = runCatching {
+            RandomAccessFile(file, "r").use { handle ->
+                val from = (handle.length() - maxBytes).coerceAtLeast(0)
+                handle.seek(from)
+                val bytes = ByteArray((handle.length() - from).toInt())
+                handle.readFully(bytes)
+                val text = String(bytes)
+                if (from > 0) text.substringAfter('\n', text) else text
+            }
+        }.getOrDefault("")
 
         /**
          * Rotation happens before the write that would cross the cap, so the

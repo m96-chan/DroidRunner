@@ -154,4 +154,58 @@ class RunnerLogTest {
             assertTrue(previousLog().exists())
         }
     }
+
+    // --- the tail that goes into a bug report (issue #152) ------------------
+
+    @Test fun theListenersBannerBoxIsNotWorthPasting() {
+        assertTrue(RunnerLog.isDecoration("[runner] |                          |"))
+        assertTrue(RunnerLog.isDecoration("[runner] --------------------------"))
+        assertTrue(RunnerLog.isDecoration("[runner] ______"))
+    }
+
+    @Test fun anAttemptHeaderIsKeptBecauseARestartLoopIsTheFinding() {
+        // A file that is nothing but restarts is the whole report in the cases
+        // this exists for; dropping these would leave one long quiet run.
+        assertFalse(RunnerLog.isDecoration(RunnerLog.attemptHeader(0L)))
+    }
+
+    @Test fun realLinesSurviveEvenWhenTheyContainDashesOrPipes() {
+        assertFalse(RunnerLog.isDecoration("[runner] 2026-09-06T00:00:00Z: Listening for Jobs"))
+        assertFalse(RunnerLog.isDecoration("[app] admission: held (not charging)"))
+        assertFalse(RunnerLog.isDecoration(""))
+    }
+
+    @Test fun theTailKeepsTheEndAndNotTheBeginning() {
+        val lines = (1..500).map { "[app] line $it" }
+
+        val tail = RunnerLog.reportTail(lines, maxLines = 3)
+
+        assertEquals(listOf("[app] line 498", "[app] line 499", "[app] line 500"), tail)
+    }
+
+    @Test fun bothGenerationsAreReadWithTheOlderOneFirst() {
+        // A rotation that has just happened leaves the current file nearly
+        // empty, which is not the moment to have nothing to say.
+        previousLog().writeText("[app] older\n")
+        currentLog().writeText("[app] newer\n")
+
+        val tail = RunnerLog.readTail(folder.root)
+
+        assertTrue(tail.indexOf("[app] older") < tail.indexOf("[app] newer"))
+    }
+
+    @Test fun readingTheTailOfNothingIsEmptyRatherThanAFailure() {
+        // Someone filing a bug from a device that has never run one should get
+        // a report without a log, not an exception raised while filing it.
+        assertEquals(emptyList<String>(), RunnerLog.readTail(folder.root))
+    }
+
+    @Test fun seekingIntoTheMiddleDoesNotEmitHalfALine() {
+        currentLog().writeText("[app] first line that will be cut\n[app] whole line\n")
+
+        val tail = RunnerLog.readTail(folder.root, maxBytes = 20)
+
+        assertFalse(tail.any { it.contains("first line") })
+        assertTrue(tail.contains("[app] whole line"))
+    }
 }

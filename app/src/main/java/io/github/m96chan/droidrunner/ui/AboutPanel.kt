@@ -24,6 +24,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import io.github.m96chan.droidrunner.BuildConfig
 import io.github.m96chan.droidrunner.device.DeviceCapabilities
+import io.github.m96chan.droidrunner.runner.RunnerLog
 import io.github.m96chan.droidrunner.runtime.RuntimeInstaller
 import io.github.m96chan.droidrunner.ui.theme.BtopColors
 
@@ -42,6 +43,7 @@ fun AboutPanel(capabilities: DeviceCapabilities, runtime: RuntimeInstaller) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
+    var copiedDiagnostics by remember { mutableStateOf(false) }
 
     fun open(url: String) {
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
@@ -79,10 +81,47 @@ fun AboutPanel(capabilities: DeviceCapabilities, runtime: RuntimeInstaller) {
         }
 
         Spacer(Modifier.padding(top = 8.dp))
-        Link(if (copied) "copied ✓" else "copy device info") {
-            clipboard.setText(AnnotatedString(deviceReport(capabilities, runtime)))
-            copied = true
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Link(if (copied) "copied ✓" else "copy device info") {
+                clipboard.setText(AnnotatedString(deviceReport(capabilities, runtime)))
+                copied = true
+            }
+            Link(if (copiedDiagnostics) "copied ✓" else "copy diagnostics") {
+                clipboard.setText(
+                    AnnotatedString(
+                        diagnosticsReport(
+                            capabilities,
+                            runtime,
+                            RunnerLog.readTail(context.applicationContext.filesDir),
+                        ),
+                    ),
+                )
+                copiedDiagnostics = true
+            }
         }
+    }
+}
+
+/**
+ * The device report, plus what the device actually did (issue #152).
+ *
+ * A release build refuses `run-as`, so `runner.log` — the only account of an
+ * admission hold, a restart loop, or a session that never came back — cannot be
+ * taken off the phone at all. This is the way out, and it goes to the clipboard
+ * because the destination is the text box in an issue.
+ */
+private fun diagnosticsReport(
+    capabilities: DeviceCapabilities,
+    runtime: RuntimeInstaller,
+    tail: List<String>,
+): String = buildString {
+    appendLine(deviceReport(capabilities, runtime))
+    appendLine()
+    if (tail.isEmpty()) {
+        append("runner log: nothing recorded yet")
+    } else {
+        appendLine("--- runner log, last ${tail.size} lines ---")
+        append(tail.joinToString("\n"))
     }
 }
 
