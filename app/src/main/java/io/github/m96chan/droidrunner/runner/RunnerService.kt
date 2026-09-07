@@ -391,7 +391,19 @@ class RunnerService : Service() {
             }
             val exitCode = started.waitFor()
             jobRunning.set(false)
-            if (process === started) process = null
+            // A listener that dies mid-job never prints its completion line, so
+            // the log-parsing path that normally ends a job never fires and the
+            // capability token stayed valid for as long as the service lived
+            // (#172). Revoked here, where the process is known to be gone.
+            //
+            // Only when this thread's listener is still the current one: a
+            // later listener may already have started a job and been issued a
+            // fresh token, and an older thread finishing late must not take it
+            // away. That is the same test the line below already makes.
+            if (TokenRevocation.shouldRevoke(process, started)) {
+                process = null
+                agent?.onJobActive(false)
+            }
             if (stopRequested.get()) return@thread
 
             val ranMillis = System.currentTimeMillis() - startedAt
@@ -427,6 +439,10 @@ class RunnerService : Service() {
         val target = process
         jobRunning.set(false)
         process = null
+        // Stopping is deliberate, so there is no newer job to protect: revoke
+        // unconditionally rather than waiting for a completion line that is
+        // never coming (#172).
+        agent?.onJobActive(false)
         val clean = haltListenerProcesses()
         target?.destroyForcibly()
         if (!clean) {
