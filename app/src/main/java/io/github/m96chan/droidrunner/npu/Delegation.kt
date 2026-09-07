@@ -157,6 +157,36 @@ internal fun modelIsUnloadable(model: java.io.File): Boolean =
  * `executedBy: TfLiteXNNPackDelegate:mtk-mdla_shim`. Found by running on a
  * second vendor, which is the only reason it was found at all.
  */
+/**
+ * Attribution when several delegates were attached (issue #170).
+ *
+ * [executedFor] asks whether the delegate that claimed the graph is the one a
+ * pinned device would have gone through. With two attached that question has no
+ * answer: the second delegate is a different one by design, so the rule that
+ * catches a failed pin reports a working partitioned run as `cpu-fallback` —
+ * which it did, on a graph where nothing touched the CPU at all.
+ *
+ * So the question becomes the union: between them, did they take everything.
+ * Each entry's `delegated` counts original nodes, and a delegate node left by an
+ * earlier pass is not claimable by a later one, so the counts are disjoint and
+ * the first entry's `total` is the graph as it arrived.
+ */
+internal fun executedForAll(all: List<Delegation>): Pair<String, String> {
+    if (all.isEmpty()) return "cpu-fallback" to "cpu"
+    val claimed = all.sumOf { it.delegated }
+    // Only the delegates that took something. Naming one that claimed nothing
+    // was the other half of what #170 reported, and it is the same mistake
+    // twice: reporting what was asked for as though it were what happened.
+    val by = all.filter { it.delegated > 0 }
+        .joinToString("+") { it.delegate ?: "delegate" }
+        .ifEmpty { "cpu" }
+    return when {
+        claimed == 0 -> "cpu-fallback" to by
+        claimed >= all.first().total -> "accelerator" to by
+        else -> "partial" to by
+    }
+}
+
 internal fun executedFor(delegation: Delegation?, deviceName: String?): Pair<String, String> {
     val delegate = delegation?.delegate
     return when {
