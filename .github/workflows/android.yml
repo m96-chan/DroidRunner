@@ -37,6 +37,11 @@ jobs:
       # prose TFLite prints. This fails when the library stops printing it,
       # instead of every result quietly becoming `executed: unknown` (#128).
       - run: tools/check-tflite-wording.sh
+      # `executed` is promised on every path from v0.8.0, and consumers are
+      # told they may delete their shim on the strength of it (#158). The
+      # Qualcomm builder has no automated coverage — it needs a Snapdragon —
+      # and the field went missing there once already.
+      - run: tools/check-executed-everywhere.sh
       - uses: actions/upload-artifact@v7
         with:
           name: app-debug
