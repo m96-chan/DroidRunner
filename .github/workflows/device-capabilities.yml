@@ -42,7 +42,7 @@ jobs:
       # step would say so rather than doing something surprising. Here and not
       # in the unattended probe for the same reason `devices --all` is: this
       # workflow is pointed at one phone by hand.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Two engines on one graph
         run: |
