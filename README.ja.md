@@ -644,6 +644,12 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 - [x] 1サンプルだけ条件に触れた程度でジョブを保留しない
 - [x] GitHub応答の読めない要素を飛ばし、一覧ごと失わない
 - [x] runtime bundleの更新通知・自動導入([#14](https://github.com/m96-chan/DroidRunner/issues/14))
+- [ ] 誰が走らせたかだけでなく、なぜ断られたかを返す
+      ([#158](https://github.com/m96-chan/DroidRunner/issues/158)) —
+      `unsupported` のセルは、演算子ではなくモデルについての主張であることが多い
+- [ ] 2つのエンジンを跨ぐ代償を測る
+      ([#159](https://github.com/m96-chan/DroidRunner/issues/159)) —
+      語彙は実験扱いで入った。測定にはNPUがプロセス内デリゲートである端末が要る
 - [ ] Android 9 — 最初のコミットから対応と宣言しているが、その世代の実機で一度も
       動かしたことがない([#146](https://github.com/m96-chan/DroidRunner/issues/146))
 - [ ] 複数端末の状態を表示する管理画面([#7](https://github.com/m96-chan/DroidRunner/issues/7))

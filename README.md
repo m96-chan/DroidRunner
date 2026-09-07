@@ -673,6 +673,13 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 - [x] Stop holding jobs for a condition that lasts one sample
 - [x] Skip unreadable entries in GitHub responses rather than losing the whole list
 - [x] Notify or auto-install when the runtime bundle is out of date ([#14](https://github.com/m96-chan/DroidRunner/issues/14))
+- [ ] Say why a delegate declined, not only who ran the graph
+      ([#158](https://github.com/m96-chan/DroidRunner/issues/158)) — a cell reading
+      `unsupported` is often a statement about the model, not the operator
+- [ ] Measure what crossing between two engines costs
+      ([#159](https://github.com/m96-chan/DroidRunner/issues/159)) — the vocabulary
+      is in, as an experiment; the measurement needs a phone whose NPU is an
+      in-process delegate
 - [ ] Android 9 — the declared floor since the first commit, and never once run on a
       device that old ([#146](https://github.com/m96-chan/DroidRunner/issues/146))
 - [ ] Fleet dashboard showing the state of multiple devices ([#7](https://github.com/m96-chan/DroidRunner/issues/7))
