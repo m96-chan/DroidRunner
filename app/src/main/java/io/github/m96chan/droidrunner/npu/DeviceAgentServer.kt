@@ -116,9 +116,27 @@ internal class DeviceAgentServer(
         runCatching { if (tokenFile.exists()) tokenFile.delete() }
     }
 
+    /**
+     * One header line, read as bytes (issue #173).
+     *
+     * A `BufferedReader` over the socket decodes as it goes and reads ahead, so
+     * body bytes end up inside the reader's char buffer where a byte-counted
+     * read cannot reach them. Headers and body therefore share one byte stream.
+     */
+    private fun readHeaderLine(input: java.io.InputStream): String? {
+        val line = java.io.ByteArrayOutputStream()
+        while (true) {
+            val c = input.read()
+            if (c < 0) return if (line.size() == 0) null else line.toString("UTF-8")
+            if (c == '\n'.code) break
+            if (c != '\r'.code) line.write(c)
+        }
+        return line.toString("UTF-8")
+    }
+
     private fun handle(client: Socket) {
-        val input = BufferedReader(InputStreamReader(client.getInputStream()))
-        val requestLine = input.readLine() ?: return
+        val input = java.io.BufferedInputStream(client.getInputStream())
+        val requestLine = readHeaderLine(input) ?: return
         val parts = requestLine.split(" ")
         if (parts.size < 2) return
         val (method, path) = parts
@@ -127,7 +145,7 @@ internal class DeviceAgentServer(
         var contentLength = 0
         var headerCount = 0
         while (headerCount++ < MAX_HEADERS) {
-            val header = input.readLine() ?: break
+            val header = readHeaderLine(input) ?: break
             if (header.isEmpty()) break
             val lower = header.lowercase()
             if (lower.startsWith("authorization:")) {
@@ -146,14 +164,19 @@ internal class DeviceAgentServer(
             return
         }
         val body = if (contentLength > 0) {
-            val buffer = CharArray(contentLength)
+            // Content-Length counts bytes. Reading that many *characters* meant
+            // a UTF-8 body with any multibyte character — a Japanese model
+            // filename, say — waited for data the client had already finished
+            // sending, until the socket timed out and the connection closed
+            // without a reply (#173).
+            val bytes = ByteArray(contentLength)
             var read = 0
-            while (read < buffer.size) {
-                val n = input.read(buffer, read, buffer.size - read)
+            while (read < bytes.size) {
+                val n = input.read(bytes, read, bytes.size - read)
                 if (n < 0) break
                 read += n
             }
-            String(buffer, 0, read)
+            String(bytes, 0, read, Charsets.UTF_8)
         } else ""
 
         val expected = currentToken
@@ -389,7 +412,12 @@ internal class DeviceAgentServer(
                     BatchRequest.skipped(entry, "took longer than the batch had left")
                 }
                 results += BatchRequest.identify(answer, entry)
-                if (stoppedAt != null) break
+                // `continue`, not `break`: breaking dropped every remaining row
+                // from a response that promises one entry back per entry sent,
+                // in order (#174). Carrying on costs nothing — the deadline has
+                // passed, so the guard above turns each of the rest into a
+                // skipped row without running a model.
+                if (stoppedAt != null) continue
             }
         } finally {
             worker.shutdownNow()
