@@ -673,9 +673,11 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 - [x] Stop holding jobs for a condition that lasts one sample
 - [x] Skip unreadable entries in GitHub responses rather than losing the whole list
 - [x] Notify or auto-install when the runtime bundle is out of date ([#14](https://github.com/m96-chan/DroidRunner/issues/14))
-- [ ] Say why a delegate declined, not only who ran the graph
-      ([#158](https://github.com/m96-chan/DroidRunner/issues/158)) — a cell reading
-      `unsupported` is often a statement about the model, not the operator
+- [x] Say why a delegate declined, not only who ran the graph
+      ([#158](https://github.com/m96-chan/DroidRunner/issues/158)) — **answered, not
+      built**: TFLite ships XNNPACK's per-node reasons and no NNAPI equivalent, so
+      nothing here can know why an NNAPI driver refused, and the contract says so
+      with the evidence
 - [ ] Measure what crossing between two engines costs
       ([#159](https://github.com/m96-chan/DroidRunner/issues/159)) — the vocabulary
       is in, as an experiment; the measurement needs a phone whose NPU is an
