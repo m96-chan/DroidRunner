@@ -28,6 +28,31 @@ Run the tests with:
 ```sh
 python3 -m unittest discover -s tools/op-matrix
 ```
+## `fleet.sh` — what every phone in the pool is doing
+
+```
+tools/fleet.sh [--json]
+```
+
+Joins GitHub's runner state with what the attached devices say about
+themselves. No new infrastructure: it is the read-only half of
+[#7](https://github.com/m96-chan/DroidRunner/issues/7), which is the half that
+issue recommended starting with.
+
+Two things it knows that `gh api` alone does not.
+
+**Which repositories to ask about are discovered, not configured.** A phone
+does not necessarily serve this one; which it serves is read out of its own
+`.runner`. A fleet lent entirely to another project would otherwise show as
+empty, and `roll-fleet.sh` had to learn the same thing before it could avoid
+killing a running job.
+
+**Attached and registered are different facts, and so is not being able to
+ask.** A release build refuses `run-as`, so its registration cannot be read at
+all — reported as `registrationReadable: false` rather than as
+`registeredAs: null`, because "we could not ask" and "it is registered to
+nothing" are not the same answer.
+
 
 ## `check-tflite-wording.sh`
 
