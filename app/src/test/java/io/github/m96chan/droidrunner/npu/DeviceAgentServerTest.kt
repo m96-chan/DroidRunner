@@ -70,7 +70,13 @@ class DeviceAgentServerTest {
             token?.let { setRequestProperty("Authorization", "Bearer $it") }
             if (body != null || declaredLength != null) {
                 doOutput = true
-                setRequestProperty("Content-Length", (declaredLength ?: body!!.length).toString())
+                // Bytes, not characters — the distinction #173 is about, and
+                // this helper had it wrong too, so a Japanese body would have
+                // been announced short by the test itself.
+                setRequestProperty(
+                    "Content-Length",
+                    (declaredLength ?: body!!.toByteArray(Charsets.UTF_8).size).toString(),
+                )
             }
         }
         body?.let { connection.outputStream.use { out -> out.write(it.toByteArray()) } }
@@ -79,6 +85,44 @@ class DeviceAgentServerTest {
             ?.bufferedReader()?.use { it.readText() }.orEmpty()
         connection.disconnect()
         return status to text
+    }
+
+    @Test fun aBodyWithNonAsciiCharactersIsAnsweredRatherThanTimedOut() {
+        // Content-Length counts bytes and the reader counted characters, so a
+        // UTF-8 body waited for data the client had already finished sending,
+        // until the socket timed out and closed with no reply at all (#173).
+        // A Japanese model filename is how somebody meets this.
+        val token = startJobWithToken()
+
+        // Named on disk as well, so a reply that finds it proves the bytes
+        // arrived unchanged rather than merely that something was answered.
+        File(runtimeDir, "home/runner").mkdirs()
+        File(runtimeDir, "home/runner/モデル.tflite").writeText("x")
+
+        // The characters are literal, not `\u` escapes. A raw string does not
+        // process escapes, so `\u30e2` in one travels as seven ASCII bytes and
+        // JSON un-escapes it at the far end — which exercises JSON, not the
+        // byte counting this is about. The first version of this test did that
+        // and passed against the broken reader.
+        val (status, body) = request(
+            "/v1/tests/model", token, "POST",
+            """{"path":"/home/runner/モデル.tflite","device":"qnn-htp"}""",
+        )
+
+        assertEquals("answered rather than timed out: $body", 200, status)
+        assertTrue("the stub should have seen the file: $qnnCalls", qnnCalls.any { it.contains("モデル") })
+    }
+
+    @Test fun aSupplementaryCharacterIsCountedInBytesToo() {
+        // Outside the BMP: two chars in a Java string, four bytes in UTF-8.
+        val token = startJobWithToken()
+
+        val (status, _) = request(
+            "/v1/tests/model", token, "POST",
+            """{"path":"/home/runner/🚀.tflite"}""",
+        )
+
+        assertEquals(400, status)
     }
 
     @Test fun refusesEverythingWhileNoJobIsRunning() {
@@ -266,10 +310,27 @@ class BatchOverHttpTest {
     private lateinit var runtimeDir: File
     private lateinit var server: DeviceAgentServer
 
+    private val ran = mutableListOf<String>()
+
     @Before fun start() {
+        ran.clear()
         runtimeDir = temp.newFolder("runtime")
         File(runtimeDir, "home/runner").mkdirs()
-        server = DeviceAgentServer(runtimeDir, requestedPort = 0) { """{"stub":true}""" }
+        server = DeviceAgentServer(
+            runtimeDir,
+            requestedPort = 0,
+            // A row can be told to outlast the batch budget, so the timeout
+            // path has something to time out on (#174). The list is what proves
+            // no later row was executed.
+            qnnModel = { model, _, _, _, _, _ ->
+                ran += model.name
+                // Longer than the smallest budget the contract allows:
+                // `budgetMs` is coerced to at least 1000ms, so a shorter
+                // sleep never reaches the timeout path at all.
+                if (model.name.startsWith("slow")) Thread.sleep(1_500)
+                """{"ok":true}"""
+            },
+        ) { """{"stub":true}""" }
         server.start()
         server.onJobActive(true)
     }
@@ -314,6 +375,36 @@ class BatchOverHttpTest {
         assertEquals(3, results.length())
         assertEquals(listOf("a", "b", "c"), (0 until 3).map { results.getJSONObject(it).getString("id") })
         (0 until 3).forEach { assertFalse(results.getJSONObject(it).getBoolean("ok")) }
+    }
+
+    @Test fun aRowThatRanOutOfTimeDoesNotTakeTheRestOfTheManifestWithIt() {
+        // The response promises one entry back per entry sent, in order,
+        // including rows that were never attempted. The timeout path broke out
+        // of the loop instead, dropping every row after the one that ran long
+        // (#174) — while the branch directly above it, for a deadline that had
+        // already passed, got this right.
+        File(runtimeDir, "home/runner/slow.tflite").writeText("x")
+        File(runtimeDir, "home/runner/after.tflite").writeText("x")
+
+        val (status, body) = post(
+            "/v1/tests/models",
+            """{"budgetMs":1000,"models":[
+                 {"id":"slow","path":"/home/runner/slow.tflite","device":"qnn-htp"},
+                 {"id":"after","path":"/home/runner/after.tflite","device":"qnn-htp"},
+                 {"id":"malformed"}
+               ]}""",
+        )
+
+        assertEquals(200, status)
+        val parsed = JSONObject(body)
+        val results = parsed.getJSONArray("results")
+        assertEquals(
+            listOf("slow", "after", "malformed"),
+            (0 until results.length()).map { results.getJSONObject(it).getString("id") },
+        )
+        assertEquals("slow", parsed.getString("stoppedAt"))
+        // And the row after it was never handed to a model.
+        assertEquals(listOf("slow.tflite"), ran)
     }
 
     @Test fun anEmptyManifestIsARequestError() {
