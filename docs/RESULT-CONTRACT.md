@@ -46,6 +46,13 @@ It is never summarised and never folded into `error`, because it is the half
 that names the three bad tensors, and the consumer who received it said that is
 what turned an afternoon into a minute.
 
+**The same rule for every status.** There is no per-code mapping to look up:
+`error` is always the sentence and `message` is always the raw text underneath,
+whether the code is `refused`, `invalid-model`, `unknown-device` or anything
+else. A consumer reported branching per status because they assumed one
+existed ([#158](https://github.com/m96-chan/DroidRunner/issues/158)) — show
+`error`, and keep `message` for whoever has to reproduce it.
+
 **Absent, not empty**, when there is nothing. An empty string reads as *they
 said nothing quotable*; absence reads as *nobody below us was asked*, which is
 what is true when a request never reached a layer of its own.
@@ -152,6 +159,17 @@ rather than a description.
 | `cpu-fallback` | the delegate took nothing |
 | `cpu` | no device was requested |
 | `unknown` | a device was requested and **the delegate did not say what it took** |
+
+**Present on every path from v0.8.0.** It arrived for NNAPI and the GPU in
+v0.7.0 and for Qualcomm's own runtime in v0.8.0, so a result from anything
+older can be missing it on one path and not the other. Consumers have been
+reconstructing it from `delegation` to cover that
+([#158](https://github.com/m96-chan/DroidRunner/issues/158)), and each writes
+the shim slightly differently.
+
+`capabilities.appVersion` says which build answered. Require **0.8.0 or later**
+and the shim can go — a missing `executed` from such a build is a defect to
+report, not a version to work around.
 
 Device names a job may ask for: an NNAPI driver as `capabilities` lists it,
 `qnn-htp` or `qnn-gpu` for Qualcomm's own runtime, and **`gpu`** for TFLite's
@@ -276,6 +294,28 @@ than from prose.
 delegate printed, unparsed and capped at 4000 characters. It also arrives
 **unasked whenever the attribution failed**, since that is when it is needed and
 nobody thinks to ask in advance.
+
+It is also the only place a **reason** could come from, and it does not carry
+one for NNAPI. Checked against the library this app ships rather than asserted:
+`libtensorflowlite_jni.so` contains XNNPACK's per-node reasons —
+
+```
+failed to delegate %s node #%d. adj_x is not supported
+failed to delegate %s node #%d. Unsupported number of dimensions %d for tensor #%d, must be at least 3
+```
+
+— and **no NNAPI equivalent**. That delegate's strings in the binary are
+API-version and diagnostics wording; its validator's reasons are not compiled
+in as messages. So when an NNAPI driver declines a graph, nothing here knows
+why, and no field could be added that would ([#158](https://github.com/m96-chan/DroidRunner/issues/158)).
+
+The gap is expensive and has been paid once. A `CONV_2D` accelerated by one
+project and refused by another — same driver, same phone — took four device
+sweeps and a byte-level flatbuffer diff to explain: the accepted model's filter
+was a compile-time constant and the refused one's was a graph input. A cell
+saying `unsupported` was a claim about a model and read as a claim about an
+operator. See *What a cell does not say* in
+[`OPERATOR-MATRIX.md`](OPERATOR-MATRIX.md).
 
 Read it when you doubt us. Our `executed` is a regex over that text, and where
 the two disagree the text is what happened. A real one, from an MT6899:
