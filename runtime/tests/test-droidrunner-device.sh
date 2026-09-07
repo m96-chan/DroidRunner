@@ -14,28 +14,36 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WRAPPER="${WRAPPER:-$HERE/../droidrunner-device}"
 PORT="${PORT:-41997}"
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"; [ -n "${AGENT_PID:-}" ] && kill "$AGENT_PID" 2>/dev/null' EXIT
+trap 'rm -rf "$WORK" "${TALLY:-}"; [ -n "${AGENT_PID:-}" ] && kill "$AGENT_PID" 2>/dev/null' EXIT
 
-passed=0
-failed=0
+# Counted in a file, not in variables. Half of this suite runs inside ( )
+# subshells so that an exported variable cannot leak into the next case — and a
+# subshell's increments never reach the parent, so a FAIL in one printed its
+# complaint and was then left out of the tally. A suite that can print FAIL and
+# still say "0 failed" is a suite that agrees with itself.
+# Cleaned up by the trap above, which is extended rather than replaced: a
+# second `trap ... EXIT` silently discards the first, and the first is what
+# kills the stub agent. The suite hung on exactly that while this was written.
+TALLY="$(mktemp)"
+tally() { printf '%s\n' "$1" >> "$TALLY"; }
 
 # Test names are sentences, and the failure prints what it wanted beside what
 # it got — a bare "assertion failed" in a shell test is a second debugging
 # session.
 check() {  # check <name> <expected> <actual>
     if [ "$2" = "$3" ]; then
-        passed=$((passed + 1))
+        tally ok
         printf '  ok   %s\n' "$1"
     else
-        failed=$((failed + 1))
+        tally fail
         printf '  FAIL %s\n       wanted: %s\n       got:    %s\n' "$1" "$2" "$3"
     fi
 }
 
 contains() {  # contains <name> <needle> <haystack>
     case "$3" in
-        *"$2"*) passed=$((passed + 1)); printf '  ok   %s\n' "$1" ;;
-        *) failed=$((failed + 1))
+        *"$2"*) tally ok; printf '  ok   %s\n' "$1" ;;
+        *) tally fail
            printf '  FAIL %s\n       expected to contain: %s\n       got: %s\n' "$1" "$2" "$3" ;;
     esac
 }
@@ -71,6 +79,7 @@ status_of() { cat "$WORK/exit-status"; }
 export DROIDRUNNER_DEVICE_URL="http://127.0.0.1:$PORT"
 export DROIDRUNNER_DEVICE_TOKEN_FILE="$WORK/token"
 echo "stub-token" > "$WORK/token"
+echo '[{"path":"/home/runner/m.tflite"}]' > "$WORK/manifest.json"
 unset DROIDRUNNER_DEVICE_TOKEN
 
 python3 "$HERE/stub-agent.py" "$PORT" "$WORK" &
@@ -112,6 +121,40 @@ check "anything else that stopped a run exits 1" 1 "$(status_of)"
     run test model "$WORK/model.tflite" >/dev/null
     check "an agent that does not answer exits 4, which is what stops a sweep" 4 "$(status_of)"
 )
+
+# Every command, not just the one that had a test. `ask` exits on an
+# unreachable agent, but an `exit` inside $( ) ends only the subshell — so
+# every command that inlined it reported success having fetched nothing, and
+# `devices --json` answered `{"ok":true,"devices":[]}`, which reads as "this
+# phone has no accelerators" rather than "nobody asked it" (#171).
+(
+    export DROIDRUNNER_DEVICE_URL="http://127.0.0.1:1"
+    for form in "capabilities" "devices" "devices --json" "devices --all" \
+                "devices --all --json" "bench-all --json"; do
+        run $form >/dev/null
+        check "$form exits 4 when nothing answers" 4 "$(status_of)"
+        check "$form prints nothing when nothing answers" "" "$(run $form 2>/dev/null)"
+    done
+
+    run test batch "$WORK/manifest.json" >/dev/null
+    check "test batch exits 4 when nothing answers" 4 "$(status_of)"
+
+    # --output is the form a job uses to keep a result, and a file that exists
+    # is a file somebody will read.
+    rm -f "$WORK/unreachable.json"
+    run capabilities --output "$WORK/unreachable.json" >/dev/null
+    check "an unreachable agent writes no --output file" "no" \
+        "$([ -f "$WORK/unreachable.json" ] && echo yes || echo no)"
+)
+
+# The other half: a phone that answers and exposes nothing is a fact, and must
+# not be turned into a transport failure by the fix above.
+capabilities '{"nnapi":{"devices":[]},"accepts":[]}'
+run devices >/dev/null
+check "an agent that answers with no drivers still exits 0" 0 "$(status_of)"
+check "and prints an empty list rather than failing" "" "$(run devices 2>/dev/null)"
+check "the JSON form says so explicitly" \
+    '{"schema":1,"ok":true,"devices":[]}' "$(run devices --json)"
 
 (
     unset DROIDRUNNER_DEVICE_URL
@@ -218,5 +261,7 @@ run devices --nonsense >/dev/null
 check "an unknown option fails rather than being ignored" 1 "$(status_of)"
 
 echo
+passed="$(grep -c '^ok$' "$TALLY" || true)"
+failed="$(grep -c '^fail$' "$TALLY" || true)"
 printf '%d passed, %d failed\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]

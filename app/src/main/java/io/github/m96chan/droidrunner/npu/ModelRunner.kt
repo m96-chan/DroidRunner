@@ -130,6 +130,15 @@ internal object ModelRunner {
             }
             interpreter = built.first
             val delegation = Delegation.parse(built.second)
+            // Every claim, when several delegates were attached — it decides
+            // `executed` as well as the `delegations` array, because the
+            // single-delegate rule reports a working partitioned run as a CPU
+            // fallback (#170).
+            val allDelegations =
+                if (multiDevices.isEmpty()) emptyList() else Delegation.parseAll(built.second)
+            val attribution =
+                if (multiDevices.isEmpty()) executedFor(delegation, deviceName)
+                else executedForAll(allDelegations)
             // Tensor sizes are only final once allocation has run — and with a
             // delegate attached they can differ from the pre-allocation values,
             // which is how the first attempt ended up sizing every buffer wrong.
@@ -188,10 +197,10 @@ internal object ModelRunner {
                 .put("sizeBytes", model.length())
                 .put("requestedDevice", deviceName ?: "default")
                 // What actually happened, rather than what was asked for.
-                .put("executed", executedFor(delegation, deviceName).first)
+                .put("executed", attribution.first)
                 // Names both halves when there are two: the delegate that
                 // claimed the nodes and the driver it was pinned to.
-                .put("executedBy", executedFor(delegation, deviceName).second)
+                .put("executedBy", attribution.second)
                 .apply {
                     // What the delegate said, unparsed. Our reading of it is
                     // a regex over prose and the prose is not an API — so the
@@ -208,7 +217,7 @@ internal object ModelRunner {
                         put(
                             "delegations",
                             org.json.JSONArray().apply {
-                                Delegation.parseAll(built.second).forEach { each ->
+                                allDelegations.forEach { each ->
                                     put(
                                         JSONObject()
                                             .put("delegate", each.delegate ?: JSONObject.NULL)
