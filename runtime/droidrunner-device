@@ -108,7 +108,24 @@ json_field() {  # json_field <json> <key>
 
 # Device names from the capabilities payload, without needing jq.
 device_names() {
-    api GET /v1/capabilities | grep -o '"name":"[^"]*"' | cut -d'"' -f4
+    # Fetched first, filtered second, and both halves matter.
+    #
+    # `ask` rather than `api`, because `ask` is what turns an unreachable agent
+    # into EXIT_UNREACHABLE. And on its own line, because in a pipeline grep's
+    # "no match" exits 1 and pipefail reports that instead — so a phone that
+    # never answered came back as exit 1 rather than 4 (#171).
+    #
+    # `|| true` on the filter keeps a genuinely empty list a success: a phone
+    # that answers and exposes no NNAPI driver is a fact, not a failure.
+    local payload
+    # `|| return $?` and not `set -e`. Measured: inside a function called from a
+    # command substitution, a failing assignment does not stop the function —
+    # it carried on and the caller saw success. The status has to be tested to
+    # travel.
+    payload="$(ask GET /v1/capabilities)" || return $?
+    # `|| true` only on the filter: a phone that answers and exposes no NNAPI
+    # driver is a fact, and grep's "no match" must not read as a dead agent.
+    printf '%s' "$payload" | grep -o '"name":"[^"]*"' | cut -d'"' -f4 || true
 }
 
 # Every value --device accepts, which is a superset of the NNAPI drivers above:
@@ -116,10 +133,12 @@ device_names() {
 # is an NNAPI driver. Enumerating accelerators from `devices` alone misses the
 # GPU, which on a Snapdragon is the only one NNAPI cannot reach (#158).
 accepted_names() {
-    api GET /v1/capabilities \
+    local payload
+    payload="$(ask GET /v1/capabilities)" || return $?
+    printf '%s' "$payload" \
         | grep -o '"accepts":\[[^]]*\]' \
         | sed 's/^"accepts":\[//; s/\]$//' \
-        | tr ',' '\n' | tr -d '"' | grep -v '^$'
+        | tr ',' '\n' | tr -d '"' | grep -v '^$' || true
 }
 
 # Turns the agent's own code into this wrapper's exit status, so a caller can
@@ -149,7 +168,12 @@ case "$cmd" in
                 *) die "unknown option: $1" ;;
             esac
         done
-        emit "$(ask GET /v1/capabilities)"
+        # Assigned, not inlined. `ask` exits on an unreachable agent, but an
+        # `exit` inside $( ) ends only the subshell — so as an argument to
+        # `emit` the failure was replaced by emit's own success and the step
+        # passed having fetched nothing (#171).
+        response="$(ask GET /v1/capabilities)" || exit $?
+        emit "$response"
         ;;
 
     devices)
@@ -166,14 +190,18 @@ case "$cmd" in
                 *) die "unknown option: $1" ;;
             esac
         done
+        # Same reason as capabilities above, and worse here: the JSON form
+        # answered `{"ok":true,"devices":[]}` to a dead agent, which reads as
+        # "this phone has no accelerators" rather than "nobody asked it".
+        listed="$($list)" || exit $?
         if [ -n "$as_json" ]; then
             names=""
-            for dev in $($list); do names="$names\"$dev\","; done
+            for dev in $listed; do names="$names\"$dev\","; done
             emit "{\"schema\":1,\"ok\":true,\"devices\":[${names%,}]}"
         else
             # Through emit, so --output catches this form too rather than only
             # the JSON one.
-            emit "$($list)"
+            emit "$listed"
         fi
         ;;
 
@@ -202,7 +230,8 @@ case "$cmd" in
                 *) die "$manifest must be a JSON array of model entries" ;;
             esac
             [ -n "$budget" ] && models="$models,\"budgetMs\":$budget"
-            emit "$(ask POST /v1/tests/models "$models}")"
+            response="$(ask POST /v1/tests/models "$models}")" || exit $?
+            emit "$response"
             exit 0
         fi
 
@@ -291,7 +320,8 @@ case "$cmd" in
         done
         [ -n "$as_json" ] || printf '%-22s %12s %10s %s\n' DEVICE AVG_US GFLOPS NOTE
         entries=""
-        for dev in $(device_names); do
+        benched="$(device_names)" || exit $?
+        for dev in $benched; do
             result="$(ask POST /v1/tests/conv \
                 "{\"device\":\"$dev\",\"iterations\":$iterations,\"size\":$size}")"
             entries="$entries$result,"
