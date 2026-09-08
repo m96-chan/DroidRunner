@@ -133,7 +133,9 @@ Snapdragon 2台です。
 | | |
 | --- | --- |
 | MediaTek Neuron | [#83](https://github.com/m96-chan/DroidRunner/issues/83) — 保留:公開ランタイムは`.dla`しか受けず、それを作れる者がいない。NNAPI経由は今も動く |
-| 複数端末ダッシュボード | [#7](https://github.com/m96-chan/DroidRunner/issues/7) |
+| Android 9 | [#146](https://github.com/m96-chan/DroidRunner/issues/146) — 対応と宣言しているが、その世代の実機が誰の手元にもない |
+| Qualcommの旧世代DSP | [#147](https://github.com/m96-chan/DroidRunner/issues/147) — 対象はV66の1世代のみ。その端末が無い |
+| エンジン境界の代償 | [#159](https://github.com/m96-chan/DroidRunner/issues/159) — 2デリゲートは実験的に指定できる。測定にはNPUがプロセス内の端末が要る |
 | runtime bundleの更新 | [#14](https://github.com/m96-chan/DroidRunner/issues/14) |
 
 ## Runnerラベル
@@ -654,7 +656,9 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
       語彙は実験扱いで入った。測定にはNPUがプロセス内デリゲートである端末が要る
 - [ ] Android 9 — 最初のコミットから対応と宣言しているが、その世代の実機で一度も
       動かしたことがない([#146](https://github.com/m96-chan/DroidRunner/issues/146))
-- [ ] 複数端末の状態を表示する管理画面([#7](https://github.com/m96-chan/DroidRunner/issues/7))
+- [x] 複数端末の状態を表示する管理画面([#7](https://github.com/m96-chan/DroidRunner/issues/7))
+      — `tools/fleet.sh`。GitHubのランナー状態と端末自身の申告を結合する読み取り専用版で、
+      新規インフラを要さない
 - [x] 配布しているGPLバイナリの対応ソースを同梱([#116](https://github.com/m96-chan/DroidRunner/issues/116))
 
 ## 参考プロジェクト

@@ -132,8 +132,13 @@ MediaTek MT6899, a Google Tensor G4, and two Snapdragons.
 | | |
 | --- | --- |
 | MediaTek Neuron | [#83](https://github.com/m96-chan/DroidRunner/issues/83) — blocked: the public runtime takes `.dla` and nobody can produce one. NNAPI still reaches this hardware |
-| Fleet dashboard | [#7](https://github.com/m96-chan/DroidRunner/issues/7) |
-| Runtime bundle updates | [#14](https://github.com/m96-chan/DroidRunner/issues/14) |
+| Android 9 | [#146](https://github.com/m96-chan/DroidRunner/issues/146) — the declared floor, never run on a device that old. Nobody in this pool owns one |
+| Qualcomm's older DSP | [#147](https://github.com/m96-chan/DroidRunner/issues/147) — one Hexagon generation, V66, and no handset from it |
+| The cost of an engine boundary | [#159](https://github.com/m96-chan/DroidRunner/issues/159) — two delegates can be named as an experiment; the measurement needs a phone whose NPU is in-process |
+
+The [roadmap](#roadmap) is the full list; this is the short one, and it is the
+short one that drifted — it went on calling the fleet view and runtime updates
+unbuilt after both had shipped.
 
 ## Runner labels
 
@@ -684,7 +689,9 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
       in-process delegate
 - [ ] Android 9 — the declared floor since the first commit, and never once run on a
       device that old ([#146](https://github.com/m96-chan/DroidRunner/issues/146))
-- [ ] Fleet dashboard showing the state of multiple devices ([#7](https://github.com/m96-chan/DroidRunner/issues/7))
+- [x] Fleet dashboard showing the state of multiple devices ([#7](https://github.com/m96-chan/DroidRunner/issues/7))
+      — `tools/fleet.sh`, the read-only half: it joins GitHub's runner state with
+      what the devices say about themselves, and needs no new infrastructure
 - [x] Ship the corresponding source for the GPL binaries we distribute ([#116](https://github.com/m96-chan/DroidRunner/issues/116))
 
 ## Related projects
