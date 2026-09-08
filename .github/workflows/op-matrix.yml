@@ -24,15 +24,15 @@ jobs:
   models:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - run: pip install --quiet "tensorflow-cpu==2.20.0"
       - name: Build one model per operator and precision
         run: python tools/op-matrix/generate.py --out models
       - run: cat models/models.index
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: op-matrix-models
           path: models/
@@ -41,7 +41,7 @@ jobs:
     needs: models
     runs-on: [self-hosted, android, "${{ inputs.label }}"]
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: op-matrix-models
           path: models
@@ -127,7 +127,7 @@ jobs:
             echo "$driver: $(grep -o '"id":' "sweep-$driver.json" | wc -l) rows, $(grep -o '"executed": *"accelerator"' "sweep-$driver.json" | wc -l) accelerated"
           done
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: op-matrix-sweep
           path: |
@@ -139,12 +139,12 @@ jobs:
     needs: sweep
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: op-matrix-models
           path: models
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: op-matrix-sweep
           path: sweep
@@ -188,7 +188,7 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: op-matrix
           path: matrix/

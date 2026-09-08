@@ -17,7 +17,7 @@ jobs:
     runs-on: [self-hosted, android, "${{ inputs.label }}"]
     steps:
       # The composite action lives in this repository, so it has to be here.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Two builds of the same network. Vendor accelerators are built for
       # quantized graphs — the MediaTek DSP and MDLA reject float32 outright —
@@ -387,7 +387,7 @@ jobs:
       # #128: `executed: unknown` means the delegate ran and we could not read
       # what it took — the failure mode of parsing prose. It is the honest
       # answer and an invisible one, so a device run says so out loud.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: f32-outputs
           path: |
