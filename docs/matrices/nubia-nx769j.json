@@ -5,11 +5,12 @@
     "model": "NX769J",
     "soc": "QTI SM8650 qcom",
     "sdk": 36,
-    "droidrunner": "0.0.0-dev b405921"
+    "droidrunner": "0.0.0-dev 333b2de"
   },
   "drivers": [
     "nnapi-reference",
-    "qnn-htp"
+    "qnn-htp",
+    "gpu"
   ],
   "generatedBy": "tensorflow 2.20.0",
   "skippedModels": [],
@@ -30,6 +31,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -48,6 +54,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -68,6 +79,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -86,6 +102,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -106,6 +127,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -124,6 +150,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -144,6 +175,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -162,6 +198,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -182,6 +223,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -200,6 +246,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -220,6 +271,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -238,6 +294,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -258,6 +319,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -276,6 +342,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -296,6 +367,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -314,6 +390,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -334,6 +415,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -352,6 +438,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -372,6 +463,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -390,6 +486,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -410,6 +511,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -428,6 +534,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -448,6 +559,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -466,6 +582,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -486,6 +607,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -504,6 +630,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -524,6 +655,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -536,12 +672,17 @@
       "drivers": {
         "nnapi-reference": {
           "status": "unsupported",
-          "detail": "TfLiteXNNPackDelegate",
+          "detail": "cpu",
           "stable": true
         },
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -562,6 +703,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -580,6 +726,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -600,6 +751,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -618,6 +774,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -638,6 +799,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -656,6 +822,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -676,6 +847,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -694,6 +870,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -714,6 +895,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -732,6 +918,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -752,6 +943,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -770,6 +966,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -790,6 +991,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -808,6 +1014,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -828,6 +1039,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -846,6 +1062,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -866,6 +1087,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -884,6 +1110,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -904,6 +1135,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -922,6 +1158,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -942,6 +1183,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -960,6 +1206,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -980,6 +1231,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -998,6 +1254,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -1018,6 +1279,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -1036,6 +1302,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -1056,6 +1327,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -1074,6 +1350,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -1094,6 +1375,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -1112,6 +1398,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -1132,6 +1423,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -1150,6 +1446,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
@@ -1170,6 +1471,11 @@
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
           "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
+          "stable": true
         }
       }
     },
@@ -1188,6 +1494,11 @@
         "qnn-htp": {
           "status": "accelerated",
           "detail": "TfLiteQnnDelegate:qnn-htp",
+          "stable": true
+        },
+        "gpu": {
+          "status": "accelerated",
+          "detail": "TfLiteGpuDelegateV2:gpu",
           "stable": true
         }
       }
