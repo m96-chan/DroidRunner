@@ -61,6 +61,17 @@
         </receiver>
 
         <!--
+            Brings the runner back after the system kills it, because
+            START_STICKY did not on any phone this was measured on (#184).
+            BIND_JOB_SERVICE is what lets the system, and only the system,
+            start it.
+        -->
+        <service
+            android:name=".runner.WatchdogJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <!--
             Hands Qualcomm's licence PDFs to whatever the user reads PDFs with,
             so the terms can be read before they are accepted (issue #82).
             Grants are per-URI and read-only; see res/xml/qnn_licences.xml for
