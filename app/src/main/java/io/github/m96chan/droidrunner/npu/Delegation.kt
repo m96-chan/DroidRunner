@@ -112,10 +112,16 @@ internal data class Delegation(
 
 
         // Checked against the shipped library by tools/check-tflite-wording.sh:
-        // this is a regex over prose, and prose is not an API. TFLite 2.16.1
-        // exposes nothing about partitioning — `InterpreterApi` has tensors and
+        // this is a regex over prose, and prose is not an API. TFLite exposes
+        // nothing about partitioning — `InterpreterApi` has tensors and
         // timings, `NnApiDelegate` has an errno — so there is no alternative to
         // read instead, only a canary that fails when the wording moves (#128).
+        //
+        // Deliberately not naming a version. The one written here went stale on
+        // the first dependency bump, and the artifact and the runtime do not
+        // even agree with each other: Maven says 2.17.0 and the library's own
+        // string says 2.18.0. `tools/check-tflite-wording.sh` is the claim that
+        // stays true, because it re-asks on every build.
         /**
          * Two ways the same fact gets stated, and both are looked for. TFLite
          * announces the partitioning itself and names the delegate that took

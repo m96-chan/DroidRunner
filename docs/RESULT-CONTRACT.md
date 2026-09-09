@@ -271,7 +271,7 @@ like a contradiction and are not one.
 
 `unknown` deserves a word, because it is the failure mode of how this is
 measured. The split is read out of a line TFLite prints while applying a
-delegate — there is no API for it, in 2.16.1 or anywhere we could find — so a
+delegate — there is no API for it in any version we have looked at — so a
 TFLite that rewords that line produces `unknown` for everything. **Treat
 `unknown` as not-accelerated.** `tools/check-tflite-wording.sh` runs on every
 build and fails when the wording it depends on leaves the library, so this

@@ -5,7 +5,7 @@
 # Everything this project says about *who ran a graph* — `executed`,
 # `executedBy`, `delegation`, and the whole operator matrix — comes from a
 # regex over lines the interpreter prints while applying a delegate. There is
-# no API for it: TFLite 2.16.1's `InterpreterApi` exposes tensors and timings
+# no API for it: TFLite's `InterpreterApi` exposes tensors and timings
 # and nothing about partitioning, and `NnApiDelegate` offers only an errno.
 #
 # So the wording is load-bearing, and a TFLite upgrade that rewords one line

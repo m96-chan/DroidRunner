@@ -31,7 +31,9 @@ object DeviceCapabilitiesJson {
      * Reported as `allowlisted`, not as `supported`, because that is what it
      * is: a table shipped inside the library, matched against device strings.
      * An SM8650 answers **false** here, which cannot mean the Adreno will not
-     * run a graph — it means the phone is newer than the table in 2.16.1.
+     * run a graph: that phone's Adreno takes 62 of 62 operators through this
+     * very delegate. It means the handset is newer than the table shipped
+     * inside the library, and it stayed false across a runtime bump.
      *
      * So this is advisory and nothing gates on it. Whether the delegate runs
      * is decided by asking the delegate, which is the same rule the rest of
