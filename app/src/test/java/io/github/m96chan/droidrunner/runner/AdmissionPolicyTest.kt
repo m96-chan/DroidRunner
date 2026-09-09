@@ -38,27 +38,39 @@ class AdmissionPolicyTest {
         assertEquals(Admission.Allowed, admission())
     }
 
-    @Test fun holdsJobsWhenNotCharging() {
-        val blocked = admission(healthy.copy(charging = false)) as Admission.Blocked
-        assertEquals("not charging", blocked.reason)
-        assertFalse("a running build should survive being unplugged", blocked.urgent)
-    }
-
-    @Test fun chargingRequirementCanBeDisabled() {
+    @Test fun aPowerCutAloneDoesNotStopAChargedPhone() {
         assertEquals(
+            "a charged phone is a UPS; losing mains is not a reason to stop (#185)",
             Admission.Allowed,
-            admission(healthy.copy(charging = false), defaults.copy(requireCharging = false)),
+            admission(healthy.copy(charging = false)),
         )
     }
 
-    @Test fun holdsJobsBelowTheBatteryThreshold() {
-        val blocked = admission(healthy.copy(batteryPercent = 12)) as Admission.Blocked
-        assertTrue(blocked.reason.contains("battery 12%"))
+    @Test fun aDeviceSetToMainsOnlyStillRefusesBatteryWork() {
+        val blocked = admission(
+            healthy.copy(charging = false),
+            defaults.copy(requireMains = true),
+        ) as Admission.Blocked
+        assertEquals("running on battery", blocked.reason)
+        assertFalse("a running build should survive being unplugged", blocked.urgent)
+    }
+
+    @Test fun holdsJobsOnBatteryBelowTheThreshold() {
+        val blocked =
+            admission(healthy.copy(charging = false, batteryPercent = 12)) as Admission.Blocked
+        assertTrue(blocked.reason.contains("12%"))
         assertFalse(blocked.urgent)
     }
 
+    @Test fun aLowReadingWhilePluggedInIsABatteryOnItsWayUp() {
+        assertEquals(Admission.Allowed, admission(healthy.copy(batteryPercent = 12)))
+    }
+
     @Test fun batteryExactlyAtThresholdIsAccepted() {
-        assertEquals(Admission.Allowed, admission(healthy.copy(batteryPercent = 30)))
+        assertEquals(
+            Admission.Allowed,
+            admission(healthy.copy(charging = false, batteryPercent = 30)),
+        )
     }
 
     @Test fun holdsJobsAboveTheThermalThreshold() {
@@ -108,8 +120,8 @@ class AdmissionPolicyTest {
     }
 
     @Test fun momentaryConditionIsReportedButDoesNotHold() {
-        val first = evaluate(healthy.copy(charging = false))
-        assertEquals(Admission.Pending("not charging"), first.admission)
+        val first = evaluate(healthy.copy(charging = false, batteryPercent = 12))
+        assertEquals(Admission.Pending(FLAT), first.admission)
 
         val recovered = evaluate(healthy, previous = first.state)
         assertEquals(Admission.Allowed, recovered.admission)
@@ -119,24 +131,30 @@ class AdmissionPolicyTest {
     @Test fun sustainedConditionHoldsOnThirdSample() {
         var state = AdmissionPolicy.State()
         repeat(AdmissionPolicy.SAMPLES_BEFORE_HOLD - 1) {
-            val result = evaluate(healthy.copy(charging = false), previous = state)
-            assertEquals(Admission.Pending("not charging"), result.admission)
+            val result =
+                evaluate(healthy.copy(charging = false, batteryPercent = 12), previous = state)
+            assertEquals(Admission.Pending(FLAT), result.admission)
             state = result.state
         }
         assertEquals(
-            Admission.Blocked("not charging"),
-            evaluate(healthy.copy(charging = false), previous = state).admission,
+            Admission.Blocked(FLAT),
+            evaluate(healthy.copy(charging = false, batteryPercent = 12), previous = state)
+                .admission,
         )
     }
 
     @Test fun aDifferentProblemRestartsConfirmation() {
-        val unplugged = evaluate(healthy.copy(charging = false))
-        val lowBattery = evaluate(
-            healthy.copy(batteryPercent = 5),
-            thresholds = defaults.copy(requireCharging = false),
-            previous = unplugged.state,
+        val flat = evaluate(healthy.copy(charging = false, batteryPercent = 12))
+        val lowDisk = evaluate(healthy.copy(freeStorageMb = 100), previous = flat.state)
+        assertEquals(
+            Admission.Pending("free storage 100MB below 2048MB"),
+            lowDisk.admission,
         )
-        assertEquals(Admission.Pending("battery 5% below 30%"), lowBattery.admission)
-        assertEquals(1, lowBattery.state.consecutiveSamples)
+        assertEquals(1, lowDisk.state.consecutiveSamples)
+    }
+
+    private companion object {
+        /** What the policy calls a phone on battery and under the floor. */
+        const val FLAT = "on battery, 12% below 30%"
     }
 }

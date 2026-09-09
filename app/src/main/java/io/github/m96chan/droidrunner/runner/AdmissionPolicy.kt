@@ -24,7 +24,15 @@ object ThermalStatus {
 
 /** Conditions a device must satisfy before it accepts more CI work. */
 data class AdmissionThresholds(
-    val requireCharging: Boolean = true,
+    /**
+     * Refuse work whenever the phone is off mains, however full the battery.
+     *
+     * Off by default, because a charged phone is a UPS and holding a fleet the
+     * instant the power flickers is the opposite of what one is for (#185).
+     * Left available for a device that must never run on its own battery.
+     */
+    val requireMains: Boolean = false,
+    /** The floor that matters only once the phone is actually on battery. */
     val minimumBatteryPercent: Int = 30,
     /** New jobs are refused once thermal status exceeds this. */
     val maximumThermalStatus: Int = ThermalStatus.MODERATE,
@@ -32,7 +40,7 @@ data class AdmissionThresholds(
 ) {
     fun save(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putBoolean("require_charging", requireCharging)
+            .putBoolean("mains_only", requireMains)
             .putInt("min_battery", minimumBatteryPercent)
             .putInt("max_thermal", maximumThermalStatus)
             .putInt("min_free_mb", minimumFreeStorageMb)
@@ -46,7 +54,11 @@ data class AdmissionThresholds(
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             val defaults = AdmissionThresholds()
             return AdmissionThresholds(
-                requireCharging = prefs.getBoolean("require_charging", defaults.requireCharging),
+                // A new key on purpose. The old one meant "hold whenever not
+                // charging" and every existing device has it saved as true;
+                // reading it here would carry that behaviour into a setting
+                // that no longer means the same thing.
+                requireMains = prefs.getBoolean("mains_only", defaults.requireMains),
                 minimumBatteryPercent = prefs.getInt("min_battery", defaults.minimumBatteryPercent),
                 maximumThermalStatus = prefs.getInt("max_thermal", defaults.maximumThermalStatus),
                 minimumFreeStorageMb = prefs.getInt("min_free_mb", defaults.minimumFreeStorageMb),
@@ -120,12 +132,17 @@ object AdmissionPolicy {
         if (thermal != null && thermal > thresholds.maximumThermalStatus) {
             return Admission.Blocked("cooling down (thermal ${ThermalStatus.label(thermal)})")
         }
-        if (thresholds.requireCharging && !conditions.charging) {
-            return Admission.Blocked("not charging")
+        val onBattery = !conditions.charging
+        if (thresholds.requireMains && onBattery) {
+            return Admission.Blocked("running on battery")
         }
-        if (conditions.batteryPercent < thresholds.minimumBatteryPercent) {
+        // Both halves, not either. Losing mains is not a reason to stop while
+        // the battery still holds hours of work, and a low reading while
+        // plugged in is a battery on its way up (#185).
+        if (onBattery && conditions.batteryPercent < thresholds.minimumBatteryPercent) {
             return Admission.Blocked(
-                "battery ${conditions.batteryPercent}% below ${thresholds.minimumBatteryPercent}%",
+                "on battery, ${conditions.batteryPercent}% below " +
+                    "${thresholds.minimumBatteryPercent}%",
             )
         }
         if (conditions.freeStorageMb < thresholds.minimumFreeStorageMb) {

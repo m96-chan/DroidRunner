@@ -860,8 +860,8 @@ fun SetupScreen(
             )
             Spacer(Modifier.padding(top = 8.dp))
 
-            Toggle("require charging", thresholds.requireCharging) {
-                update(thresholds.copy(requireCharging = it))
+            Toggle("run only on mains power", thresholds.requireMains) {
+                update(thresholds.copy(requireMains = it))
             }
             var ephemeral by remember { mutableStateOf(RunnerRegistration.ephemeralEnabled(context)) }
             Toggle("ephemeral (re-register and wipe the work dir per job)", ephemeral) {

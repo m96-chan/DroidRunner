@@ -88,8 +88,10 @@ alongside our reading of them.
 
 The controller should admit a new job only when all configured requirements hold:
 
-- charging when `requireCharging` is enabled;
-- battery at or above the configured threshold;
+- mains power when `requireMains` is enabled, which it is not by default;
+- battery at or above the configured threshold *while the device is on battery* —
+  losing mains is not itself a reason to stop, and a low reading on a charger is a
+  battery on its way up;
 - Android thermal status below `SEVERE`;
 - enough free app-private storage for the declared job budget.
 
