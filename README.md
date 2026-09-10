@@ -44,7 +44,7 @@ cannot produce, and the reason this exists.
 - **Background standby** — keeps the runner alive with a Foreground Service and a wake lock
 - **Tamper detection** — verifies the runtime bundle's SHA-256 before extracting it
 - **btop-style dashboard** — live CPU, memory, battery, thermal, disk, and network monitor together with runner status
-- **Self-protecting** — holds jobs while the device is unplugged, low, hot, or short on space, and restarts the listener on its own after a failure. A held device really does go offline to GitHub, rather than only believing it has
+- **Self-protecting** — holds jobs while the device is low on battery, hot, or short on space, and restarts the listener on its own after a failure. A power cut alone does not stop a charged phone: the battery carries it until the level actually falls. A held device really does go offline to GitHub, rather than only believing it has
 - **Says what it is doing** — the notification carries the runner state and, when work is held, the reason; a picture-in-picture window keeps it on screen while the phone is used for something else
 - **Hands over its own log** — the device report and the tail of the runner log, on the clipboard. A release build refuses `run-as`, so this is the only way a phone that is not yours can say what happened to it
 - **Ephemeral mode** — optionally re-registers and wipes the work directory after every job
@@ -104,8 +104,9 @@ MediaTek MT6899, a Google Tensor G4, and two Snapdragons.
   device flow — no PAT to create by hand, and the token never enters the Linux side
 - Runs the official `linux-arm64` Actions runner under PRoot, with proot shipped
   inside the APK because Android 10+ will not `exec()` from app storage
-- Holds jobs while the device is unplugged, low, hot or short on space, and takes
-  them again when it recovers. A held device really does go offline to GitHub
+- Holds jobs while the device is low on battery, hot or short on space, and takes
+  them again when it recovers. Mains power going away is not enough on its own —
+  a charged phone keeps working through it. A held device really does go offline to GitHub
 - Restarts a listener that dies, backing off if it keeps dying, and alerts once
   rather than once per attempt
 - Ephemeral mode re-registers and wipes the work directory per job
