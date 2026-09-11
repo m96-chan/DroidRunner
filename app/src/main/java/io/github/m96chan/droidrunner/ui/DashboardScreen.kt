@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.m96chan.droidrunner.device.DeviceCapabilities
+import io.github.m96chan.droidrunner.monitor.CoreUsageSource
 import io.github.m96chan.droidrunner.monitor.SystemMonitor
 import io.github.m96chan.droidrunner.monitor.SystemSnapshot
 import io.github.m96chan.droidrunner.runner.BootGapPolicy
@@ -112,12 +113,28 @@ private fun CpuPanel(system: SystemSnapshot) {
                         val index = row + column * rows
                         val core = cores.getOrNull(index)
                         if (core != null) {
+                            val usage = core.usage
                             Meter(
-                                "C$index",
-                                core.usage,
+                                // The core's own number, not its row: with a
+                                // core parked those stopped agreeing (#195).
+                                "C${core.index}",
+                                usage ?: 0f,
                                 Modifier.weight(1f),
-                                detail = if (core.curFreqMhz > 0) "${core.curFreqMhz}MHz"
-                                else "${(core.usage * 100).toInt()}%",
+                                // A core with no utilisation to report — parked
+                                // for one of the two /proc/stat samples, or the
+                                // first sample of all — reads `--` in grey
+                                // (issue #195). An empty green meter says the
+                                // core is idle, and it is not known to be.
+                                // `~` marks the clock standing in for the load.
+                                detail = when {
+                                    usage == null -> "--"
+                                    core.source == CoreUsageSource.FREQUENCY ->
+                                        "~${core.curFreqMhz}MHz"
+                                    core.curFreqMhz > 0 -> "${core.curFreqMhz}MHz"
+                                    else -> "${(usage * 100).toInt()}%"
+                                },
+                                color = if (usage == null) BtopColors.Dim
+                                else BtopColors.forLoad(usage),
                             )
                         } else {
                             Spacer(Modifier.weight(1f))

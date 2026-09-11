@@ -308,7 +308,9 @@ droidrunner-device test batch manifest.json --output sweep.json
 One entry back per entry sent, in order. A failing row never ends the sweep — a
 sweep is largely *made of* rejections, and each one is the data. `iterations: 0`
 means load, delegate and allocate but do not time, for the rows that only ask
-whether a graph was accepted.
+whether a graph was accepted. A row that also names an `outputDir` is run once
+anyway, untimed: a file under `outputFiles` only ever holds what an invocation
+produced.
 
 That sweep has a workflow of its own: **Operator support matrix** builds one
 model per operator and precision, runs every one on every driver the phone
@@ -329,7 +331,7 @@ separate the cases a sweep must treat differently:
 | exit | meaning |
 | --- | --- |
 | `0` | it ran |
-| `1` | yours to fix — a model nothing can load, or inputs that do not fit it |
+| `1` | yours to fix — a model nothing can load, inputs that do not fit it, or an option value that cannot go in a request |
 | `2` | the driver refused the graph — record it and carry on |
 | `3` | no such device on this phone |
 | `4` | the agent is unreachable — stop |

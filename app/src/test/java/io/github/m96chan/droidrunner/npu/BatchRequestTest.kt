@@ -110,6 +110,28 @@ class BatchRequestTest {
         assertEquals(ResultContract.SCHEMA, skipped.getInt("schema"))
     }
 
+    @Test fun aRowThatThrewKeepsTheThrownThingsOwnWords() {
+        // `error` is ours and `message` is theirs, on this path as on every
+        // other. A maintainer reading a sweep needs the second half to tell a
+        // memory problem from a timing one (#192).
+        val entry = BatchRequest.Entry(id = "conv-int8", path = "/home/runner/conv-int8.tflite")
+
+        val row = JSONObject(BatchRequest.threw(entry, OutOfMemoryError("Java heap space")))
+
+        assertEquals("conv-int8", row.getString("id"))
+        assertFalse(row.getBoolean("ok"))
+        assertEquals(ResultContract.Code.FAILED, row.getString("code"))
+        assertEquals("Java heap space", row.getString("message"))
+    }
+
+    @Test fun aThrowableWithNothingToSayStillSaysWhatItWas() {
+        val entry = BatchRequest.Entry(id = "x", path = "/home/runner/a.tflite")
+
+        val row = JSONObject(BatchRequest.threw(entry, NullPointerException()))
+
+        assertTrue(row.getString("message").contains("NullPointerException"))
+    }
+
     @Test fun aRunThatAnsweredWithRubbishStillFillsItsRow() {
         val entry = BatchRequest.Entry(id = "x", path = "/home/runner/a.tflite")
 

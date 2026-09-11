@@ -24,12 +24,22 @@
 # as stdout, so a job can hand it to upload-artifact without a redirect that
 # also catches a warning line.
 #
+# N above is digits and nothing else, and NAME is letters, digits and . _ + - .
+# Both are checked before the request is built, and anything else is refused by
+# name rather than spliced into the JSON body.
+#
 # Exit status (see docs/RESULT-CONTRACT.md):
 #   0  it ran
-#   1  usage error, or something unclassified
+#   1  usage error, an option value that cannot go in a request, or something
+#      unclassified
 #   2  the driver refused the graph — a sweep records this and carries on
 #   3  no such device on this phone
 #   4  the agent is unreachable — a sweep stops
+#
+# An HTTP error from the agent — a capability token that rotated, a URL it does
+# not route — is reported with its status and exits non-zero. It is never
+# printed as a result, because a caller reading `devices` cannot tell an error
+# envelope from a phone with no accelerators.
 set -euo pipefail
 
 # Human notes go to stderr throughout, so stdout is only ever the result. A
@@ -58,39 +68,83 @@ fi
 
 output_file=""
 
-api() {
+# The curl arguments for one request, in a global because a function cannot
+# return an array. One builder and not two: ask() below sends the same request a
+# second time to recover the body -f hides, and that second copy had drifted
+# into a hard-coded POST — so a GET was retried as a POST, the agent answered
+# 404 "unknown endpoint" with curl exiting 0, and the error envelope came back
+# as the payload (#205).
+curl_args() {  # curl_args <method> <path> [data] -> CURL_ARGS
     local method="$1" path="$2" data="${3:-}"
-    if [ "$method" = "GET" ]; then
-        curl -fsS -H "Authorization: Bearer $DROIDRUNNER_DEVICE_TOKEN" \
-            "$DROIDRUNNER_DEVICE_URL$path"
-    else
-        curl -fsS -X POST -H "Authorization: Bearer $DROIDRUNNER_DEVICE_TOKEN" \
-            -H "Content-Type: application/json" -d "$data" \
-            "$DROIDRUNNER_DEVICE_URL$path"
+    CURL_ARGS=(-sS -H "Authorization: Bearer $DROIDRUNNER_DEVICE_TOKEN")
+    if [ "$method" != "GET" ]; then
+        CURL_ARGS+=(-X POST -H "Content-Type: application/json" -d "$data")
     fi
+    CURL_ARGS+=("$DROIDRUNNER_DEVICE_URL$path")
+}
+
+api() {  # api <method> <path> [data]
+    curl_args "$@"
+    curl -f "${CURL_ARGS[@]}"
+}
+
+# The same request without -f, with the HTTP status on a line of its own after
+# the body. curl exits 0 for a 401 as readily as for a 200, so the status is the
+# only thing that tells a recovered error apart from a payload.
+api_with_status() {  # api_with_status <method> <path> [data]
+    curl_args "$@"
+    curl -w '\n%{http_code}' "${CURL_ARGS[@]}"
+}
+
+# Whether a recovered error body is still an answer to the question asked.
+#
+# A POST that reached a test endpoint gets the contract's own code and message
+# back under HTTP 400 — unknown-device, inputs that do not fit the model — and
+# that body is the result the caller emits and --output keeps, so it travels on.
+# A 401 or 403 is about the token and a 404 is about the URL: neither has a
+# result in it. A GET is that story whatever the status, because `capabilities`
+# and `devices` read the payload by its shape, and an error envelope reads to
+# them as a phone with no accelerators (#205).
+answers_the_request() {  # answers_the_request <method> <http status>
+    case "$1" in GET) return 1 ;; esac
+    case "$2" in 401|403|404) return 1 ;; esac
+    return 0
 }
 
 # Like api(), but tells a refusal apart from a phone that stopped answering:
 # curl fails for both a 4xx and a dead socket, and only one of those is worth
 # abandoning a sweep over.
 ask() {
-    local body status
+    local body status recovered http exit_code
     set +e
     body="$(api "$@" 2>/dev/null)"
     status=$?
     set -e
     if [ $status -ne 0 ] && [ -z "$body" ]; then
         # -f swallows the body on an HTTP error, so ask again without it before
-        # concluding the agent is gone.
+        # concluding the agent is gone — with the method the caller asked for,
+        # and a body only when that method is POST.
         set +e
-        body="$(curl -sS -X POST -H "Authorization: Bearer $DROIDRUNNER_DEVICE_TOKEN" \
-            -H "Content-Type: application/json" -d "${3:-}" \
-            "$DROIDRUNNER_DEVICE_URL$2" 2>/dev/null)"
+        recovered="$(api_with_status "$@" 2>/dev/null)"
         status=$?
         set -e
-        if [ $status -ne 0 ] || [ -z "$body" ]; then
+        # The status is the last line; the body is everything before it.
+        http="${recovered##*$'\n'}"
+        body="${recovered%$'\n'*}"
+        if [ $status -ne 0 ] || [ -z "$recovered" ] || [ "$http" = "000" ]; then
             note "droidrunner-device: the agent at $DROIDRUNNER_DEVICE_URL did not answer"
             exit $EXIT_UNREACHABLE
+        fi
+        if ! answers_the_request "$1" "$http"; then
+            # With the status, because "unknown endpoint" on its own sends a
+            # reader to the URL when the fault is a token that rotated. And to
+            # stderr, because it is not a result: `devices --json` printed
+            # {"ok":true,"devices":[]} here and exited 0, which is a statement
+            # about somebody's silicon published from an authentication failure.
+            note "droidrunner-device: the agent answered HTTP $http: ${body:-(no body)}"
+            exit_code=1   # an envelope with no code we know is still an error
+            status_for "$body" || exit_code=$?
+            exit $exit_code
         fi
     fi
     printf '%s' "$body"
@@ -152,8 +206,31 @@ status_for() {  # status_for <json>
     esac
 }
 
+# The request body below is built by concatenation, so an option value carrying
+# a comma or a quote writes fields of its own: `--iterations '1,"device":"qnn-htp"'`
+# moved a benchmark onto the Hexagon while the caller read the numbers as the
+# default driver's, and actions/run-model forwards that input verbatim from a
+# consumer's workflow_dispatch (#206).
+#
+# Checked rather than escaped, because every value these options accept is this
+# narrow — and a value refused by name is better than a request that quietly
+# means something else. `invalid-request`, which docs/RESULT-CONTRACT.md
+# publishes as exit 1.
+#
+# [[ =~ ]] and not a pipe into grep: grep matches a line at a time, so a value
+# carrying a newline would pass on the strength of its first one.
+numeric_option() {  # numeric_option <option> <value>
+    [[ "$2" =~ ^[0-9]+$ ]] || \
+        die "invalid-request: $1 takes a whole number, not: $2"
+}
+
+name_option() {  # name_option <option> <value>
+    [[ "$2" =~ ^[A-Za-z0-9._+-]+$ ]] || \
+        die "invalid-request: $1 takes a name of letters, digits and . _ + - , not: $2"
+}
+
 cmd="${1:-}"
-[ -n "$cmd" ] || { sed -n '3,28p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1; }
+[ -n "$cmd" ] || { sed -n '3,42p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1; }
 shift || true
 
 case "$cmd" in
@@ -218,7 +295,7 @@ case "$cmd" in
             budget=""
             while [ $# -gt 0 ]; do
                 case "$1" in
-                    --budget-ms) budget="$2"; shift 2 ;;
+                    --budget-ms) numeric_option --budget-ms "$2"; budget="$2"; shift 2 ;;
                     --output) output_file="$2"; shift 2 ;;
                     --json) shift ;;
                     *) die "unknown option: $1" ;;
@@ -247,12 +324,14 @@ case "$cmd" in
         features=""
         while [ $# -gt 0 ]; do
             case "$1" in
-                --device) device="$2"; shift 2 ;;
+                --device) name_option --device "$2"; device="$2"; shift 2 ;;
                 # Repeatable. Names an experiment the agent will otherwise
                 # refuse, so that everything unasked-for keeps behaving as it
                 # did — `--device a+b` without `--feature multi-delegate` is
                 # not a device name, it is an unknown one (#159).
-                --feature) features="$features\"$2\","; shift 2 ;;
+                --feature)
+                    name_option --feature "$2"
+                    features="$features\"$2\","; shift 2 ;;
                 # Repeatable, one per input tensor, in the model's own order.
                 --input)
                     [ -r "$2" ] || die "cannot read $2"
@@ -273,10 +352,10 @@ case "$cmd" in
                     shift 2 ;;
                 --output) output_file="$2"; shift 2 ;;
                 --json) shift ;;   # already the only thing on stdout
-                --iterations) iterations="$2"; shift 2 ;;
-                --size) size="$2"; shift 2 ;;
-                --channels) channels="$2"; shift 2 ;;
-                --filters) filters="$2"; shift 2 ;;
+                --iterations) numeric_option --iterations "$2"; iterations="$2"; shift 2 ;;
+                --size) numeric_option --size "$2"; size="$2"; shift 2 ;;
+                --channels) numeric_option --channels "$2"; channels="$2"; shift 2 ;;
+                --filters) numeric_option --filters "$2"; filters="$2"; shift 2 ;;
                 *) die "unknown option: $1" ;;
             esac
         done
@@ -311,8 +390,8 @@ case "$cmd" in
         iterations=50; size=64; as_json=""
         while [ $# -gt 0 ]; do
             case "$1" in
-                --iterations) iterations="$2"; shift 2 ;;
-                --size) size="$2"; shift 2 ;;
+                --iterations) numeric_option --iterations "$2"; iterations="$2"; shift 2 ;;
+                --size) numeric_option --size "$2"; size="$2"; shift 2 ;;
                 --json) as_json=1; shift ;;
                 --output) output_file="$2"; shift 2 ;;
                 *) die "unknown option: $1" ;;

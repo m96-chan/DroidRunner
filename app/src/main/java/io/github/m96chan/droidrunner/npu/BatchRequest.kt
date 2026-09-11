@@ -106,8 +106,36 @@ internal object BatchRequest {
             .put("model", entry.path.substringAfterLast('/'))
             .toString()
 
+    /**
+     * A row whose run threw, in that row and nowhere else (issue #192).
+     *
+     * Anything escaping a row used to arrive as "took longer than the batch
+     * had left" and to mark the whole sweep budget-exhausted, so a maintainer
+     * reading an OutOfMemoryError saw a timing problem, and a caller that
+     * treats `budgetExhausted` as "the fleet is behind, resubmit" resubmitted a
+     * sweep that had finished. The thrown thing keeps its own words, in
+     * [ResultContract.failure]'s `message`, because they are the half that
+     * says what actually happened.
+     */
+    fun threw(entry: Entry, cause: Throwable): String =
+        ResultContract.failure(
+            code = ResultContract.Code.FAILED,
+            error = "this row threw before it could produce a measurement",
+            message = cause.message?.takeIf { it.isNotBlank() } ?: cause.toString(),
+            at = cause.stackTrace.firstOrNull()?.toString(),
+        )
+            .put("id", entry.id)
+            .put("model", entry.path.substringAfterLast('/'))
+            .toString()
+
     /** Stamps a per-model result with the row it came from. */
     fun identify(result: String, entry: Entry): String =
-        runCatching { JSONObject(result).put("id", entry.id).toString() }
-            .getOrElse { skipped(entry, "the run produced no readable answer") }
+        runCatching {
+            // A nested row is handed to a consumer just as the envelope is, so
+            // it carries the contract too (issue #200): `stamp` adds the schema
+            // a pinned consumer validates, and a code to any failure that
+            // reached here without one. `stamp` also answers in the right shape
+            // when `result` is not JSON at all, which is the case below.
+            JSONObject(ResultContract.stamp(result)).put("id", entry.id).toString()
+        }.getOrElse { skipped(entry, "the run produced no readable answer") }
 }
