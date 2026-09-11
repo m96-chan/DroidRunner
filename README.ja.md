@@ -474,8 +474,14 @@ secrets: `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_
    (Start/Stopはダッシュボードのrunnerパネルにあります)
 
 runtimeの取得元は`droidrunner.runtimeRepo`ビルドプロパティで指定したリポジトリです。
+そのリポジトリはアプリとruntimeのリリースを同じ一覧へ公開するため、リリース一覧は
+`runtime-*`が見つかるまでページ単位で辿ります。あとから何本のアプリリリースが
+出ようとbundleは見つかります。
 manifest URLの手動上書きは`advanced`にあります(GitHub Enterprise Serverや自前ホスト用)。
 新しいbundleの公開は**Runtime bundle**ワークフローで行います(`runtime/README.md`参照)。
+
+リポジトリピッカーはアプリがインストールされた全installationを列挙し(先頭100件
+だけではありません)、1つのinstallationにつき最大500リポジトリまで取得します。
 
 サインインはGitHub AppのDevice Flowを使うため、APKにclient secretは含まれず、
 PATを手動で発行する必要もありません。userトークンはAndroid Keystoreで暗号化され、
@@ -710,4 +716,8 @@ Ubuntu rootfs(各パッケージのライセンス)が含まれます。bundle�
 ソース、パッチ、ビルド手順、著作権表示を一緒に提供してください
 (`runtime/build-bundle.sh`が中身を固定しています)。
 
-同じ情報はアプリのAbout画面でも確認できます。
+同じ内容はアプリのAbout画面でも提供しています。ビルド元リリースの
+`droidrunner-<tag>-source.tar.gz`を名前で示してリンクし、rootfsについては
+`PACKAGES.txt`と`SOURCE-OFFER.txt`を案内します。リリースではない開発ビルドでは
+その旨を明示します。この表のコンポーネントがAbout画面から抜けていれば
+`tools/check-licence-tables-match.sh`がビルドを失敗させます。

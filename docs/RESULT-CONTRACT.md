@@ -470,13 +470,21 @@ the manifest is a JSON array:
 
 ```json
 {"schema": 1, "ok": true,
- "results": [ {"id": "conv-int8", "ok": true,  "executed": "accelerator", "…": "…"},
-              {"id": "pack-fp32", "ok": false, "code": "refused", "…": "…"} ]}
+ "results": [ {"schema": 1, "id": "conv-int8", "ok": true,  "executed": "accelerator", "…": "…"},
+              {"schema": 1, "id": "pack-fp32", "ok": false, "code": "refused", "…": "…"} ]}
 ```
 
 - **One entry back per entry sent, in order.** A failing row never ends the
   sweep — a sweep is largely *made of* rejections, and each one is the data.
   A malformed row comes back saying so rather than shortening the array.
+- **Every row is a response in its own right.** `schema` on each one, and
+  `code` on each failing one, exactly as on the envelope — the table at the top
+  of this document describes a nested row as much as a top-level result. Until
+  [#200](https://github.com/m96-chan/DroidRunner/issues/200) only the envelope
+  was stamped, so a response validated at the top level and its contents did
+  not, and the missing-runtime row arrived with no `code` for a sweep to branch
+  on at all. A consumer validating rows may now do so; one that was not is
+  unaffected, since this only adds fields.
 - `iterations: 0` means load, delegate and allocate but do not time. Half of a
   sweep only asks whether a graph was accepted, and that answer is complete
   once tensors are allocated. The result then carries `executed` and
@@ -490,6 +498,40 @@ the manifest is a JSON array:
   far comes back with `budgetExhausted: true` and `stoppedAt` naming the row
   that was running — which is the only thing a caller can act on when one
   driver will not return.
+- **`budgetExhausted` means the clock and nothing else.** A row that throws —
+  out of memory on a large graph, a vendor call that raised — is reported in
+  that row, as `failed` with the thrown thing's own words in `message`, and the
+  sweep carries on to the next model. It used to arrive as *took longer than
+  the batch had left* and to mark the whole sweep exhausted, so a caller that
+  reads `budgetExhausted` as "the fleet is behind, resubmit" resubmitted a
+  sweep that had finished
+  ([#192](https://github.com/m96-chan/DroidRunner/issues/192)).
+
+## When the agent is full
+
+`503`, with a body in the usual failure shape, when every worker and every
+queued slot is taken. A sweep may legitimately hold a worker for an hour, so
+this is reachable on a healthy phone, and it is a different thing from the
+phone having gone away: the agent answered, and answering again later is
+likely to work.
+
+It used to be neither — the connection was accepted and then went silent, so
+the caller waited out its own timeout and reported a network problem
+([#199](https://github.com/m96-chan/DroidRunner/issues/199)). A client may
+retry a `503`; there is nothing to retry against silence.
+
+The body carries `code: failed`, so the **wrapper** still reports it as exit
+`1` along with everything else unclassified. The status is the part to branch
+on for now, and a client speaking to the agent directly is the one that can.
+A busy phone deserves its own exit status, and that is a change to the exit
+table rather than to this section.
+
+The head of a request is bounded too, and a request that runs past those bounds
+is answered rather than dropped: `431` for a header line or a header block over
+the cap, `408` for a request that stops arriving partway through
+([#190](https://github.com/m96-chan/DroidRunner/issues/190)). Loopback is
+shared with every app on the phone, and everything before the capability token
+is checked is reachable without one.
 
 ## What is not in the contract
 
