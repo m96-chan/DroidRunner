@@ -106,4 +106,88 @@ class RunnerRegistrationTest {
 
         assertEquals(RunnerTarget.Repository("m96-chan", "DroidRunner"), detach)
     }
+
+    // --- which credential registers (issue #194) -----------------------------
+
+    // `register()` sends whatever this picks to `createRegistrationToken`, and
+    // renews on a 401 only when it says the token is renewable.
+
+    @Test fun aTypedPatWinsOverALiveSignIn() {
+        // The whole point of the advanced panel: the user signed in to browse,
+        // found the App is not installed on the repository they want, and
+        // typed a PAT that does have the permission. Sending the sign-in
+        // instead earns a 404 that says nothing about why.
+        val chosen = RunnerRegistration.credentialFor(
+            supplied = "ghp_typed_by_hand",
+            userToken = "gho_signed_in",
+            pat = "ghp_typed_by_hand",
+        )!!
+
+        assertEquals("ghp_typed_by_hand", chosen.token)
+    }
+
+    @Test fun aPatIsNotWorthRenewing() {
+        // There is nothing behind a hand-entered PAT to renew, so a 401 from
+        // one is the answer rather than the start of a second attempt.
+        val chosen = RunnerRegistration.credentialFor(
+            supplied = "ghp_typed_by_hand",
+            userToken = "gho_signed_in",
+            pat = null,
+        )!!
+
+        assertFalse(chosen.renewable)
+    }
+
+    @Test fun theSignInPassedByTheOtherButtonIsStillRenewable() {
+        // The OAuth register button hands in the token it is holding, and that
+        // token is the sign-in — so the 401 renewal still applies to it.
+        val chosen = RunnerRegistration.credentialFor(
+            supplied = "gho_signed_in",
+            userToken = "gho_signed_in",
+            pat = null,
+        )!!
+
+        assertEquals("gho_signed_in", chosen.token)
+        assertTrue(chosen.renewable)
+    }
+
+    @Test fun aCallerWithNothingInHandStillFallsBackToTheSignIn() {
+        // RunnerService registering again after an ephemeral job passes no
+        // credential, and must go on behaving exactly as it did.
+        val chosen = RunnerRegistration.credentialFor(
+            supplied = null,
+            userToken = "gho_signed_in",
+            pat = "ghp_stored",
+        )!!
+
+        assertEquals("gho_signed_in", chosen.token)
+        assertTrue(chosen.renewable)
+    }
+
+    @Test fun theStoredPatIsTheLastResort() {
+        val chosen = RunnerRegistration.credentialFor(
+            supplied = null,
+            userToken = null,
+            pat = "ghp_stored",
+        )!!
+
+        assertEquals("ghp_stored", chosen.token)
+        assertFalse(chosen.renewable)
+    }
+
+    @Test fun aDeviceWithNoCredentialAtAllHasNothingToTry() {
+        assertNull(RunnerRegistration.credentialFor(null, null, null))
+    }
+
+    @Test fun aBlankFieldIsNotACredential() {
+        // An empty PAT field would otherwise beat the sign-in and send an
+        // empty Authorization header.
+        val chosen = RunnerRegistration.credentialFor(
+            supplied = "",
+            userToken = "gho_signed_in",
+            pat = null,
+        )!!
+
+        assertEquals("gho_signed_in", chosen.token)
+    }
 }
