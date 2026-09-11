@@ -285,11 +285,20 @@
 
   <h3>The runner goes offline while the screen is off</h3>
   <p>
-    Almost always the vendor's battery management. Grant the battery-optimization
-    exemption the app requests, and on Xiaomi/MIUI, Samsung, Huawei and OPPO also
-    lock the app in the recent-apps list and allow autostart. The foreground service
-    and wake lock keep it alive against stock Android; they do not out-argue a
-    vendor task killer.
+    Almost always the vendor's battery management. The app defends itself twice
+    over — the service is sticky, and a watchdog job starts it again within fifteen
+    minutes if the system kills it anyway — and on a Xiaomi both were measured
+    working, one covering for the other. Grant the battery-optimization exemption
+    the app requests, and on Xiaomi/MIUI, Samsung, Huawei and OPPO also lock the app
+    in the recent-apps list and allow autostart.
+  </p>
+  <p>
+    Some ROMs defeat all of it. On a RedMagic 8 nothing restarts a killed runner:
+    not the sticky service, not an alarm, and not the watchdog job with every
+    constraint satisfied and half an hour to run in, while the app sits exempt from
+    battery optimization and unrestricted in the background. The vendor's per-app
+    power screen is behind a signature permission, so the app cannot even open it
+    for you — allow DroidRunner there by hand, in the phone's own settings.
   </p>
 
   <h3>"A session for this runner already exists"</h3>

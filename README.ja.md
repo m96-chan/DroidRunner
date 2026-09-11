@@ -621,8 +621,14 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 ## ロードマップ
 
 - [x] GABEを参考にruntime bootstrapを実機で安定化
-- [x] バッテリー・充電・温度・空き容量によるジョブ受付制御
+- [x] バッテリー・温度・空き容量によるジョブ受付制御。保留はバッテリー動作かつ残量が
+      閾値未満のときだけ ([#185](https://github.com/m96-chan/DroidRunner/issues/185))
+      — 停電しても充電済みの端末は止まらない
 - [x] リスナー異常終了時の復旧(バックオフ付き再起動)
+- [x] システムにサービスごと落とされた後の復帰
+      ([#184](https://github.com/m96-chan/DroidRunner/issues/184)) — `START_STICKY` と
+      期限つき監視ジョブの二段構え(実測でどちらも単独では取りこぼした)。両方が通じない
+      メーカーROMがあり、それは制限事項に明記
 - [x] ephemeral runnerとジョブ後クリーンアップ
 - [x] Organizationスコープのrunner(1台で組織全体を担当)
 - [x] per-job capability token付きDevice Agent
