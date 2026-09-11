@@ -65,3 +65,9 @@ jobs:
       # another repository may pin to, and until #125 they had nothing behind
       # them — one of them was wrong, and a phone is what found it.
       - run: runtime/tests/test-droidrunner-device.sh
+
+      # The tutorial is a page people copy verbatim, so the ref it names is the
+      # action they end up running. It sat on a tag for seven releases and gave
+      # readers a workflow without the outputs the next section tells them to
+      # branch on (#215). Nothing else ties the HTML to the action.
+      - run: tools/check-action-pin.sh
