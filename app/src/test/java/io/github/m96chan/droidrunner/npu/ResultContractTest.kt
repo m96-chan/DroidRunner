@@ -82,6 +82,66 @@ class ResultContractTest {
         assertEquals(ResultContract.Code.INVALID_MODEL, stamped.getString("code"))
     }
 
+    @Test fun aNestedRowCarriesTheContractAndNotJustTheEnvelopeAroundIt() {
+        // `stamp` ran once, on the envelope, so a pinned consumer validating
+        // the rows inside a sweep found no `schema` on any of them — while the
+        // object around them had one (#200).
+        val entry = BatchRequest.Entry(id = "conv-int8", path = "/home/runner/conv-int8.tflite")
+
+        val row = JSONObject(BatchRequest.identify("""{"ok":true,"executed":"accelerator"}""", entry))
+
+        assertEquals(ResultContract.SCHEMA, row.getInt("schema"))
+        assertEquals("conv-int8", row.getString("id"))
+    }
+
+    @Test fun aNestedFailureThatArrivedWithoutACodeIsGivenOne() {
+        // A sweep branches on `code` to decide whether to abort, and the
+        // contract says it is present on every failure. A row built by hand
+        // below must not be able to take it away.
+        val entry = BatchRequest.Entry(id = "conv-int8", path = "/home/runner/conv-int8.tflite")
+
+        val row = JSONObject(
+            BatchRequest.identify("""{"ok":false,"error":"the runtime is not installed"}""", entry),
+        )
+
+        assertEquals(ResultContract.SCHEMA, row.getInt("schema"))
+        assertEquals(ResultContract.Code.FAILED, row.getString("code"))
+    }
+
+    @Test fun theMissingQnnRuntimeNamesItsCodeWhereThatRowIsBuilt() {
+        // On a Qualcomm phone with no runtime installed, every row of a sweep
+        // comes from one lambda in RunnerService, and it returned a hand-built
+        // object with no `code` at all — the failure #200 opens with. A JVM
+        // test cannot start a Service, so this is a source-level canary in the
+        // spirit of tools/check-executed-everywhere.sh: it cannot prove the
+        // row is right, only that nobody went back to building it by hand.
+        val source = sourceOf("runner/RunnerService.kt")
+        val lambda = source.substringAfter("private fun qnnModelRunner()")
+
+        assertTrue(
+            "the not-installed row must come from ResultContract.failure",
+            lambda.contains("ResultContract.failure("),
+        )
+        assertTrue(
+            "and it must carry the code a sweep branches on",
+            lambda.contains("Code.NOT_INSTALLED"),
+        )
+    }
+
+    /** The file as it is on disk, wherever the test happens to be run from. */
+    private fun sourceOf(relative: String): String {
+        var directory: java.io.File? = java.io.File("").absoluteFile
+        while (directory != null) {
+            val candidate = java.io.File(
+                directory,
+                "app/src/main/java/io/github/m96chan/droidrunner/$relative",
+            )
+            if (candidate.isFile) return candidate.readText()
+            directory = directory.parentFile
+        }
+        throw AssertionError("cannot find $relative from ${java.io.File("").absolutePath}")
+    }
+
     @Test fun theCodesAreTheOnesTheDocumentLists() {
         // docs/RESULT-CONTRACT.md is what another repository pins to; a code
         // renamed here and not there is a broken promise.

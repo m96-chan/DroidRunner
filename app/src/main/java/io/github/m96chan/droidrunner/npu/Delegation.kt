@@ -176,14 +176,37 @@ internal fun modelIsUnloadable(model: java.io.File): Boolean =
  * Each entry's `delegated` counts original nodes, and a delegate node left by an
  * earlier pass is not claimable by a later one, so the counts are disjoint and
  * the first entry's `total` is the graph as it arrived.
+ *
+ * The union is over the accelerators, not over every claim in the log. TFLite
+ * applies XNNPACK itself, after the delegates the caller attached, and announces
+ * its share in the same words the parser matches — so a run that both named
+ * accelerators declined and the CPU finished came back `executed: accelerator`,
+ * `executedBy: TfLiteXNNPackDelegate`, which is the claim #170 was filed to stop
+ * made again on the path that closed it (#189). What the CPU picked up is what
+ * was left behind: it counts against the total as unclaimed, and it never names
+ * the run.
  */
 internal fun executedForAll(all: List<Delegation>): Pair<String, String> {
     if (all.isEmpty()) return "cpu-fallback" to "cpu"
-    val claimed = all.sumOf { it.delegated }
+    // The same guard `executedFor` has carried since it was written, and for
+    // the same reason it gives there: a CPU delegate took it, so whatever was
+    // asked for did not run it. Dropping the entry rather than subtracting it
+    // is deliberate — `total` is the graph as it arrived, so nodes nobody
+    // accelerated are already counted in it.
+    //
+    // `executedFor` refuses `nnapi-reference` as well, and that half cannot be
+    // repeated here: an entry carries the delegate TFLite named, not the driver
+    // it reached, and an NPU and NNAPI's CPU reference both print
+    // `TfLiteNnapiDelegate`. Only the requested device tells them apart and the
+    // union rule is not given it, so `--device 'nnapi-reference+gpu'` can still
+    // call the reference driver an accelerator. Said out loud rather than left
+    // to be discovered, because it is the same wrong claim by another route.
+    val accelerated = all.filterNot { it.delegate in CPU_DELEGATES }
+    val claimed = accelerated.sumOf { it.delegated }
     // Only the delegates that took something. Naming one that claimed nothing
     // was the other half of what #170 reported, and it is the same mistake
     // twice: reporting what was asked for as though it were what happened.
-    val by = all.filter { it.delegated > 0 }
+    val by = accelerated.filter { it.delegated > 0 }
         .joinToString("+") { it.delegate ?: "delegate" }
         .ifEmpty { "cpu" }
     return when {

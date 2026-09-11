@@ -63,18 +63,29 @@ fun AboutPanel(capabilities: DeviceCapabilities, runtime: RuntimeInstaller) {
         Field("runner", "MIT (in the runtime bundle)")
         Field("rootfs", "Ubuntu packages, own licences")
 
-        Spacer(Modifier.padding(top = 10.dp))
-        Text(
-            "Source for the proot binaries in this APK: commit " +
-                BuildConfig.PROOT_COMMIT.take(12) + ", built by runtime/build-proot.sh " +
-                "with the patches in runtime/patches/.",
-            color = BtopColors.Dim,
-            style = MaterialTheme.typography.labelSmall,
+        // Then where each of those licences' source is, in the order the
+        // READMEs' licence table uses: what the APK ships, then what the
+        // runtime bundle does. Both are offers a recipient can act on, not
+        // descriptions of the project (issue #226).
+        val offer = sourceOffer(
+            versionName = BuildConfig.VERSION_NAME,
+            prootCommit = BuildConfig.PROOT_COMMIT,
+            gitCommit = BuildConfig.GIT_COMMIT,
         )
+        Spacer(Modifier.padding(top = 10.dp))
+        Note(offer.text)
+        Spacer(Modifier.padding(top = 4.dp))
+        Link(offer.linkLabel) { open(offer.url) }
+
+        Spacer(Modifier.padding(top = 10.dp))
+        Note(ROOTFS_SOURCE)
 
         Spacer(Modifier.padding(top = 10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Link("project source") { open(PROJECT_URL) }
+            // Upstream at the pinned commit, which is still worth having: it
+            // is where the history and the issue tracker are. It is not the
+            // source offer — that is the archive above, on our own release.
             Link("proot source") { open("$PROOT_URL/tree/${BuildConfig.PROOT_COMMIT}") }
             Link("report an issue") { open("$PROJECT_URL/issues/new") }
         }
@@ -89,6 +100,76 @@ fun AboutPanel(capabilities: DeviceCapabilities, runtime: RuntimeInstaller) {
         }
     }
 }
+
+/**
+ * The corresponding-source offer for the GPL binaries in the APK, and where to
+ * get it (issue #226).
+ *
+ * GPL-2.0 §3 is discharged by offering the source from the same place as the
+ * binary, and every release publishes `droidrunner-<tag>-source.tar.gz` beside
+ * the APK: proot at the pinned commit, the talloc tarball, the patches and the
+ * script that builds them. Naming a commit and a patch directory instead — as
+ * this screen did until #226 — hands the reader a recipe and asks them to
+ * reconstruct what we already shipped for them.
+ */
+internal data class SourceOffer(val text: String, val linkLabel: String, val url: String)
+
+/**
+ * A release build's versionName is its tag with the "v" removed; see `semver`
+ * in app/build.gradle.kts. Anything else was never released.
+ */
+private val RELEASE_VERSION = Regex("""\d+\.\d+\.\d+""")
+
+/**
+ * What the screen says about the source, and what it links to.
+ *
+ * Split out of the composable because the part that can be wrong is a string:
+ * the release asset URL is reconstructed from the version name, and a build
+ * that was never released has no such asset. Linking there anyway would answer
+ * the one question this panel exists to answer with a 404, so a development
+ * build is told plainly that it is one and pointed at the commit it came from,
+ * which is the corresponding source for it. `GIT_COMMIT` is empty where there
+ * was no git to ask — the source archive itself builds that way — and then
+ * only the repository can be offered.
+ */
+internal fun sourceOffer(versionName: String, prootCommit: String, gitCommit: String): SourceOffer {
+    val proot = prootCommit.take(12)
+    val tag = versionName.takeIf { RELEASE_VERSION.matches(it) }?.let { "v$it" }
+    if (tag != null) {
+        val archive = "droidrunner-$tag-source.tar.gz"
+        return SourceOffer(
+            text = "Source for the GPL binaries in this APK: $archive, published " +
+                "beside the APK on the $tag release. It holds proot at commit " +
+                "$proot, the talloc tarball, the patches and the build script.",
+            linkLabel = "source archive",
+            url = "$PROJECT_URL/releases/download/$tag/$archive",
+        )
+    }
+    val builtFrom = if (gitCommit.isEmpty()) "" else " from commit $gitCommit"
+    return SourceOffer(
+        text = "This is a $versionName build$builtFrom, not a release, so no " +
+            "source archive was published for it; proot here is commit $proot. " +
+            "Every release carries droidrunner-<tag>-source.tar.gz beside the " +
+            "APK, with proot, talloc, the patches and the build script.",
+        linkLabel = if (gitCommit.isEmpty()) "project source" else "source at $gitCommit",
+        url = if (gitCommit.isEmpty()) PROJECT_URL else "$PROJECT_URL/tree/$gitCommit",
+    )
+}
+
+/**
+ * Where the rootfs's source is, which is inside the bundle rather than here.
+ *
+ * The runtime bundle is hundreds of Ubuntu packages, and redistributing them
+ * makes us their distributor too (issue #116). The offer travels with the
+ * tarball: `runtime/build-bundle.sh` writes `PACKAGES.txt`, every package and
+ * its exact version, and `SOURCE-OFFER.txt`, how to turn that list into
+ * source. The READMEs cite both; "Ubuntu packages, own licences" on its own
+ * told the person holding the app nothing they could act on.
+ */
+internal const val ROOTFS_SOURCE =
+    "The runtime bundle carries PACKAGES.txt and SOURCE-OFFER.txt at its root: " +
+        "every Ubuntu package in the rootfs, its exact version, and how to get " +
+        "that package's source."
 
 /**
  * The device report, plus what the device actually did (issue #152).
@@ -124,6 +205,12 @@ internal fun deviceReport(capabilities: DeviceCapabilities, runtime: RuntimeInst
         appendLine("runtime: ${runtime.installedVersion ?: "not installed"}")
         append("proot: ${BuildConfig.PROOT_COMMIT.take(12)}")
     }
+
+/** A dim paragraph under the licence list: where a component's source is. */
+@Composable
+private fun Note(text: String) {
+    Text(text, color = BtopColors.Dim, style = MaterialTheme.typography.labelSmall)
+}
 
 @Composable
 private fun Field(label: String, value: String) {

@@ -50,6 +50,7 @@ import io.github.m96chan.droidrunner.github.GitHubApi
 import io.github.m96chan.droidrunner.github.GitHubApiException
 import io.github.m96chan.droidrunner.github.GitHubAuth
 import io.github.m96chan.droidrunner.github.RepositoryRef
+import io.github.m96chan.droidrunner.github.RuntimeReleaseResult
 import io.github.m96chan.droidrunner.github.SignInExpiredException
 import io.github.m96chan.droidrunner.github.TokenRefreshPolicy
 import io.github.m96chan.droidrunner.github.UserSession
@@ -1141,22 +1142,38 @@ internal fun resolveRuntimeManifest(
     api: GitHubApi,
     runtimeRepo: String,
     token: String?,
-): ManifestResolution = runCatching { api.latestRuntimeManifest(runtimeRepo, token) }.fold(
-    onSuccess = { release ->
-        if (release == null) {
-            ManifestResolution.NoRelease
-        } else {
-            ManifestResolution.Resolved(
-                url = release.url,
-                fallbackNotice = release.fallbackNotice,
+): ManifestResolution = runCatching { api.latestRuntimeRelease(runtimeRepo, token) }.fold(
+    onSuccess = { result ->
+        when (result) {
+            is RuntimeReleaseResult.Found -> ManifestResolution.Resolved(
+                url = result.release.url,
+                fallbackNotice = result.release.fallbackNotice,
                 // The manifest names the bundle version, so an installed
                 // runtime that has fallen behind can be reported. Only the
                 // "update available" line depends on it, so a failure to read
                 // it costs that line and not the install button.
-                version = runCatching { manifestVersion(release.url) }.getOrNull(),
+                version = runCatching { manifestVersion(result.release.url) }.getOrNull(),
+            )
+            // The lookup reached GitHub and the feed genuinely holds no runtime
+            // release. `truncated` means the scan stopped at its page cap, so
+            // this is "none in the newest N" rather than "none" — a distinction
+            // that matters because "none" sends the reader to `advanced` and the
+            // other is worth retrying (#193).
+            is RuntimeReleaseResult.NoneFound ->
+                if (result.truncated) ManifestResolution.Unreachable(
+                    "no runtime release in the newest ${result.scanned}",
+                ) else ManifestResolution.NoRelease
+            RuntimeReleaseResult.NotConfigured -> ManifestResolution.NotConfigured
+            // A status the API itself reported. Carrying it means the panel can
+            // say "GitHub said 403" instead of the blank "could not reach".
+            is RuntimeReleaseResult.Failed -> ManifestResolution.Unreachable(
+                result.status?.let { "GitHub answered $it: ${result.message}" } ?: result.message,
             )
         }
     },
+    // Nothing GitHub said — a socket that never opened, or a body that did not
+    // parse. `latestRuntimeRelease` turns most of these into `Failed` itself;
+    // this is the backstop, so an exception cannot read as "no release exists".
     onFailure = { ManifestResolution.Unreachable(it.message) },
 )
 
