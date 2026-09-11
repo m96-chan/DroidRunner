@@ -62,10 +62,8 @@ thermal  <span class="ok">none</span> &middot; battery <span class="ok">93%</spa
 </div>
 
 <div class="note danger">
-  <b>Early proof of concept.</b> Runner management works on real hardware, but the
-  NPU Device Agent runs built-in benchmarks only, and arbitrary model execution is
-  still in development. A self-hosted runner executes whatever a workflow contains,
-  on your device — do not point it at repositories you do not trust.
+  <b>This is a self-hosted runner.</b> It executes whatever a workflow contains, on
+  your device — do not point it at repositories you do not trust.
 </div>
 
 <section class="panel">
@@ -175,7 +173,7 @@ thermal  <span class="ok">none</span> &middot; battery <span class="ok">93%</spa
     <div><h4>GitHub App login</h4><p>Device-flow sign-in with a target picker. No PAT to create, no client secret in the APK.</p></div>
     <div><h4>Repo or org scope</h4><p>Serve one repository, or every repository in an organization.</p></div>
     <div><h4>Automatic labels</h4><p>Android API level, SoC and NPU hints become runner labels.</p></div>
-    <div><h4>Self-protecting</h4><p>Holds jobs while the device is unplugged, low, hot or short on space.</p></div>
+    <div><h4>Self-protecting</h4><p>Holds jobs while the device is hot, short on space, or on battery and below your threshold. Mains-only is a setting, off by default.</p></div>
     <div><h4>Crash recovery</h4><p>Restarts the listener on its own, with backoff.</p></div>
     <div><h4>Ephemeral mode</h4><p>Re-registers and wipes the work directory after every job.</p></div>
     <div><h4>Signed runtime</h4><p>ECDSA-signed manifest, verified against keys compiled into the APK.</p></div>
@@ -219,7 +217,7 @@ nnapi-reference              1107.7      17.04</pre>
     <tr><td><code>arm64</code></td><td>ARM64 device</td></tr>
     <tr><td><code>android-api-N</code></td><td>Android API level</td></tr>
     <tr><td><code>soc-*</code></td><td>Detected SoC</td></tr>
-    <tr><td><code>android-npu</code> / <code>android-no-npu</code></td><td>Whether an NPU was detected</td></tr>
+    <tr><td><code>android-npu</code></td><td>The SoC family is known to have an NPU. A hint, not a promise</td></tr>
     <tr><td><code>nnapi-accelerator</code></td>
         <td><b>An accelerator answered the probe</b> &mdash; the label to select on</td></tr>
     <tr><td><code>npu-qnn</code></td>
