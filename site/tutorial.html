@@ -161,12 +161,18 @@
         Still on the setup screen: decide when this device is allowed to accept work.
       </p>
       <p>
-        Thresholds for <b>charging</b>, <b>battery level</b>, <b>thermal status</b> and
-        <b>free storage</b> decide when jobs are held. A device that is unplugged,
-        low, hot or full stops taking new jobs and resumes on its own once the
-        condition clears — except critical thermal, which can interrupt a running job,
-        because a phone that is throttling itself produces numbers nobody should
-        trust anyway.
+        Thresholds for <b>battery level</b>, <b>thermal status</b> and
+        <b>free storage</b> decide when jobs are held. A device that is hot, full, or
+        on battery and below your threshold stops taking new jobs and resumes on its
+        own once the condition clears — except critical thermal, which can interrupt a
+        running job, because a phone that is throttling itself produces numbers nobody
+        should trust anyway.
+      </p>
+      <p>
+        Losing mains power is not on its own a reason to stop. A charged phone keeps
+        working through a power cut until the level actually falls, which is most of
+        what a battery is here for. <b>Run only on mains power</b> is a separate
+        toggle, off by default, for a device that must never spend its own charge.
       </p>
       <p>
         <b style="display:inline">Ephemeral mode</b> re-registers the runner and wipes
@@ -240,9 +246,9 @@
 
   <h3>Asking the NPU something</h3>
   <p>
-    <code>droidrunner-device</code> ships inside the runtime bundle and talks to the
-    Device Agent in the app over loopback, authenticated with a token minted for the
-    running job.
+    <code>droidrunner-device</code> is copied into the guest from the APK on every
+    runner start, so it stays in step with the Device Agent it talks to. It reaches
+    that agent over loopback, authenticated with a token minted for the running job.
   </p>
   <pre><span class="k">runs-on</span>: [<span class="s">self-hosted</span>, <span class="s">android</span>, <span class="s">nnapi-accelerator</span>]
 <span class="k">steps</span>:
@@ -263,7 +269,7 @@
     shipping a model: a bug that only appears on the vendor's silicon looks exactly
     like working code when the check runs on a laptop.
   </p>
-  <pre>  - <span class="k">uses</span>: <span class="s">m96-chan/DroidRunner/actions/run-model@v0.7.0</span>
+  <pre>  - <span class="k">uses</span>: <span class="s">m96-chan/DroidRunner/actions/run-model@main</span>
     <span class="k">id</span>: <span class="s">device</span>
     <span class="k">with</span>:
       <span class="k">model</span>: <span class="s">build/model.tflite</span>
@@ -319,10 +325,10 @@
 
   <h3>Jobs are held and never start</h3>
   <p>
-    The dashboard says why: unplugged, battery below your threshold, thermal status
-    raised, or free space below the floor. Plug it in, cool it down, or lower the
-    threshold on the setup screen. This is admission control doing its job, not a
-    bug.
+    The dashboard says why: on battery and below your threshold, thermal status
+    raised, or free space below the floor &mdash; or simply off mains, if you turned on
+    <b>Run only on mains power</b>. Plug it in, cool it down, or lower the threshold on
+    the setup screen. This is admission control doing its job, not a bug.
   </p>
 
   <h3>Installation is blocked</h3>

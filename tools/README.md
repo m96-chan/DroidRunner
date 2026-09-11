@@ -14,14 +14,16 @@ different machines:
 | `reduce.py` | a hosted runner | turns the device's sweep into `matrix.md` and `matrix.json` |
 | `compare.py` | a hosted runner | compares a matrix against the one committed for that phone, and fails on a regression |
 | `baseline-path.py` | either | says where a given phone's committed matrix lives |
+| `index.py` | either | writes `docs/matrices/README.md`'s table of committed matrices, and with `--check` fails when it has drifted |
 
 The phone itself only runs the sweep, in bash and curl: **the guest has neither
 python3 nor jq**, checked against the published bundle's dpkg status rather than
 assumed.
 
-`test_reduce.py` and `test_compare.py` have no dependencies and run in CI on
-every push. Every mistake in that reduction reads as a statement about somebody's
-silicon, which is why they are not left to the machine with TensorFlow on it.
+`test_reduce.py`, `test_compare.py` and `test_index.py` have no dependencies and
+run in CI on every push, alongside `index.py --check`. Every mistake in that
+reduction reads as a statement about somebody's silicon, which is why they are
+not left to the machine with TensorFlow on it.
 
 Run the tests with:
 
@@ -64,6 +66,20 @@ it turns a build red, instead of turning every result into `executed: unknown`
 with nothing failing anywhere.
 
 Runs on every build. See [#128](https://github.com/m96-chan/DroidRunner/issues/128).
+
+## `check-action-pin.sh`
+
+The tutorial is a copy-paste page, so the ref it names for `actions/run-model`
+is the one that ends up in someone else's workflow. It sat on `@v0.7.0` for
+seven releases: a tag pins the action, not the document, and that one has
+neither the `stable` nor the `p90-us` output the next section tells the reader
+to branch on. Nothing failed — the workflow simply could not do what the page
+said.
+
+This takes the pin from the READMEs, which is the one the project stands behind,
+and fails when any page on the site names a different one.
+
+Runs on every push. See [#215](https://github.com/m96-chan/DroidRunner/issues/215).
 
 ## `ulp/`
 
