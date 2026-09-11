@@ -620,14 +620,15 @@ class RunnerService : Service() {
         val installer = QnnInstaller(this)
         return { model, backend, iterations, inputs, outputTarget, keepTimings ->
             if (installer.installed == null) {
-                org.json.JSONObject()
-                    .put("ok", false)
-                    .put(
-                        "error",
-                        "the Qualcomm NPU runtime is not installed on this device; " +
-                            "accept the licences in setup to install it",
-                    )
-                    .toString()
+                // Through the contract rather than by hand (#200). The
+                // hand-built object carried no `code` at all — on the one path
+                // a sweep most needs to branch on, since a missing runtime
+                // fails every remaining row identically.
+                io.github.m96chan.droidrunner.npu.ResultContract.failure(
+                    code = io.github.m96chan.droidrunner.npu.ResultContract.Code.NOT_INSTALLED,
+                    error = "the Qualcomm NPU runtime is not installed on this device; " +
+                        "accept the licences in setup to install it",
+                ).toString()
             } else {
                 QnnClient(this).runModel(
                     installDir = installer.installDir,
