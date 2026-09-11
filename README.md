@@ -654,8 +654,15 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 ## Roadmap
 
 - [x] Stabilize the runtime bootstrap on real devices, following GABE
-- [x] Job admission control based on battery, charging, thermal, and free storage
+- [x] Job admission control based on battery, thermal, and free storage, holding only
+      once the phone is spending its own charge below the floor
+      ([#185](https://github.com/m96-chan/DroidRunner/issues/185)) — a power cut no
+      longer stops a charged device
 - [x] Listener crash recovery with restart backoff
+- [x] Restart the runner after the system itself kills the service
+      ([#184](https://github.com/m96-chan/DroidRunner/issues/184)) — `START_STICKY`
+      plus a deadline-bound watchdog job, because each was measured failing alone;
+      some vendor ROMs defeat both, which the Limitations section names
 - [x] Ephemeral runners with post-job cleanup
 - [x] Organization-scoped runners (one device serving a whole organization)
 - [x] Device Agent with per-job capability tokens
