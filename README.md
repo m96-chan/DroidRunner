@@ -629,7 +629,17 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
 
 - Docker-based actions and service containers are not available
 - PRoot's syscall translation adds overhead
-- Android battery optimization and vendor task killers can interfere
+- Android battery optimization and vendor task killers can interfere. The runner is
+  restarted by a persisted `JobScheduler` watchdog if the system kills it, which was
+  measured to bring a killed runner back within one 15-minute period on a Xiaomi
+  2511FPC34G. **Some ROMs defeat every mechanism available to an app.** On a RedMagic 8
+  (ZTE), a killed runner is never restarted: not by `START_STICKY`, not by an alarm, and
+  not by the watchdog job with every constraint satisfied and half an hour to run in —
+  with the app exempt from battery optimization, in the EXEMPTED standby bucket, not
+  background-restricted and not dozing. The vendor's per-app power screen is behind a
+  signature permission, so the app cannot even open it for you; it has to be granted by
+  hand in the phone's own settings
+  ([#184](https://github.com/m96-chan/DroidRunner/issues/184))
 - Start-on-boot resumes the runner once the device is **unlocked**, not when it boots:
   Android holds `BOOT_COMPLETED` back while the user is credential-locked, and the
   runtime bundle and the stored credentials sit in credential-encrypted storage that is

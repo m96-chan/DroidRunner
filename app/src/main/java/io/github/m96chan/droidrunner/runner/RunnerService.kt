@@ -88,17 +88,33 @@ class RunnerService : Service() {
         }
     }
 
+    /**
+     * Started, or started again by the system after it killed us (issue #184).
+     *
+     * A sticky recreation arrives with a **null intent**, which is why the stop
+     * action is matched on rather than the ordinary start: anything that is not
+     * an explicit stop is a start, including the one the system makes on its
+     * own. Reading it the other way round would have made a recreation do
+     * nothing at all, which is the failure being fixed.
+     */
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         latestStartId = startId
         if (intent?.action == ACTION_STOP) {
             stopRunner()
+            // The watchdog goes with it, for the same reason: a stop the user
+            // asked for must not be undone fifteen minutes later (#184).
+            RunnerWatchdog.cancel(this)
+            // Deliberately not sticky. A stop the user asked for must stay
+            // stopped; recreating this one would make the button a no-op.
             return START_NOT_STICKY
         }
         startForeground(
             RunnerNotifications.ONGOING_ID,
             notifications.ongoing(RunnerNotifications.statusText(RunnerStatus.snapshot.value)),
         )
-        if (!starting.compareAndSet(false, true)) return START_NOT_STICKY
+        // Already running: nothing to do, but still sticky, or a later kill
+        // would be permanent because of a redundant start earlier.
+        if (!starting.compareAndSet(false, true)) return START_STICKY
         stopRequested.set(false)
         wakeLock = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "DroidRunner:Runner").also { it.acquire() }
@@ -127,8 +143,21 @@ class RunnerService : Service() {
 
         val mine = generation.incrementAndGet()
         scope.launch { reconcileLabels(runtimeDir) }
+        // Scheduled from here so it exists however the service was started —
+        // by the app, by boot, or by the watchdog itself. START_STICKY is the
+        // documented way back from a kill and did not work on the phone this
+        // was measured on, so something outside the process has to look (#184).
+        RunnerWatchdog.schedule(this)
         executor.execute { supervise(runtimeDir, mine) }
-        return START_NOT_STICKY
+        // NOT_STICKY told Android not to bring this back after killing it, so
+        // a vendor's power management taking a long-idle foreground service
+        // ended the runner permanently: the listener has crash recovery, and
+        // nothing watched the thing running the listener.
+        //
+        // Necessary but, on the phone this was measured on, not sufficient —
+        // after a SIGKILL the process stayed gone and `dumpsys activity
+        // services` showed no restart scheduled at all. Hence [RunnerWatchdog].
+        return START_STICKY
     }
 
     /** Starts, holds, and restarts the listener according to device conditions. */

@@ -598,7 +598,15 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 
 - Docker-based actionsとservice containersは利用不可
 - PRootによるシステムコール変換のオーバーヘッドがある
-- Androidの省電力機能やメーカー独自タスクキラーの影響を受ける
+- Androidの省電力機能やメーカー独自タスクキラーの影響を受ける。システムに落とされた
+  場合は永続化した `JobScheduler` の監視ジョブが復帰させる (Xiaomi 2511FPC34G で、
+  強制終了から1周期=15分以内の復帰を実測)。ただし**アプリ側のあらゆる手段が通じない
+  ROMがある**。RedMagic 8 (ZTE) では、`START_STICKY` もアラームも、全制約を満たした
+  監視ジョブも、30分待って一度も実行されず復帰しない — 電池最適化は除外済み、standby
+  bucket は EXEMPTED、バックグラウンド制限なし、Doze でもない状態で。メーカーのアプリ別
+  電源設定画面は署名権限で保護されているためアプリから開くこともできず、**端末の設定
+  から手動で許可する必要がある**
+  ([#184](https://github.com/m96-chan/DroidRunner/issues/184))
 - 起動時自動スタートが効くのは、端末が**アンロックされてから**であり、起動した瞬間では
   ない。Androidはユーザーがcredential-lock状態のあいだ`BOOT_COMPLETED`を保留し、
   runtime bundleも保存済みの認証情報も、初回アンロックまで読めない
