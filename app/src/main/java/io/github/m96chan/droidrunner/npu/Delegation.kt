@@ -186,22 +186,46 @@ internal fun modelIsUnloadable(model: java.io.File): Boolean =
  * was left behind: it counts against the total as unclaimed, and it never names
  * the run.
  */
-internal fun executedForAll(all: List<Delegation>): Pair<String, String> {
+internal fun executedForAll(
+    all: List<Delegation>,
+    requestedDevices: List<String> = emptyList(),
+): Pair<String, String> {
     if (all.isEmpty()) return "cpu-fallback" to "cpu"
+
+    // `executedFor` refuses `nnapi-reference` as well as XNNPACK, and that half
+    // needs the requested devices to be repeatable here: an entry carries the
+    // delegate TFLite named, not the driver it reached, and an NPU and NNAPI's
+    // CPU reference both print `TfLiteNnapiDelegate`. What the caller asked for
+    // is the only thing that separates them.
+    //
+    // Every NNAPI delegate attached here was given one accelerator name, so
+    // when every NNAPI name the caller wrote is a CPU device, every
+    // `TfLiteNnapiDelegate` entry in the log is that CPU — `nnapi-reference+gpu`
+    // resolves cleanly.
+    val nnapiRequested = requestedDevices.filter { it != GPU_DEVICE }
+    val nnapiIsCpu = nnapiRequested.isNotEmpty() && nnapiRequested.all { it in CPU_DEVICES }
+
+    // Mixed, and the log cannot be read: two NNAPI delegates print the same
+    // name, so with `nnapi-reference+qti-dsp` there is no way to tell which
+    // entry was the accelerator. The honest answer is the one the contract
+    // already has for "the delegate did not say what it took", and consumers
+    // are told to treat it as not-accelerated — which is the safe direction to
+    // be wrong in. Guessing would be the #170 mistake a third time.
+    val ambiguous = nnapiRequested.size > 1 && nnapiRequested.any { it in CPU_DEVICES }
+    if (ambiguous) {
+        return "unknown" to all.filter { it.delegated > 0 }
+            .joinToString("+") { it.delegate ?: "delegate" }
+            .ifEmpty { "cpu" }
+    }
+
     // The same guard `executedFor` has carried since it was written, and for
     // the same reason it gives there: a CPU delegate took it, so whatever was
     // asked for did not run it. Dropping the entry rather than subtracting it
     // is deliberate — `total` is the graph as it arrived, so nodes nobody
     // accelerated are already counted in it.
-    //
-    // `executedFor` refuses `nnapi-reference` as well, and that half cannot be
-    // repeated here: an entry carries the delegate TFLite named, not the driver
-    // it reached, and an NPU and NNAPI's CPU reference both print
-    // `TfLiteNnapiDelegate`. Only the requested device tells them apart and the
-    // union rule is not given it, so `--device 'nnapi-reference+gpu'` can still
-    // call the reference driver an accelerator. Said out loud rather than left
-    // to be discovered, because it is the same wrong claim by another route.
-    val accelerated = all.filterNot { it.delegate in CPU_DELEGATES }
+    val accelerated = all.filterNot {
+        it.delegate in CPU_DELEGATES || (nnapiIsCpu && it.delegate == NNAPI_DELEGATE)
+    }
     val claimed = accelerated.sumOf { it.delegated }
     // Only the delegates that took something. Naming one that claimed nothing
     // was the other half of what #170 reported, and it is the same mistake

@@ -268,6 +268,21 @@ Before [#189](https://github.com/m96-chan/DroidRunner/issues/189) those were
 `accelerator`, attributed to `TfLiteXNNPackDelegate` — a 100% CPU run reported
 as an accelerator run, which is the one thing this contract exists to refuse.
 
+**Neither is `nnapi-reference`.** NNAPI's own reference driver is the CPU
+whatever route reached it, and the single-delegate rule has refused it since
+[#93](https://github.com/m96-chan/DroidRunner/issues/93). The union rule could
+not at first, because every NNAPI delegate prints `TfLiteNnapiDelegate` whatever
+driver is behind it — so `--device 'nnapi-reference+gpu'` reported the CPU as an
+accelerator. It is now settled from the devices the request named: each NNAPI
+delegate is given exactly one accelerator name, so when every NNAPI name in the
+request is a CPU device, every `TfLiteNnapiDelegate` entry is that CPU and is
+left behind like XNNPACK.
+
+Name **two** NNAPI drivers with one of them a CPU device — `nnapi-reference+qti-dsp`
+— and nothing in the log says which entry was which. That comes back as
+`unknown`, which you already treat as not-accelerated. The pairing is not
+useful, and guessing at it would be the same wrong claim by a third route.
+
 So `delegations` may carry an entry that `executed` does not count, by design: it
 reports what TFLite said, and the summary reports who accelerated the graph. A
 consumer reconstructing `executed` from the array has to drop the CPU delegate

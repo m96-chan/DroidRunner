@@ -170,7 +170,7 @@ internal object ModelRunner {
                 if (multiDevices.isEmpty()) emptyList() else Delegation.parseAll(built.second)
             val attribution =
                 if (multiDevices.isEmpty()) executedFor(delegation, deviceName)
-                else executedForAll(allDelegations)
+                else executedForAll(allDelegations, multiDevices)
             // Tensor sizes are only final once allocation has run — and with a
             // delegate attached they can differ from the pre-allocation values,
             // which is how the first attempt ended up sizing every buffer wrong.

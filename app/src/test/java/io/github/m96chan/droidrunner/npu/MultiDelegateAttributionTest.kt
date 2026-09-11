@@ -128,4 +128,55 @@ class MultiDelegateAttributionTest {
 
         assertEquals("TfLiteGpuDelegateV2", by)
     }
+
+    @Test fun theNnapiReferenceDriverIsNotAnAcceleratorInTheUnionEither() {
+        // `executedFor` has refused this driver since #93. The union rule could
+        // not, because the log names the delegate and not the driver behind it,
+        // so `nnapi-reference+gpu` reported the CPU as an accelerator. The
+        // requested devices are what separate them: only one NNAPI delegate is
+        // attached here and the caller named the driver it was given.
+        val (executed, by) = executedForAll(
+            listOf(claim("TfLiteNnapiDelegate", 64, 64)),
+            listOf("nnapi-reference", "gpu"),
+        )
+
+        assertEquals("cpu-fallback", executed)
+        assertEquals("cpu", by)
+    }
+
+    @Test fun theGpuStillCountsWhenTheOtherHalfOfThePairIsTheCpuReference() {
+        // The guard must drop the reference driver and nothing else: the GPU
+        // finishing what the CPU reference was offered first is a real
+        // accelerator run, and calling it a fallback would be #140 again.
+        val (executed, by) = executedForAll(
+            listOf(claim("TfLiteNnapiDelegate", 30, 64), claim("TfLiteGpuDelegateV2", 34, 64)),
+            listOf("nnapi-reference", "gpu"),
+        )
+
+        assertEquals("partial", executed)
+        assertEquals("TfLiteGpuDelegateV2", by)
+    }
+
+    @Test fun aRealNnapiDriverIsUnaffectedByTheGuard() {
+        val (executed, by) = executedForAll(
+            listOf(claim("TfLiteNnapiDelegate", 64, 64)),
+            listOf("qti-dsp", "gpu"),
+        )
+
+        assertEquals("accelerator", executed)
+        assertEquals("TfLiteNnapiDelegate", by)
+    }
+
+    @Test fun twoNnapiDriversOneOfThemTheCpuCannotBeToldApart() {
+        // Both print `TfLiteNnapiDelegate`, so nothing in the log says which
+        // entry was the DSP. `unknown` is what the contract already has for a
+        // delegate that did not say what it took, and consumers are told to
+        // treat it as not-accelerated — the safe direction to be wrong in.
+        val (executed, _) = executedForAll(
+            listOf(claim("TfLiteNnapiDelegate", 64, 64)),
+            listOf("nnapi-reference", "qti-dsp"),
+        )
+
+        assertEquals("unknown", executed)
+    }
 }
