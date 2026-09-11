@@ -20,6 +20,56 @@ REPO="${DROIDRUNNER_REPO:-m96-chan/DroidRunner}"
 die() { echo "roll-fleet: $*" >&2; exit 1; }
 note() { echo "$*" >&2; }
 
+# --- waiting for the runners -------------------------------------------------
+#
+# Functions, and up here, so tools/tests/test-roll-fleet.sh can drive the loop
+# against a fixture registry with no phone attached: sourcing this script with
+# DROIDRUNNER_ROLL_FLEET_LIB set defines them and stops just below. This loop is
+# the part worth a test, because a wrong answer from it is the silent failure
+# the whole script exists to remove.
+
+# Every runner GitHub currently calls online, one name per line, across all the
+# repositories the phones say they serve — for the same reason the busy check
+# asks all of them: asking only $REPO waits forever for a phone that was lent
+# to another project and will never appear in this one's registry.
+registry_names() {
+    local r
+    for r in $repos; do
+        gh api "repos/$r/actions/runners" \
+            -q '.runners[]|select(.status=="online")|.name' 2>/dev/null || true
+    done
+}
+
+# Waits for every name given to show up there, and fails naming the ones that
+# never did. Reinstalling orphans the listener's session and GitHub holds it for
+# up to a minute or so (#79), so coming back late is the normal case; not coming
+# back at all is the fault this reports.
+wait_for_runners() {
+    local names name missing online
+    names=("$@")
+    note "waiting for the runners to come back"
+    for _ in $(seq 1 30); do
+        online="$(registry_names)"
+        missing=()
+        for name in "${names[@]}"; do
+            # -F because a runner name is not a regular expression, and -x
+            # because it is regularly a prefix of another one: a fleet with a
+            # "Pixel 7" and a "Pixel 7 Pro" had the Pro's registry entry answer
+            # for the Pixel 7, so the roll exited 0 with a phone still running
+            # the old APK (#207).
+            grep -Fqx -- "$name" <<<"$online" || missing+=("$name")
+        done
+        if [ "${#missing[@]}" -eq 0 ]; then
+            note "online: ${names[*]}"
+            return 0
+        fi
+        sleep 10
+    done
+    die "still waiting on: ${missing[*]} (looked in: $(echo $repos | tr '\n' ' '))"
+}
+
+[ -z "${DROIDRUNNER_ROLL_FLEET_LIB:-}" ] || return 0
+
 [ -f gradlew ] || die "run this from the repository root"
 
 # A signed release on a test phone is how a signature mismatch strands a
@@ -37,16 +87,32 @@ devices="$(adb devices | awk 'NR>1 && $2=="device" {print $1}')"
 # working tree: a device registered elsewhere still dies when its APK is
 # replaced. Asking only $REPO looked safe while every phone served it, and
 # stopped being true the moment one was lent to another project.
+#
+# Serials go in an array and everything downstream is keyed by one, because a
+# serial never contains a space and Build.MODEL usually does.
 repos=""
+serials=()
+registered=()
 for serial in $devices; do
+    # One read of .runner for the two things only the phone knows: which
+    # repository it serves, and the name it registered under.
+    #
     # `|| true` because a release build refuses run-as and pipefail would
     # otherwise make an unreadable phone abort the whole roll. A phone that
     # will not say which repository it serves is one this cannot check, not
     # one worth stopping for — $REPO below is still asked either way.
-    url="$(adb -s "$serial" shell run-as "$PACKAGE" \
-        cat files/runner-runtime/home/runner/.runner 2>/dev/null \
-        | tr -d '\r' | sed -n 's/.*"gitHubUrl": *"https:\/\/github.com\/\([^"]*\)".*/\1/p' \
-        || true)"
+    runner="$(adb -s "$serial" shell run-as "$PACKAGE" \
+        cat files/runner-runtime/home/runner/.runner 2>/dev/null | tr -d '\r' || true)"
+    url="$(printf '%s\n' "$runner" \
+        | sed -n 's/.*"gitHubUrl": *"https:\/\/github.com\/\([^"]*\)".*/\1/p' | head -n1)"
+    # The registered name is read whole rather than rebuilt out of
+    # ro.product.model. SetupScreen.kt registers `android-${Build.MODEL}-$id`,
+    # and that id is the app's ANDROID_ID — derived from the signing key, so
+    # not the value adb reads back — which leaves the phone's own .runner as
+    # the only place off GitHub holding the exact string the registry knows.
+    serials+=("$serial")
+    registered+=("$(printf '%s\n' "$runner" \
+        | sed -n 's/.*"agentName": *"\([^"]*\)".*/\1/p' | head -n1)")
     case " $repos " in *" ${url:-} "*) ;; *) repos="$repos ${url:-}" ;; esac
 done
 repos="$(echo "${repos:-} $REPO" | tr ' ' '\n' | grep -v '^$' | sort -u)"
@@ -73,8 +139,9 @@ fi
 [ -f "$APK" ] || die "no debug APK at $APK"
 want="$(sha256sum "$APK" | cut -d' ' -f1)"
 
-rolled=""
-for serial in $devices; do
+waiting=()
+for i in "${!serials[@]}"; do
+    serial="${serials[$i]}"
     model="$(adb -s "$serial" shell getprop ro.product.model 2>/dev/null | tr -d '\r')"
 
     # A phone already carrying a signed release is not part of this. Android
@@ -103,28 +170,17 @@ for serial in $devices; do
     fi
 
     adb -s "$serial" shell am start -n "$PACKAGE/.MainActivity" >/dev/null 2>&1 || true
-    rolled="$rolled $model"
+    if [ -n "${registered[$i]}" ]; then
+        waiting+=("${registered[$i]}")
+    else
+        # A phone that has not registered yet took nothing away by restarting,
+        # and will never appear in any registry, so waiting for it would only
+        # spend five minutes before failing a roll that worked.
+        note "   not registered with any repository, so no runner to wait for"
+    fi
 done
 
 command -v gh >/dev/null || { note "no gh; not waiting for the runners"; exit 0; }
+[ "${#waiting[@]}" -gt 0 ] || { note "nothing rolled is a registered runner"; exit 0; }
 
-# Reinstalling orphans the listener's session, and GitHub holds it for up to a
-# minute or so (#79). Coming back is the normal case, not a fault.
-note "waiting for the runners to come back"
-for _ in $(seq 1 30); do
-    # Across every repository the phones say they serve, for the same reason
-    # the busy check is: asking only $REPO waits forever for a phone that was
-    # lent to another project and will never appear in this one's registry.
-    online=""
-    for r in $repos; do
-        online="$online
-$(gh api "repos/$r/actions/runners" -q '.runners[]|select(.status=="online")|.name' 2>/dev/null || true)"
-    done
-    missing=""
-    for model in $rolled; do
-        printf '%s\n' "$online" | grep -q -- "$model" || missing="$missing $model"
-    done
-    [ -n "$missing" ] || { note "online:$rolled"; exit 0; }
-    sleep 10
-done
-die "still waiting on:$missing (looked in: $(echo $repos | tr '\n' ' '))"
+wait_for_runners "${waiting[@]}"

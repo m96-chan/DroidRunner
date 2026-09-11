@@ -86,3 +86,16 @@ Refuses to run while any runner is busy — replacing the APK kills the process
 group with a signal nothing catches, and the job dies with it — and refuses a
 release tag outright, because the fleet runs `0.0.0-dev` and a signature change
 strands a registration.
+
+**A phone can only answer for itself.** Each rolled phone is waited for under
+the exact name it registered under, read from its own `.runner`, and matched
+whole. A record of `Build.MODEL` strings word-split into fragments, and each
+fragment substring-matched other phones' runner names, so a "Pixel 7 Pro" that
+came back reported a "Pixel 7" that never did as online and the roll exited 0
+with that phone still serving the old APK
+([#207](https://github.com/m96-chan/DroidRunner/issues/207)). A phone that does
+not come back now fails the roll and is named.
+
+`tests/test-roll-fleet.sh` drives that waiting loop against a fixture registry
+— no phone, no network, no five minutes of waiting — and runs in CI on every
+push.

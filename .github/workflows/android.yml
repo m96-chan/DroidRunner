@@ -65,3 +65,7 @@ jobs:
       # another repository may pin to, and until #125 they had nothing behind
       # them — one of them was wrong, and a phone is what found it.
       - run: runtime/tests/test-droidrunner-device.sh
+
+      # Whether every phone came back from a roll is decided by one grep, and
+      # when it was wrong it was wrong silently (#207).
+      - run: tools/tests/test-roll-fleet.sh
