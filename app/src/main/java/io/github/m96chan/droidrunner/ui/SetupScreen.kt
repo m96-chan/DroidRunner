@@ -407,7 +407,15 @@ fun SetupScreen(
         }
     }
 
-    fun registerRunner(target: RunnerTarget, credential: String) {
+    /**
+     * [credential] is for a credential that is *not* the sign-in — the PAT from
+     * the advanced panel. The sign-in path passes nothing on purpose: this
+     * screen's copy of the token is read once into state, and the service may
+     * renew in the background at any moment, so handing that copy down would
+     * send a token GitHub has already rotated out (and mark it unrenewable,
+     * losing #42's recovery). `register()` reads the live session instead.
+     */
+    fun registerRunner(target: RunnerTarget, credential: String? = null) {
         if (RunnerRegistration.load(runtime.runtimeDir)?.target == target) {
             status = null
             return
@@ -516,7 +524,9 @@ fun SetupScreen(
             onConfirm = {
                 confirming = null
                 val credential = userToken
-                if (target != null && credential != null) registerRunner(target, credential)
+                // Signed in is the gate; the token itself is read live in
+                // `register()`, not taken from this screen's copy.
+                if (target != null && credential != null) registerRunner(target)
             },
             onCancel = { confirming = null },
         )
@@ -999,7 +1009,7 @@ fun SetupScreen(
                     // banner that is always there stops being read, and this
                     // is the moment the answer still changes anything (#64).
                     val warning = registrationWarning(selectedTarget, selectedRepo?.isPrivate)
-                    if (warning == null) registerRunner(selectedTarget, userToken!!) else confirming = warning
+                    if (warning == null) registerRunner(selectedTarget) else confirming = warning
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -1112,8 +1122,19 @@ internal sealed interface ManifestResolution {
         val version: String?,
     ) : ManifestResolution
 
-    /** GitHub answered, and this repository publishes no runtime release. */
-    data object NoRelease : ManifestResolution
+    /**
+     * GitHub answered, and the feed held no runtime release.
+     *
+     * [truncated] when the scan stopped at its page cap rather than at the end
+     * of the feed, so this is "none in the newest [scanned]" and not quite
+     * "none". Either way it is not worth retrying — the same scan returns the
+     * same answer — so it is stated here rather than borrowing [Unreachable],
+     * which offers a Retry and says GitHub could not be reached.
+     */
+    data class NoRelease(
+        val scanned: Int = 0,
+        val truncated: Boolean = false,
+    ) : ManifestResolution
 
     /** This build names no runtime repository, so there is nothing to ask. */
     data object NotConfigured : ManifestResolution
@@ -1160,9 +1181,7 @@ internal fun resolveRuntimeManifest(
             // that matters because "none" sends the reader to `advanced` and the
             // other is worth retrying (#193).
             is RuntimeReleaseResult.NoneFound ->
-                if (result.truncated) ManifestResolution.Unreachable(
-                    "no runtime release in the newest ${result.scanned}",
-                ) else ManifestResolution.NoRelease
+                ManifestResolution.NoRelease(result.scanned, result.truncated)
             RuntimeReleaseResult.NotConfigured -> ManifestResolution.NotConfigured
             // A status the API itself reported. Carrying it means the panel can
             // say "GitHub said 403" instead of the blank "could not reach".
@@ -1215,8 +1234,14 @@ internal fun runtimeUnavailableMessage(resolution: ManifestResolution): String =
             "retry, or set a manifest URL under advanced"
     }
 
-    ManifestResolution.NoRelease ->
-        "this runtime repository publishes no runtime release — set a manifest URL under advanced"
+    is ManifestResolution.NoRelease ->
+        if (resolution.truncated) {
+            "no runtime release in the newest ${resolution.scanned} — " +
+                "set a manifest URL under advanced"
+        } else {
+            "this runtime repository publishes no runtime release — " +
+                "set a manifest URL under advanced"
+        }
 
     ManifestResolution.NotConfigured ->
         "this build names no runtime repository — set a manifest URL under advanced"

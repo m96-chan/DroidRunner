@@ -29,7 +29,9 @@ class ResolveRuntimeManifestTest {
     @Test fun aRepositoryWithNoRuntimeReleaseSendsYouToAdvanced() {
         val resolution = resolveRuntimeManifest(api { releases("v0.14.0", "v0.13.0") }, "o/r", null)
 
-        assertEquals(ManifestResolution.NoRelease, resolution)
+        resolution as ManifestResolution.NoRelease
+        // The whole feed was read, so this really is "none" and not "none yet".
+        assertEquals(false, resolution.truncated)
         assertTrue(runtimeUnavailableMessage(resolution).contains("advanced"))
     }
 
@@ -66,5 +68,18 @@ class ResolveRuntimeManifestTest {
             "https://example.invalid/runtime-0.2.0/runtime-manifest.json",
             (resolution as ManifestResolution.Resolved).url,
         )
+    }
+
+    @Test fun aScanThatHitItsPageCapSaysSoAndDoesNotOfferARetry() {
+        // Folding this into `Unreachable` produced "could not reach GitHub to
+        // look for a runtime release (no runtime release in the newest 500)"
+        // for a lookup that plainly did reach GitHub — and offered a Retry
+        // that runs the same scan for the same answer.
+        val resolution = ManifestResolution.NoRelease(scanned = 500, truncated = true)
+        val message = runtimeUnavailableMessage(resolution)
+
+        assertTrue(message, message.contains("newest 500"))
+        assertTrue(message, !message.contains("could not reach"))
+        assertTrue(message, !message.contains("retry"))
     }
 }

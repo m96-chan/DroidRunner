@@ -61,11 +61,32 @@ scan() {
     # A shell line with its comment and its quoted strings taken out, so the
     # `|` in `grep -iE '\''a|b'\''` is not read as a pipeline and the one in a
     # comment explaining a pipeline is not either.
-    function bare(s,   i, n, c, prev, q, out) {
-        n = length(s); q = ""; out = ""
+    function bare(s,   i, n, c, prev, q, out, depth, stack, top) {
+        n = length(s); q = ""; out = ""; depth = 0; stack = ""
         for (i = 1; i <= n; i++) {
             c = substr(s, i, 1)
             prev = (i > 1) ? substr(s, i - 1, 1) : ""
+
+            # `$(` opens a fresh, unquoted context even inside "…", because the
+            # shell runs what is in there. Without this the `|` in
+            # `n="$(a | b)"` was stripped with the quotes and the pipeline was
+            # never seen — three real ones in device-model.yml went unflagged,
+            # and the identical unquoted form was caught, which made the gate
+            # look like it had nothing left to find. Single quotes are literal
+            # all the way down, so `$(` inside them opens nothing.
+            if (q != "'\''" && c == "$" && substr(s, i + 1, 1) == "(") {
+                stack = (q == "" ? "-" : q) stack
+                q = ""; depth++; i++
+                out = out " "
+                continue
+            }
+            if (depth > 0 && q == "" && c == ")") {
+                top = substr(stack, 1, 1); stack = substr(stack, 2)
+                q = (top == "-" ? "" : top); depth--
+                out = out " "
+                continue
+            }
+
             if (q != "") {
                 if (q == "\"" && c == "\\") { i++; continue }
                 if (c == q) q = ""
@@ -73,6 +94,8 @@ scan() {
             }
             if (c == "\\") { i++; continue }
             if (c == "\"" || c == "'\''") { q = c; continue }
+            # A `#` inside a substitution is still a comment, but one inside
+            # quotes is not, and `depth` does not change that either way.
             if (c == "#" && (i == 1 || prev == " " || prev == "\t")) break
             out = out c
         }

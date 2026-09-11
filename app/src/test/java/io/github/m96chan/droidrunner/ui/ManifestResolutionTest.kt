@@ -44,7 +44,7 @@ class ManifestResolutionTest {
     }
 
     @Test fun anAnsweredRepositoryWithNoReleaseSaysSo() {
-        val message = runtimeUnavailableMessage(ManifestResolution.NoRelease)
+        val message = runtimeUnavailableMessage(ManifestResolution.NoRelease())
 
         assertTrue(message, message.contains("publishes no runtime release"))
         assertTrue(message, message.contains("advanced"))
@@ -75,7 +75,7 @@ class ManifestResolutionTest {
         // the screen could only ever tell one story about all of them.
         val outcomes = listOf<ManifestResolution>(
             ManifestResolution.Resolved("https://example.invalid/m.json", null, "1.2.3"),
-            ManifestResolution.NoRelease,
+            ManifestResolution.NoRelease(),
             ManifestResolution.Unreachable("timeout"),
         )
 

@@ -190,4 +190,34 @@ class RunnerRegistrationTest {
 
         assertEquals("gho_signed_in", chosen.token)
     }
+
+    @Test fun passingNothingTakesTheLiveSignInAndKeepsItsRenewal() {
+        // The sign-in path passes nothing on purpose. `register()` reads the
+        // session itself, so the token is whatever it is *after* any renewal —
+        // and it stays renewable, which is what #42's 401 recovery needs.
+        val chosen = RunnerRegistration.credentialFor(
+            supplied = null,
+            userToken = "gho_renewed",
+            pat = "ghp_pat",
+        )!!
+
+        assertEquals("gho_renewed", chosen.token)
+        assertTrue(chosen.renewable)
+    }
+
+    @Test fun aTokenThatIsNotTheLiveSignInIsNotRenewable() {
+        // The setup screen used to hand down its own cached copy of the
+        // sign-in. Once the service renewed in the background that copy was
+        // rotated out, so the request went with a dead token *and* was marked
+        // unrenewable — GitHub 401s and there is no second chance. The screen
+        // no longer passes it; this pins what happens if anything does.
+        val chosen = RunnerRegistration.credentialFor(
+            supplied = "gho_stale",
+            userToken = "gho_renewed",
+            pat = null,
+        )!!
+
+        assertEquals("gho_stale", chosen.token)
+        assertFalse(chosen.renewable)
+    }
 }

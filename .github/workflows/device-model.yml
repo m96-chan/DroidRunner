@@ -154,6 +154,7 @@ jobs:
       # #94: the shape a compiler's sweep has — many models, one request, and
       # a rejection recorded rather than aborting the rest.
       - name: A sweep in one request
+        shell: bash
         run: |
           token="$(cat "$DROIDRUNNER_DEVICE_TOKEN_FILE")"
           cat > manifest.json <<JSON
@@ -178,6 +179,7 @@ jobs:
       # because the wrapper on the device ships with the runtime bundle and
       # lags a fresh app build (#107) — `--timings` is not in the published one.
       - name: What the phone was doing while it was measured
+        shell: bash
         run: |
           token="$(cat "$DROIDRUNNER_DEVICE_TOKEN_FILE")"
           curl -fsS -X POST -H "Authorization: Bearer $token" \
@@ -210,6 +212,7 @@ jobs:
       # phone is the only kind that proves the parser reads what is actually
       # printed — one written by hand only proves it reads itself.
       - name: What the delegate actually printed
+        shell: bash
         run: |
           droidrunner-device test model int8.tflite --device "$(droidrunner-device devices | head -1)" \
             --iterations 1 --delegate-log --output delegate-log.json
@@ -279,7 +282,11 @@ jobs:
           else
             # Every other vendor reaches its accelerator through NNAPI, and the
             # question is the same one: does it compute what it was asked to?
-            driver="$(droidrunner-device devices | grep -v nnapi-reference | head -1)"
+            # `|| true` inside the substitution, not outside: `shell: bash`
+            # turns pipefail on, and "no accelerator on this phone" arrives as
+            # a `grep -v` that matched nothing. That is the case the `else`
+            # below exists to report, not a reason to abort the step.
+            driver="$(droidrunner-device devices | grep -v nnapi-reference | head -1 || true)"
             if [ -n "$driver" ]; then
               droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
                 --device "$driver" \
@@ -302,7 +309,7 @@ jobs:
             --input tools/ulp/fixtures/signed-input-1.bin \
             --output-dir out-cpu-signed --iterations 1 > /dev/null
           if [ -s f32-device.json ]; then
-            driver="$(grep -o '"requestedDevice":"[^"]*"' f32-device.json | cut -d'"' -f4)"
+            driver="$(grep -o '"requestedDevice":"[^"]*"' f32-device.json | cut -d'"' -f4 || true)"
             droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
               --device "$driver" \
               --input tools/ulp/fixtures/signed-input-0.bin \
@@ -317,7 +324,7 @@ jobs:
             --input tools/ulp/fixtures/odd-input-1.bin \
             --output-dir out-cpu-odd --iterations 1 > /dev/null
           if [ -s f32-device.json ]; then
-            driver="$(grep -o '"requestedDevice":"[^"]*"' f32-device.json | cut -d'"' -f4)"
+            driver="$(grep -o '"requestedDevice":"[^"]*"' f32-device.json | cut -d'"' -f4 || true)"
             droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
               --device "$driver" \
               --input tools/ulp/fixtures/odd-input-0.bin \
@@ -332,7 +339,7 @@ jobs:
             --input tools/ulp/fixtures/resolution-input-1.bin \
             --output-dir out-cpu-res --iterations 1 > /dev/null
           if [ -s f32-device.json ]; then
-            driver="$(grep -o '"requestedDevice":"[^"]*"' f32-device.json | cut -d'"' -f4)"
+            driver="$(grep -o '"requestedDevice":"[^"]*"' f32-device.json | cut -d'"' -f4 || true)"
             droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
               --device "$driver" \
               --input tools/ulp/fixtures/resolution-input-0.bin \
