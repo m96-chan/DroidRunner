@@ -60,6 +60,11 @@ jobs:
           python-version: "3.11"
       - run: python -m unittest discover -s tools/op-matrix -v
 
+      # The index of committed matrices is derived from the matrices, not kept
+      # by hand. The hand-kept one dropped a driver a phone had been measured
+      # on, which reads as though nobody had asked that silicon for it (#217).
+      - run: python tools/op-matrix/index.py --check
+
       # The wrapper is the only path a consumer takes and nothing compiles it.
       # Its exit statuses are published in docs/RESULT-CONTRACT.md as something
       # another repository may pin to, and until #125 they had nothing behind
