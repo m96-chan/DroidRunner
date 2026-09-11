@@ -226,6 +226,31 @@ reports the last claim, which is the whole story while one delegate is attached
 and one delegate's share when two are — which is why the array exists rather
 than the field changing shape underneath the callers that read it.
 
+**`executed` is the union over the accelerators, and only over those.** The
+table above holds with "the delegate" read as all of them together:
+`accelerator` when between them they claimed every node, `partial` when
+something was left behind, `cpu-fallback` when none of them claimed anything.
+`executedBy` joins the ones that claimed, with `+`, in the order they claimed —
+and names only those, so a delegate that was asked for and took nothing does not
+appear.
+
+**`TfLiteXNNPackDelegate` is not one of them.** TFLite attaches its own CPU
+delegate after the ones the request names, and announces what it took in the
+same words every other claim is read from, so its entry appears in `delegations`
+like any other. It is CPU work: its nodes count as *left behind*, not as
+accelerated, and it never appears in `executedBy`. A run both named accelerators
+declined and XNNPACK finished is `cpu-fallback` with `executedBy: cpu`, and one
+where an accelerator took half is `partial`, named by that accelerator alone.
+Before [#189](https://github.com/m96-chan/DroidRunner/issues/189) those were
+`accelerator`, attributed to `TfLiteXNNPackDelegate` — a 100% CPU run reported
+as an accelerator run, which is the one thing this contract exists to refuse.
+
+So `delegations` may carry an entry that `executed` does not count, by design: it
+reports what TFLite said, and the summary reports who accelerated the graph. A
+consumer reconstructing `executed` from the array has to drop the CPU delegate
+itself — and *which CPU ran it*, below, is read from `delegations` here rather
+than from `executedBy`, which in this form names accelerators and nothing else.
+
 **`qnn-*` cannot appear in the list**, and is refused with that reason rather
 than a generic one. Qualcomm's runtime is in a separate process, two delegates
 need one address space, and the process split is there because the FSF's line
