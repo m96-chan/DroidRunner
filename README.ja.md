@@ -138,7 +138,10 @@ Snapdragon 2台です。
 | Android 9 | [#146](https://github.com/m96-chan/DroidRunner/issues/146) — 対応と宣言しているが、その世代の実機が誰の手元にもない |
 | Qualcommの旧世代DSP | [#147](https://github.com/m96-chan/DroidRunner/issues/147) — 対象はV66の1世代のみ。その端末が無い |
 | エンジン境界の代償 | [#159](https://github.com/m96-chan/DroidRunner/issues/159) — 2デリゲートは実験的に指定できる。測定にはNPUがプロセス内の端末が要る |
-| runtime bundleの更新 | [#14](https://github.com/m96-chan/DroidRunner/issues/14) |
+
+全体の一覧は[ロードマップ](#ロードマップ)にあります。ここにあるのは短いほうの一覧で、
+ずれていたのもその短いほうでした — 複数端末の管理画面もruntime bundleの更新も、
+出荷したあとまで「まだできないこと」に残っていました。
 
 ## Runnerラベル
 
@@ -693,12 +696,14 @@ DroidRunnerは、特にGABEの「PRoot環境をAndroid Serviceとして管理す
 DroidRunnerは **GNU General Public License v2.0 only(`GPL-2.0-only`)** で公開しています
 ([`LICENSE`](LICENSE))。
 
-APKには次のサードパーティ製コンポーネントも同梱され、それぞれのライセンスが適用されます。
+APKとruntime bundleには次のサードパーティ製コンポーネントも含まれ、
+それぞれのライセンスが適用されます。
 
 | コンポーネント | ライセンス | 対応するソース |
 | --- | --- | --- |
-| [PRoot](https://github.com/termux/proot)(`libproot.so`とloader) | GPL-2.0 | [`runtime/build-proot.sh`](runtime/build-proot.sh)で固定したコミット、パッチは[`runtime/patches/`](runtime/patches) |
-| [talloc](https://talloc.samba.org/)(prootへ静的リンク) | LGPL-3.0 | `runtime/build-proot.sh`で固定したバージョン |
+| [PRoot](https://github.com/termux/proot)(`libproot.so`とloader) | GPL-2.0 | ソースはリリースごとに`droidrunner-<tag>-source.tar.gz`としてバイナリの隣で配布。コミットは[`runtime/build-proot.sh`](runtime/build-proot.sh)で固定し、パッチは[`runtime/patches/`](runtime/patches) |
+| [talloc](https://talloc.samba.org/)(prootへ静的リンク) | LGPL-3.0 | 同じアーカイブに、再ビルドして再リンクするためのスクリプトごと収録 |
+| runtime bundleのUbuntu rootfs | GPL / LGPL / 各種 | bundle内の`PACKAGES.txt`と`SOURCE-OFFER.txt`が、全パッケージ名とバージョン、そのソースの入手方法を示す |
 
 runtime bundleにはさらに[GitHub Actions Runner](https://github.com/actions/runner)(MIT)と
 Ubuntu rootfs(各パッケージのライセンス)が含まれます。bundleを配布する場合は、対応する

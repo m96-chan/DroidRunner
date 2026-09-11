@@ -65,3 +65,9 @@ jobs:
       # another repository may pin to, and until #125 they had nothing behind
       # them — one of them was wrong, and a phone is what found it.
       - run: runtime/tests/test-droidrunner-device.sh
+
+      # The licence table is how the GPL-2.0 §3 source offer is made, and it is
+      # made twice — once per README. A component added to one file and not the
+      # other tells half the recipients nothing, which is what happened to the
+      # Ubuntu rootfs row until #216. Neither file fails to render over it.
+      - run: tools/check-licence-tables-match.sh

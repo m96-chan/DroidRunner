@@ -729,7 +729,8 @@ environment from an Android service.
 DroidRunner is released under the **GNU General Public License v2.0 only
 (`GPL-2.0-only`)** — see [`LICENSE`](LICENSE).
 
-The APK also ships third-party components under their own licenses:
+The APK and the runtime bundle also carry third-party components under their
+own licenses:
 
 | Component | License | Corresponding source |
 | --- | --- | --- |
