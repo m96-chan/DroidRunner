@@ -66,6 +66,12 @@ jobs:
       # them — one of them was wrong, and a phone is what found it.
       - run: runtime/tests/test-droidrunner-device.sh
 
+      # The licence table is how the GPL-2.0 §3 source offer is made, and it is
+      # made twice — once per README. A component added to one file and not the
+      # other tells half the recipients nothing, which is what happened to the
+      # Ubuntu rootfs row until #216. Neither file fails to render over it.
+      - run: tools/check-licence-tables-match.sh
+
       # Whether every phone came back from a roll is decided by one grep, and
       # when it was wrong it was wrong silently (#207).
       - run: tools/tests/test-roll-fleet.sh
