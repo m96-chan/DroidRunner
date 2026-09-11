@@ -159,11 +159,18 @@
         引き続きsetup画面で、この端末がいつ仕事を受けてよいかを決めます。
       </p>
       <p>
-        <b>充電状態</b>、<b>バッテリー残量</b>、<b>thermal status</b>、<b>空き容量</b>の
-        しきい値が、ジョブを保留する条件になります。非充電・残量低下・高温・容量不足の
-        あいだは新しいジョブを受け取らず、条件が解消すれば自動で再開します。
+        <b>バッテリー残量</b>、<b>thermal status</b>、<b>空き容量</b>の
+        しきい値が、ジョブを保留する条件になります。高温・容量不足、あるいは
+        バッテリー動作かつ残量がしきい値未満のあいだは新しいジョブを受け取らず、
+        条件が解消すれば自動で再開します。
         例外はcritical thermalで、これは実行中のジョブも中断します。
         サーマルスロットリング中の端末が出す数値は、そもそも信用に値しないからです。
+      </p>
+      <p>
+        給電が消えただけでは保留しません。充電済みの端末は、残量が実際にしきい値を
+        割るまで停電をまたいで走り続けます。バッテリーを積んでいる意味はほぼそこにあります。
+        <b>Run only on mains power</b>は別のトグルで、既定はオフです。
+        自分の充電を絶対に使わせたくない端末のために残してあります。
       </p>
       <p>
         <b style="display:inline">ephemeralモード</b>は、ジョブごとにRunnerを再登録し
@@ -237,9 +244,9 @@
 
   <h3>NPUに聞いてみる</h3>
   <p>
-    <code>droidrunner-device</code>はruntime bundleに同梱されていて、
-    実行中のジョブ向けに発行されたトークンで認証しながら、
-    loopback経由でアプリ内のDevice Agentと通信します。
+    <code>droidrunner-device</code>はRunnerが起動するたびにAPKからゲストへ入るので、
+    対話するDevice Agentと常に同じ世代に保たれます。そのAgentとは、
+    実行中のジョブ向けに発行されたトークンで認証しながら、loopback経由で通信します。
   </p>
   <pre><span class="k">runs-on</span>: [<span class="s">self-hosted</span>, <span class="s">android</span>, <span class="s">nnapi-accelerator</span>]
 <span class="k">steps</span>:
@@ -259,7 +266,7 @@
     別の問いで、モデルを出荷するなら重要なのはそちらです。ベンダーのシリコン上でだけ出る
     バグは、手元のPCで検査している限り正しいコードと見分けがつきません。
   </p>
-  <pre>  - <span class="k">uses</span>: <span class="s">m96-chan/DroidRunner/actions/run-model@v0.7.0</span>
+  <pre>  - <span class="k">uses</span>: <span class="s">m96-chan/DroidRunner/actions/run-model@main</span>
     <span class="k">id</span>: <span class="s">device</span>
     <span class="k">with</span>:
       <span class="k">model</span>: <span class="s">build/model.tflite</span>
@@ -313,8 +320,9 @@
 
   <h3>ジョブが保留のまま始まらない</h3>
   <p>
-    理由はダッシュボードに出ています。非充電、しきい値以下のバッテリー、
+    理由はダッシュボードに出ています。バッテリー動作かつ残量がしきい値未満、
     上がったthermal status、下限を割った空き容量のいずれかです。
+    <b>Run only on mains power</b>をオンにしているなら、給電が切れただけでも保留になります。
     充電する、冷ます、あるいはsetup画面でしきい値を下げてください。
     これはバグではなく、ジョブ受付制御が仕事をしている状態です。
   </p>

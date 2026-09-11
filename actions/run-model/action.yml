@@ -122,6 +122,16 @@ runs:
           2) echo "::warning::the driver refused the graph; see $RESULTS" ;;
           3) echo "::error::no such device on this phone: $DEVICE" ;;
           4) echo "::error::the device agent did not answer" ;;
-          *) echo "::error::the run failed; see $RESULTS" ;;
+          # `iterations` and `device` arrive from a caller's workflow_dispatch
+          # and go to the wrapper verbatim, which now refuses a value it cannot
+          # put in a request rather than letting it write fields of its own
+          # (#206). That happens before the phone is asked, so there is no
+          # result file to send anybody to — and a step that points at one
+          # nobody wrote costs the reader the trip.
+          *) if [ -s "$RESULTS" ]; then
+               echo "::error::the run failed; see $RESULTS"
+             else
+               echo "::error::the run failed before the phone was asked; the reason is in the log above"
+             fi ;;
         esac
         exit $status
