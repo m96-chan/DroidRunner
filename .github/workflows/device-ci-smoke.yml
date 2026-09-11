@@ -14,12 +14,14 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Inspect workspace
+        shell: bash
         run: |
           pwd
           git log --oneline -3
           ls -la | head
 
       - name: Toolchain versions
+        shell: bash
         run: |
           git --version
           curl --version | head -1

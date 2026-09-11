@@ -52,6 +52,7 @@ jobs:
           droidrunner-device devices
 
       - name: Ask every driver about every operator
+        shell: bash
         run: |
           # One entry per model, `iterations: 0` throughout: the question is
           # whether the graph was accepted, and that is answered once tensors
@@ -169,6 +170,10 @@ jobs:
       # permission for, so the same question asked twice is the only way to
       # notice it changed its mind (#126).
       - name: Compare against the matrix last committed for this phone
+        # For pipefail. `compare.py … | tee` reported tee's status, which is
+        # always 0, so the one gate that exists to catch a driver changing its
+        # mind could not fail however it compared (#204).
+        shell: bash
         run: |
           baseline="$(python tools/op-matrix/baseline-path.py matrix/matrix.json)"
           if [ ! -f "$baseline" ]; then
@@ -177,8 +182,14 @@ jobs:
             echo "(from the op-matrix artifact of this run)"
             exit 0
           fi
+          # 1 on a regression, 2 when the two matrices came from different
+          # phones. Held rather than allowed to end the step here, because the
+          # summary below is how a person finds out *which* operator moved —
+          # failing the job and printing nothing would be a worse gate than
+          # the one that never failed.
+          status=0
           python tools/op-matrix/compare.py "$baseline" matrix/matrix.json \
-            --json matrix/comparison.json | tee comparison.txt
+            --json matrix/comparison.json | tee comparison.txt || status=$?
           {
             echo
             echo '## Against the committed baseline'
@@ -187,6 +198,7 @@ jobs:
             cat comparison.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
 
       - uses: actions/upload-artifact@v7
         with:

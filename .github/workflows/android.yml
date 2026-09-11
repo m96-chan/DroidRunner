@@ -71,3 +71,10 @@ jobs:
       # other tells half the recipients nothing, which is what happened to the
       # Ubuntu rootfs row until #216. Neither file fails to render over it.
       - run: tools/check-licence-tables-match.sh
+
+      # Nothing compiles a workflow either, and the two ways one goes wrong
+      # both look fine in the file: `${{ }}` in a `run:` block is a tag pasted
+      # into the shell of the job holding the signing key (#203), and a
+      # pipeline without `shell: bash` reports the last command's exit code, so
+      # `compare.py | tee` was a gate that could not fail (#204).
+      - run: tools/check-workflow-run-blocks.sh

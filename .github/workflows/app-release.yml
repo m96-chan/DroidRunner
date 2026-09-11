@@ -17,6 +17,31 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      # First, before the checkout and long before the keystore is anywhere
+      # near this runner. Everything below derives a version, a file name and
+      # a GitHub release from this one string, and `git check-ref-format`
+      # permits `'`, `;`, `$` and a backtick inside it (#203).
+      #
+      # Three numbers exactly, because that is what the build can read: an
+      # `-rc1` suffix does not match the regex in app/build.gradle.kts, so
+      # versionName falls back to 0.0.0-dev and versionCode to 1. A release
+      # built that way installs as a development build and can never be
+      # upgraded from.
+      - name: Check the tag is the shape a release can carry
+        shell: bash
+        env:
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            # The tag goes on its own line rather than into the ::error::,
+            # which is a line-oriented command a dispatched input could
+            # otherwise write more of.
+            echo "::error::Refusing to release: the tag is not v<major>.<minor>.<patch>."
+            printf 'tag was: %s\n' "$TAG"
+            exit 1
+          fi
+          echo "releasing $TAG"
+
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
         with:
@@ -29,6 +54,9 @@ jobs:
         run: ANDROID_NDK_ROOT="$ANDROID_NDK_LATEST_HOME" runtime/build-proot.sh
 
       - name: Decode signing keystore
+        # For pipefail: a keystore that does not decode must stop the release
+        # rather than leave a truncated .jks for Gradle to fail on later.
+        shell: bash
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
@@ -57,17 +85,17 @@ jobs:
       # failure here stops the release rather than producing an APK with no
       # source beside it (issue #116).
       - name: Build the corresponding source archive
-        run: |
-          tag='${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}'
-          runtime/build-source-archive.sh "$tag"
+        env:
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: runtime/build-source-archive.sh "$TAG"
 
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
-          tag='${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}'
-          cp app/build/outputs/apk/release/app-release.apk "droidrunner-$tag.apk"
-          gh release create "$tag" --title "DroidRunner $tag" --generate-notes || true
-          gh release upload "$tag" --clobber \
-            "droidrunner-$tag.apk" \
-            "runtime/out/droidrunner-$tag-source.tar.gz"
+          cp app/build/outputs/apk/release/app-release.apk "droidrunner-$TAG.apk"
+          gh release create "$TAG" --title "DroidRunner $TAG" --generate-notes || true
+          gh release upload "$TAG" --clobber \
+            "droidrunner-$TAG.apk" \
+            "runtime/out/droidrunner-$TAG-source.tar.gz"

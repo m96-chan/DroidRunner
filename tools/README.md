@@ -65,6 +65,24 @@ with nothing failing anywhere.
 
 Runs on every build. See [#128](https://github.com/m96-chan/DroidRunner/issues/128).
 
+## `check-workflow-run-blocks.sh`
+
+Nothing compiles a workflow, and the two ways one goes wrong both read as
+normal YAML.
+
+`${{ }}` inside a `run:` block is substituted before any shell sees it, so the
+value is source and not an argument: `git check-ref-format` permits `'`, `;`
+and a backtick in a tag name, and the release job has the signing keystore on
+disk while it builds one. The fix is an `env:` entry and `"$TAG"`.
+
+And GitHub's default shell is `bash -e {0}` — `-o pipefail` arrives only when a
+step writes `shell: bash` itself. Without it a pipeline reports its *last*
+command's status, which is how `compare.py … | tee` stayed green through a
+regression and `openssl dgst … | base64` published a zero-byte signature.
+
+Runs on every push. See [#203](https://github.com/m96-chan/DroidRunner/issues/203)
+and [#204](https://github.com/m96-chan/DroidRunner/issues/204).
+
 ## `ulp/`
 
 Does an accelerator compute what it was asked to, or only run it? Nothing in

@@ -44,7 +44,13 @@ jobs:
       # workflow is pointed at one phone by hand.
       - uses: actions/checkout@v7
 
+      # Through `env:` rather than into the script: this one runs on a phone in
+      # the fleet, not a VM that is thrown away afterwards, and a dispatch
+      # input pasted into a `run:` block is shell source rather than an
+      # argument (#203).
       - name: Two engines on one graph
+        env:
+          PAIR: ${{ inputs.pair }}
         run: |
           droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
-            --iterations 10 --device "${{ inputs.pair }}" --feature multi-delegate
+            --iterations 10 --device "$PAIR" --feature multi-delegate

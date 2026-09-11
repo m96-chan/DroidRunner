@@ -23,6 +23,23 @@ jobs:
   bundle:
     runs-on: ubuntu-24.04-arm
     steps:
+      # The dispatched tag names a GitHub release and is what the app looks
+      # for when it goes hunting for a runtime, so it is checked before an
+      # hour of chroot build happens on the strength of it (#203). Blank is
+      # the artifact-only path and is left alone.
+      - name: Check the release tag is the shape a runtime release can carry
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        shell: bash
+        env:
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          if [[ ! "$TAG" =~ ^runtime-[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Refusing to publish: the tag is not runtime-<major>.<minor>.<patch>."
+            printf 'tag was: %s\n' "$TAG"
+            exit 1
+          fi
+          echo "publishing $TAG"
+
       - uses: actions/checkout@v7
 
       - name: Build runtime bundle
@@ -43,11 +60,17 @@ jobs:
       # of its own: the SHA-256 inside it only proves the archive matches the
       # manifest, not who wrote the manifest.
       - name: Sign the manifest
+        # For pipefail. Without it `openssl dgst | base64` reports base64's
+        # status, and base64 succeeds on empty input — so a key openssl could
+        # not read produced a zero-byte .sig, a green step, and a release that
+        # looks signed in the asset list and is refused by every device (#204).
+        shell: bash
         env:
           SIGNING_KEY: ${{ secrets.RUNTIME_SIGNING_KEY }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           if [ -z "$SIGNING_KEY" ]; then
-            if [ -n "${{ inputs.release_tag }}" ]; then
+            if [ -n "$RELEASE_TAG" ]; then
               echo "::error::RUNTIME_SIGNING_KEY is not configured. A published" \
                 "runtime must be signed — apps built with a trusted key refuse" \
                 "an unsigned manifest."
@@ -56,11 +79,63 @@ jobs:
             echo "::warning::No signing key; this artifact's manifest is unsigned."
             exit 0
           fi
-          printf '%s' "$SIGNING_KEY" > "$RUNNER_TEMP/signing.pem"
-          openssl dgst -sha256 -sign "$RUNNER_TEMP/signing.pem" \
+          # One directory, removed on the way out however this step ends: the
+          # private key leaves the disk even on the failures added below, and
+          # there are more of those than there used to be.
+          work="$(mktemp -d "$RUNNER_TEMP/sign.XXXXXX")"
+          trap 'rm -rf "$work"' EXIT
+          printf '%s' "$SIGNING_KEY" > "$work/signing.pem"
+          openssl dgst -sha256 -sign "$work/signing.pem" \
             runtime/out/runtime-manifest.json | base64 -w0 \
             > runtime/out/runtime-manifest.json.sig
-          rm -f "$RUNNER_TEMP/signing.pem"
+          [ -s runtime/out/runtime-manifest.json.sig ] || {
+            echo "::error::The signature is empty. Nothing signed the manifest."
+            exit 1
+          }
+
+          # Signing and not checking is how the zero-byte one shipped, so the
+          # signature is verified here, before "Publish release" can upload
+          # it. First that it is a signature over this manifest at all.
+          base64 -d < runtime/out/runtime-manifest.json.sig > "$work/manifest.sig"
+          openssl pkey -in "$work/signing.pem" -pubout -out "$work/signing.pub"
+          openssl dgst -sha256 -verify "$work/signing.pub" \
+            -signature "$work/manifest.sig" \
+            runtime/out/runtime-manifest.json
+
+          # Then that it was made with a key the shipped app actually trusts.
+          # Verifying against the public half of the key that just signed only
+          # proves openssl ran; these are the keys compiled into the APK, read
+          # from the file the build reads them from, so a secret re-pasted
+          # from the wrong key fails here rather than on every phone.
+          keys="$(sed -n 's/^droidrunner\.runtimeSigningKeys=//p' gradle.properties)"
+          verified=0
+          for key in $(printf '%s' "$keys" | tr ',' ' '); do
+            { echo "-----BEGIN PUBLIC KEY-----"
+              echo "$key" | fold -w 64
+              echo "-----END PUBLIC KEY-----"; } > "$work/trusted.pem"
+            if openssl dgst -sha256 -verify "$work/trusted.pem" \
+                 -signature "$work/manifest.sig" \
+                 runtime/out/runtime-manifest.json >/dev/null 2>&1; then
+              verified=1
+              break
+            fi
+          done
+          if [ "$verified" != 1 ]; then
+            # A fork with no key configured is the case the app reports as
+            # "not checked" rather than refusing, and this says the same thing
+            # rather than blocking a self-builder. A key that is configured
+            # and does not match is the re-paste, and that fails.
+            if [ -z "$keys" ]; then
+              echo "::warning::No droidrunner.runtimeSigningKeys in" \
+                "gradle.properties, so this signature was not checked against" \
+                "anything a built app would trust."
+            else
+              echo "::error::The manifest signature verifies against no key in" \
+                "droidrunner.runtimeSigningKeys. Every app built from this" \
+                "checkout would refuse this runtime."
+              exit 1
+            fi
+          fi
           echo "signed:"
           cat runtime/out/runtime-manifest.json.sig
           echo
@@ -79,12 +154,12 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
         run: |
-          tag='${{ inputs.release_tag }}'
-          gh release create "$tag" --title "Runtime bundle $tag" \
+          gh release create "$TAG" --title "Runtime bundle $TAG" \
             --notes "ARM64 runtime bundle: Ubuntu rootfs + official Actions runner. Point the app at runtime-manifest.json below." \
             || true
-          gh release upload "$tag" --clobber \
+          gh release upload "$TAG" --clobber \
             runtime/out/droidrunner-runtime-arm64.tar.gz \
             runtime/out/runtime-manifest.json \
             runtime/out/runtime-manifest.json.sig
