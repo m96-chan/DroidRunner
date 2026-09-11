@@ -110,6 +110,29 @@ Tensor 0 is invalidly specified in schema.
 `message` carries that text in full, naming each tensor, on every path. It is
 deliberately not summarised — it is what turns an afternoon into a minute.
 
+The wrapper raises `invalid-request` itself, before anything is sent, for an
+option value it cannot put in a request: `--iterations`, `--size`, `--channels`,
+`--filters` and `--budget-ms` must match `^[0-9]+$`, and `--device` and
+`--feature` must match `^[A-Za-z0-9._+-]+$`, which is every value this document
+describes. The body is built by concatenation, so a value carrying a comma or a
+quote used to write fields of its own — `--iterations '1,"device":"qnn-htp"'`
+moved a benchmark onto the Hexagon while the caller read the numbers as the
+default driver's ([#206](https://github.com/m96-chan/DroidRunner/issues/206)).
+The message names the option, and the exit status is `1`, as the table says.
+
+**An HTTP status the agent declines a request with is reported, never returned.**
+`401` and `403` are about the capability token and `404` is about the URL: none
+of them has a result in it. The wrapper prints the status and the body on stderr
+and exits non-zero — `1` for the `invalid-request` those envelopes carry. It
+used to hand the envelope back as the payload, and since `capabilities` and
+`devices` read a payload by its shape, `devices` answered
+`{"schema":1,"ok":true,"devices":[]}` and exited `0`: a statement about
+somebody's silicon, published from a token that had rotated
+([#205](https://github.com/m96-chan/DroidRunner/issues/205)). A `400` from a
+POST is the other case and still comes back to the caller, because that body is
+this contract's own `code` and `message` about the request that was sent, and
+`--output` is where a consumer reads it.
+
 Each of these is checked by `runtime/tests/test-droidrunner-device.sh`, against
 a stub agent on loopback, so the table is a promise with something behind it
 rather than a description.

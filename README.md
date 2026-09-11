@@ -329,7 +329,7 @@ separate the cases a sweep must treat differently:
 | exit | meaning |
 | --- | --- |
 | `0` | it ran |
-| `1` | yours to fix — a model nothing can load, or inputs that do not fit it |
+| `1` | yours to fix — a model nothing can load, inputs that do not fit it, or an option value that cannot go in a request |
 | `2` | the driver refused the graph — record it and carry on |
 | `3` | no such device on this phone |
 | `4` | the agent is unreachable — stop |
