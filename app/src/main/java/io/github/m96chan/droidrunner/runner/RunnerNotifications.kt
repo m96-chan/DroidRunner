@@ -95,7 +95,16 @@ class RunnerNotifications(private val context: Context) {
          * A held runner has to say *why* it is held: from the outside, held and
          * broken look identical, and only the device knows the difference.
          */
-        fun statusText(snapshot: RunnerSnapshot): String = snapshot.pausedReason
+        fun statusText(snapshot: RunnerSnapshot): String = if (snapshot.stopping) {
+            // Ahead of everything else, and for the whole of the twenty-odd
+            // seconds a stop takes: the notification is the only thing on
+            // screen when the app is not, and a stop that says nothing is one
+            // that gets tapped again (#209).
+            "Stopping"
+        } else if (snapshot.state == RunnerState.STOPPED && snapshot.failureReason != null) {
+            // Not the same "Stopped" as the button's (#211).
+            "Stopped after an error: ${snapshot.failureReason}"
+        } else snapshot.pausedReason
             ?.takeIf { snapshot.state != RunnerState.PAUSED }
             ?.let {
                 if (snapshot.state == RunnerState.LISTENING || snapshot.state == RunnerState.JOB_RUNNING) {

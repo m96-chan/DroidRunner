@@ -43,10 +43,15 @@ class WatchdogJobService : JobService() {
             )
             return false
         }
+        // Read before the start, since the start is what changes it (#214).
+        val before = RunnerStatus.snapshot.value.state
         runCatching {
             startForegroundService(Intent(this, RunnerService::class.java))
         }.onSuccess {
-            say("watchdog (job): the runner was not running, started it")
+            // A tick that recovered nothing is the normal case, ninety times a
+            // day, and it goes to logcat where it costs nobody anything.
+            val recovery = RunnerWatchdog.startedLine(before)
+            if (recovery != null) say(recovery) else Log.i(TAG, "watchdog (job): the runner is up")
         }.onFailure {
             say("watchdog (job): could not start the runner — ${it.message}")
         }

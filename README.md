@@ -44,7 +44,7 @@ cannot produce, and the reason this exists.
 - **Background standby** — keeps the runner alive with a Foreground Service and a wake lock
 - **Tamper detection** — verifies the runtime bundle's SHA-256 before extracting it
 - **btop-style dashboard** — live CPU, memory, battery, thermal, disk, and network monitor together with runner status
-- **Self-protecting** — holds jobs while the device is low on battery, hot, or short on space, and restarts the listener on its own after a failure. A power cut alone does not stop a charged phone: the battery carries it until the level actually falls. A held device really does go offline to GitHub, rather than only believing it has
+- **Self-protecting** — holds jobs while the device is low on battery, hot, or short on space, and restarts the listener on its own after a failure. A power cut alone does not stop a charged phone: the battery carries it until the level actually falls. A held device really does go offline to GitHub, rather than only believing it has. A hold is not counted as a crash, so the device comes straight back when the condition clears instead of serving out a backoff it never earned ([#210](https://github.com/m96-chan/DroidRunner/issues/210))
 - **Says what it is doing** — the notification carries the runner state and, when work is held, the reason; a picture-in-picture window keeps it on screen while the phone is used for something else
 - **Hands over its own log** — the device report and the tail of the runner log, on the clipboard. A release build refuses `run-as`, so this is the only way a phone that is not yours can say what happened to it
 - **Ephemeral mode** — optionally re-registers and wipes the work directory after every job
@@ -106,9 +106,13 @@ MediaTek MT6899, a Google Tensor G4, and two Snapdragons.
   inside the APK because Android 10+ will not `exec()` from app storage
 - Holds jobs while the device is low on battery, hot or short on space, and takes
   them again when it recovers. Mains power going away is not enough on its own —
-  a charged phone keeps working through it. A held device really does go offline to GitHub
+  a charged phone keeps working through it. A held device really does go offline to GitHub,
+  and comes back the moment the condition clears: a hold is the design working,
+  not a failure to count against the runner
 - Restarts a listener that dies, backing off if it keeps dying, and alerts once
-  rather than once per attempt
+  rather than once per attempt. A pass of the supervisor that throws — a storage
+  reading that failed, a fork refused under memory pressure — is slept off and
+  retried, rather than ending the runner until the watchdog notices
 - Ephemeral mode re-registers and wipes the work directory per job
 
 **Running models on the silicon**
@@ -496,6 +500,12 @@ their devices to move to a new one.
 5. Done — the runner starts automatically whenever the app launches
    (Start/Stop controls live in the dashboard's runner panel)
 
+   **Stop** returns at once and the runner reads *stopping* until it is down. It
+   takes up to about half a minute, nearly all of it waiting for the listener to
+   hand its session back to GitHub — which is what saves the next start minutes
+   of "a session for this runner already exists". Waiting it out is the point;
+   the app no longer waits with you.
+
 The app resolves the runtime from the repository named by the
 `droidrunner.runtimeRepo` build property. That repository publishes app and
 runtime releases to one list, so the list is read page by page until a
@@ -647,7 +657,10 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
   background-restricted and not dozing. The vendor's per-app power screen is behind a
   signature permission, so the app cannot even open it for you; it has to be granted by
   hand in the phone's own settings
-  ([#184](https://github.com/m96-chan/DroidRunner/issues/184))
+  ([#184](https://github.com/m96-chan/DroidRunner/issues/184)).
+  A watchdog tick writes a line only when it actually found the runner down, so
+  `watchdog (job): the runner was not running` in the log means a real recovery
+  and is worth counting ([#214](https://github.com/m96-chan/DroidRunner/issues/214))
 - Start-on-boot resumes the runner once the device is **unlocked**, not when it boots:
   Android holds `BOOT_COMPLETED` back while the user is credential-locked, and the
   runtime bundle and the stored credentials sit in credential-encrypted storage that is
@@ -666,7 +679,15 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
       once the phone is spending its own charge below the floor
       ([#185](https://github.com/m96-chan/DroidRunner/issues/185)) — a power cut no
       longer stops a charged device
-- [x] Listener crash recovery with restart backoff
+- [x] Listener crash recovery with restart backoff, telling a crash apart from a
+      stop the supervisor asked for
+      ([#210](https://github.com/m96-chan/DroidRunner/issues/210)) — a hold no
+      longer raises "not staying up" or delays the return by minutes
+- [x] A stop that does not freeze the app for the twenty seconds it takes
+      ([#209](https://github.com/m96-chan/DroidRunner/issues/209))
+- [x] A supervisor that survives a transient error instead of ending the runner
+      with a dashboard that reads exactly like the Stop button
+      ([#211](https://github.com/m96-chan/DroidRunner/issues/211))
 - [x] Restart the runner after the system itself kills the service
       ([#184](https://github.com/m96-chan/DroidRunner/issues/184)) — `START_STICKY`
       plus a deadline-bound watchdog job, because each was measured failing alone;

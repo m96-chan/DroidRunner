@@ -23,9 +23,11 @@ import java.io.File
  * The job is persisted, so a reboot does not end the watch, and it is the
  * mechanism `WorkManager` sits on without the dependency.
  *
- * It does not check whether the service is running. Starting one that is
- * already up is free — [RunnerService.onStartCommand] returns early on a
- * redundant start — so the watchdog can be blunt and stay correct.
+ * It does not check whether the service is running before starting it. Starting
+ * one that is already up is free — [RunnerService.onStartCommand] returns early
+ * on a redundant start — so the watchdog can be blunt and stay correct. It does
+ * look afterwards, and only so that it does not claim a rescue it did not
+ * perform; see [startedLine].
  *
  * It does not work everywhere. See [WatchdogJobService] for the ROM it does
  * not, and why nothing in the app can fix that one.
@@ -87,6 +89,31 @@ object RunnerWatchdog {
      */
     fun shouldStart(configured: Boolean, runtimeInstalled: Boolean, autostart: Boolean): Boolean =
         configured && runtimeInstalled && autostart
+
+    /**
+     * What a tick that started the service is worth writing down (issue #214).
+     *
+     * The watchdog does not ask whether the service is running before starting
+     * it, on purpose — a redundant start is free — and the job then wrote *"the
+     * runner was not running, started it"*, asserting the very thing it had
+     * declined to check. Re-booked every sixteen minutes, that is about ninety
+     * lines a day claiming a recovery on a phone that never missed a beat, in
+     * the file [RunnerLog.readTail] pastes into bug reports and the dashboard
+     * shows the last hundred lines of. Anyone reading it concludes the service
+     * is being killed every quarter of an hour: the log manufacturing the exact
+     * symptom the watchdog exists to diagnose.
+     *
+     * So it asks after the fact, which is cheap and true, and a tick that found
+     * the runner up gets no line at all. Null means nothing happened worth
+     * keeping — say it to logcat if anyone is watching, and leave the file for
+     * things that did.
+     *
+     * The job runs in the app's own process, so [stateBefore] is the service's
+     * real state; where the process had been killed, the default `STOPPED` is
+     * the truth as well.
+     */
+    fun startedLine(stateBefore: RunnerState): String? =
+        if (stateBefore == RunnerState.STOPPED) "watchdog (job): the runner was not running, started it" else null
 
     internal fun stateOf(context: Context): Triple<Boolean, Boolean, Boolean> {
         val runtime = RuntimeInstaller(context)
