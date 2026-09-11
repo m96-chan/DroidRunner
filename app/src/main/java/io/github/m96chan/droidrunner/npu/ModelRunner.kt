@@ -40,6 +40,38 @@ internal object ModelRunner {
     }
 
     /**
+     * Runs the graph once when outputs are wanted and nothing else ran it,
+     * and says whether it did (#191).
+     *
+     * `iterations: 0` is a real request — "load, delegate, allocate, do not
+     * time" (#94) — so a timing loop that runs nothing for it is right. What
+     * was wrong was saving anyway: the output buffers are freshly allocated,
+     * so `outputFiles` named files of the correct length holding nothing but
+     * zeros, and the consumer this feature exists for (#92) compares them
+     * against a golden and cannot tell a fabricated tensor from a wrong one.
+     *
+     * Refusing the combination was the other way out and costs more than it
+     * saves: a manifest row may legitimately ask for both, and a rejection of
+     * ours arrives in the same array as the driver rejections a sweep exists
+     * to collect. One untimed invocation leaves `iterations: 0` meaning
+     * exactly what it is documented to mean — nothing was *measured* — and
+     * leaves every byte under `outputFiles` something a graph produced.
+     *
+     * Untimed also means unwarmed. Warmup exists so that the first and
+     * slowest invocation is not one of the measured ones; this one is not
+     * measured, so warming it would only spend the caller's time.
+     */
+    internal fun invokeForOutputs(
+        runs: Int,
+        savingOutputs: Boolean,
+        invoke: () -> Unit,
+    ): Boolean {
+        if (runs > 0 || !savingOutputs) return false
+        invoke()
+        return true
+    }
+
+    /**
      * [inputs] replaces the fixed fill pattern, one file per input tensor, and
      * [outputDir] receives the outputs — both raw little-endian in the tensor's
      * own dtype. With neither, this behaves exactly as it did: a latency job
@@ -138,7 +170,7 @@ internal object ModelRunner {
                 if (multiDevices.isEmpty()) emptyList() else Delegation.parseAll(built.second)
             val attribution =
                 if (multiDevices.isEmpty()) executedFor(delegation, deviceName)
-                else executedForAll(allDelegations)
+                else executedForAll(allDelegations, multiDevices)
             // Tensor sizes are only final once allocation has run — and with a
             // delegate attached they can differ from the pre-allocation values,
             // which is how the first attempt ended up sizing every buffer wrong.
@@ -175,6 +207,9 @@ internal object ModelRunner {
                 interpreter.runForMultipleInputsOutputs(buffers, outputs)
             }
 
+            // Warmup belongs to measurement: it keeps the first and slowest
+            // invocation out of the timed ones. With nothing being timed there
+            // is nothing to keep it out of.
             if (runs > 0) {
                 repeat(warmup) { invoke() }
             }
@@ -186,6 +221,9 @@ internal object ModelRunner {
                 measured[run] = System.nanoTime() - started
             }
             val after = conditions?.invoke()
+            // After the sampled window closes, so an invocation nobody asked
+            // to have timed cannot turn up inside what `conditions` describes.
+            invokeForOutputs(runs, savingOutputs = outputTarget != null) { invoke() }
             // Sorted separately: the run order is the whole value of the raw
             // timings, since a throttle is visible as drift across the loop and
             // in nothing else. Sorting in place would have thrown that away.
@@ -295,8 +333,13 @@ internal object ModelRunner {
                             ),
                         )
                     }
-                    // Written after the timing loop, from the last invocation:
-                    // saving on every iteration would measure the filesystem.
+                    // Written after the loop rather than inside it, from
+                    // whichever invocation ran last: saving on every iteration
+                    // would measure the filesystem. There is always one to
+                    // save from — a request that asks for outputs and times
+                    // nothing gets its single invocation above, because a
+                    // buffer no graph has written is zeros with a filename on
+                    // it and not a result (#191).
                     outputTarget?.let { target ->
                         put(
                             "outputFiles",

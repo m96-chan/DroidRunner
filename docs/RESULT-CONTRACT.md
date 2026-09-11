@@ -110,6 +110,29 @@ Tensor 0 is invalidly specified in schema.
 `message` carries that text in full, naming each tensor, on every path. It is
 deliberately not summarised — it is what turns an afternoon into a minute.
 
+The wrapper raises `invalid-request` itself, before anything is sent, for an
+option value it cannot put in a request: `--iterations`, `--size`, `--channels`,
+`--filters` and `--budget-ms` must match `^[0-9]+$`, and `--device` and
+`--feature` must match `^[A-Za-z0-9._+-]+$`, which is every value this document
+describes. The body is built by concatenation, so a value carrying a comma or a
+quote used to write fields of its own — `--iterations '1,"device":"qnn-htp"'`
+moved a benchmark onto the Hexagon while the caller read the numbers as the
+default driver's ([#206](https://github.com/m96-chan/DroidRunner/issues/206)).
+The message names the option, and the exit status is `1`, as the table says.
+
+**An HTTP status the agent declines a request with is reported, never returned.**
+`401` and `403` are about the capability token and `404` is about the URL: none
+of them has a result in it. The wrapper prints the status and the body on stderr
+and exits non-zero — `1` for the `invalid-request` those envelopes carry. It
+used to hand the envelope back as the payload, and since `capabilities` and
+`devices` read a payload by its shape, `devices` answered
+`{"schema":1,"ok":true,"devices":[]}` and exited `0`: a statement about
+somebody's silicon, published from a token that had rotated
+([#205](https://github.com/m96-chan/DroidRunner/issues/205)). A `400` from a
+POST is the other case and still comes back to the caller, because that body is
+this contract's own `code` and `message` about the request that was sent, and
+`--output` is where a consumer reads it.
+
 Each of these is checked by `runtime/tests/test-droidrunner-device.sh`, against
 a stub agent on loopback, so the table is a promise with something behind it
 rather than a description.
@@ -225,6 +248,46 @@ anything, in the order the claims were made:
 reports the last claim, which is the whole story while one delegate is attached
 and one delegate's share when two are — which is why the array exists rather
 than the field changing shape underneath the callers that read it.
+
+**`executed` is the union over the accelerators, and only over those.** The
+table above holds with "the delegate" read as all of them together:
+`accelerator` when between them they claimed every node, `partial` when
+something was left behind, `cpu-fallback` when none of them claimed anything.
+`executedBy` joins the ones that claimed, with `+`, in the order they claimed —
+and names only those, so a delegate that was asked for and took nothing does not
+appear.
+
+**`TfLiteXNNPackDelegate` is not one of them.** TFLite attaches its own CPU
+delegate after the ones the request names, and announces what it took in the
+same words every other claim is read from, so its entry appears in `delegations`
+like any other. It is CPU work: its nodes count as *left behind*, not as
+accelerated, and it never appears in `executedBy`. A run both named accelerators
+declined and XNNPACK finished is `cpu-fallback` with `executedBy: cpu`, and one
+where an accelerator took half is `partial`, named by that accelerator alone.
+Before [#189](https://github.com/m96-chan/DroidRunner/issues/189) those were
+`accelerator`, attributed to `TfLiteXNNPackDelegate` — a 100% CPU run reported
+as an accelerator run, which is the one thing this contract exists to refuse.
+
+**Neither is `nnapi-reference`.** NNAPI's own reference driver is the CPU
+whatever route reached it, and the single-delegate rule has refused it since
+[#93](https://github.com/m96-chan/DroidRunner/issues/93). The union rule could
+not at first, because every NNAPI delegate prints `TfLiteNnapiDelegate` whatever
+driver is behind it — so `--device 'nnapi-reference+gpu'` reported the CPU as an
+accelerator. It is now settled from the devices the request named: each NNAPI
+delegate is given exactly one accelerator name, so when every NNAPI name in the
+request is a CPU device, every `TfLiteNnapiDelegate` entry is that CPU and is
+left behind like XNNPACK.
+
+Name **two** NNAPI drivers with one of them a CPU device — `nnapi-reference+qti-dsp`
+— and nothing in the log says which entry was which. That comes back as
+`unknown`, which you already treat as not-accelerated. The pairing is not
+useful, and guessing at it would be the same wrong claim by a third route.
+
+So `delegations` may carry an entry that `executed` does not count, by design: it
+reports what TFLite said, and the summary reports who accelerated the graph. A
+consumer reconstructing `executed` from the array has to drop the CPU delegate
+itself — and *which CPU ran it*, below, is read from `delegations` here rather
+than from `executedBy`, which in this form names accelerators and nothing else.
 
 **`qnn-*` cannot appear in the list**, and is refused with that reason rather
 than a generic one. Qualcomm's runtime is in a separate process, two delegates
@@ -359,7 +422,14 @@ throttle developing is visible at all. It is off by default — 500 iterations i
 ### Optional pieces
 
 - `outputFiles` — present when `outputDir` was given. Paths are **as the job
-  sees them**, under `/home/runner`.
+  sees them**, under `/home/runner`. **Every byte in them came out of an
+  invocation of this graph.** A request that asks for outputs and times nothing
+  (`iterations: 0`) runs the model once anyway, untimed and not counted in
+  `iterations`; the field is never written from a buffer no run touched. Builds
+  up to and including **v0.14.0** wrote it from one: that combination
+  returned `ok: true` naming files of the correct length holding nothing but
+  zeros, which a comparison against a golden cannot tell from a wrong answer
+  ([#191](https://github.com/m96-chan/DroidRunner/issues/191)).
 - `quantizationParams` — on quantized tensors only, so a caller holding int8
   bytes is not inferring a scale from the numbers.
 - `precisionLossAllowed` — GPU only: whether the delegate was allowed to drop
@@ -400,21 +470,68 @@ the manifest is a JSON array:
 
 ```json
 {"schema": 1, "ok": true,
- "results": [ {"id": "conv-int8", "ok": true,  "executed": "accelerator", "…": "…"},
-              {"id": "pack-fp32", "ok": false, "code": "refused", "…": "…"} ]}
+ "results": [ {"schema": 1, "id": "conv-int8", "ok": true,  "executed": "accelerator", "…": "…"},
+              {"schema": 1, "id": "pack-fp32", "ok": false, "code": "refused", "…": "…"} ]}
 ```
 
 - **One entry back per entry sent, in order.** A failing row never ends the
   sweep — a sweep is largely *made of* rejections, and each one is the data.
   A malformed row comes back saying so rather than shortening the array.
+- **Every row is a response in its own right.** `schema` on each one, and
+  `code` on each failing one, exactly as on the envelope — the table at the top
+  of this document describes a nested row as much as a top-level result. Until
+  [#200](https://github.com/m96-chan/DroidRunner/issues/200) only the envelope
+  was stamped, so a response validated at the top level and its contents did
+  not, and the missing-runtime row arrived with no `code` for a sweep to branch
+  on at all. A consumer validating rows may now do so; one that was not is
+  unaffected, since this only adds fields.
 - `iterations: 0` means load, delegate and allocate but do not time. Half of a
   sweep only asks whether a graph was accepted, and that answer is complete
   once tensors are allocated. The result then carries `executed` and
-  `delegation` and no timings.
+  `delegation` and no timings. A row that *also* names an `outputDir` is asking
+  for this graph's tensors as well, so it is run once, untimed — `iterations`
+  stays `0` because it counts measurements, and `outputFiles` still holds only
+  what a run produced. The combination is accepted rather than rejected: a
+  sweep's rejections are its data, and one of ours in that array would be noise
+  the caller has to sort from the driver's.
 - `budgetMs` caps the **whole** sweep. If it runs out, everything collected so
   far comes back with `budgetExhausted: true` and `stoppedAt` naming the row
   that was running — which is the only thing a caller can act on when one
   driver will not return.
+- **`budgetExhausted` means the clock and nothing else.** A row that throws —
+  out of memory on a large graph, a vendor call that raised — is reported in
+  that row, as `failed` with the thrown thing's own words in `message`, and the
+  sweep carries on to the next model. It used to arrive as *took longer than
+  the batch had left* and to mark the whole sweep exhausted, so a caller that
+  reads `budgetExhausted` as "the fleet is behind, resubmit" resubmitted a
+  sweep that had finished
+  ([#192](https://github.com/m96-chan/DroidRunner/issues/192)).
+
+## When the agent is full
+
+`503`, with a body in the usual failure shape, when every worker and every
+queued slot is taken. A sweep may legitimately hold a worker for an hour, so
+this is reachable on a healthy phone, and it is a different thing from the
+phone having gone away: the agent answered, and answering again later is
+likely to work.
+
+It used to be neither — the connection was accepted and then went silent, so
+the caller waited out its own timeout and reported a network problem
+([#199](https://github.com/m96-chan/DroidRunner/issues/199)). A client may
+retry a `503`; there is nothing to retry against silence.
+
+The body carries `code: failed`, so the **wrapper** still reports it as exit
+`1` along with everything else unclassified. The status is the part to branch
+on for now, and a client speaking to the agent directly is the one that can.
+A busy phone deserves its own exit status, and that is a change to the exit
+table rather than to this section.
+
+The head of a request is bounded too, and a request that runs past those bounds
+is answered rather than dropped: `431` for a header line or a header block over
+the cap, `408` for a request that stops arriving partway through
+([#190](https://github.com/m96-chan/DroidRunner/issues/190)). Loopback is
+shared with every app on the phone, and everything before the capability token
+is checked is reachable without one.
 
 ## What is not in the contract
 

@@ -58,6 +58,40 @@ internal object QnnModelRunner {
         runCatching { breadcrumb?.writeText(name) }
     }
 
+    /**
+     * Runs the graph once when outputs are wanted and nothing else ran it,
+     * and says whether it did (#191).
+     *
+     * `iterations: 0` is a real request — "load, delegate, allocate, do not
+     * time" (#94) — so a timing loop that runs nothing for it is right. What
+     * was wrong was saving anyway: the output buffers are freshly allocated,
+     * so `outputFiles` named files of the correct length holding nothing but
+     * zeros, and the consumer this feature exists for (#92) compares them
+     * against a golden and cannot tell a fabricated tensor from a wrong one.
+     *
+     * Refusing the combination was the other way out and costs more than it
+     * saves: a manifest row may legitimately ask for both, and a rejection of
+     * ours arrives in the same array as the driver rejections a sweep exists
+     * to collect. One untimed invocation leaves `iterations: 0` meaning
+     * exactly what it is documented to mean — nothing was *measured* — and
+     * leaves every byte under `outputFiles` something a graph produced.
+     *
+     * A copy of [io.github.m96chan.droidrunner.npu.ModelRunner]'s, four lines
+     * and deliberately not shared: that one is plain GPL-2.0 and this file
+     * stands on the other side of the licensing boundary, for the same reason
+     * the buffer setup below is duplicated. Both are covered, separately, so
+     * the two answers cannot drift apart in silence.
+     */
+    internal fun invokeForOutputs(
+        runs: Int,
+        savingOutputs: Boolean,
+        invoke: () -> Unit,
+    ): Boolean {
+        if (runs > 0 || !savingOutputs) return false
+        invoke()
+        return true
+    }
+
     fun run(
         model: File,
         directory: String,
@@ -147,6 +181,9 @@ internal object QnnModelRunner {
                 interpreter.runForMultipleInputsOutputs(buffers, outputs)
             }
 
+            // Warmup belongs to measurement: it keeps the first and slowest
+            // invocation out of the timed ones. With nothing being timed there
+            // is nothing to keep it out of.
             if (runs > 0) {
                 step("warmup")
                 repeat(warmup) { invoke() }
@@ -160,6 +197,14 @@ internal object QnnModelRunner {
                 measured[run] = System.nanoTime() - started
             }
             val after = conditions?.invoke()
+            // After the sampled window closes, so an invocation nobody asked
+            // to have timed cannot turn up inside what `conditions` describes,
+            // and before the profiling below is read, so the one run this does
+            // make is counted like any other.
+            invokeForOutputs(runs, savingOutputs = outputTarget != null) {
+                step("running once for the outputs")
+                invoke()
+            }
             // Sorted separately: run order is the whole value of the raw
             // timings, since a throttle is visible as drift across the loop and
             // in nothing else.
@@ -233,6 +278,11 @@ internal object QnnModelRunner {
                     JSONArray(specsOf(interpreter, input = false).map(TensorIo::describe)),
                 )
                 .apply {
+                    // From whichever invocation ran last, and there is always
+                    // one: a request that asks for outputs and times nothing
+                    // gets its single invocation above, because a buffer no
+                    // graph has written is zeros with a filename on it and not
+                    // a result (#191).
                     outputTarget?.let { target ->
                         put(
                             "outputFiles",

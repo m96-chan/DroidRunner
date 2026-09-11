@@ -60,8 +60,29 @@ jobs:
           python-version: "3.11"
       - run: python -m unittest discover -s tools/op-matrix -v
 
+      # The index of committed matrices is derived from the matrices, not kept
+      # by hand. The hand-kept one dropped a driver a phone had been measured
+      # on, which reads as though nobody had asked that silicon for it (#217).
+      - run: python tools/op-matrix/index.py --check
+
       # The wrapper is the only path a consumer takes and nothing compiles it.
       # Its exit statuses are published in docs/RESULT-CONTRACT.md as something
       # another repository may pin to, and until #125 they had nothing behind
       # them — one of them was wrong, and a phone is what found it.
       - run: runtime/tests/test-droidrunner-device.sh
+
+      # The licence table is how the GPL-2.0 §3 source offer is made, and it is
+      # made twice — once per README. A component added to one file and not the
+      # other tells half the recipients nothing, which is what happened to the
+      # Ubuntu rootfs row until #216. Neither file fails to render over it.
+      - run: tools/check-licence-tables-match.sh
+
+      # The tutorial is a page people copy verbatim, so the ref it names is the
+      # action they end up running. It sat on a tag for seven releases and gave
+      # readers a workflow without the outputs the next section tells them to
+      # branch on (#215). Nothing else ties the HTML to the action.
+      - run: tools/check-action-pin.sh
+
+      # Whether every phone came back from a roll is decided by one grep, and
+      # when it was wrong it was wrong silently (#207).
+      - run: tools/tests/test-roll-fleet.sh

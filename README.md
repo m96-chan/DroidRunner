@@ -312,7 +312,9 @@ droidrunner-device test batch manifest.json --output sweep.json
 One entry back per entry sent, in order. A failing row never ends the sweep — a
 sweep is largely *made of* rejections, and each one is the data. `iterations: 0`
 means load, delegate and allocate but do not time, for the rows that only ask
-whether a graph was accepted.
+whether a graph was accepted. A row that also names an `outputDir` is run once
+anyway, untimed: a file under `outputFiles` only ever holds what an invocation
+produced.
 
 That sweep has a workflow of its own: **Operator support matrix** builds one
 model per operator and precision, runs every one on every driver the phone
@@ -333,7 +335,7 @@ separate the cases a sweep must treat differently:
 | exit | meaning |
 | --- | --- |
 | `0` | it ran |
-| `1` | yours to fix — a model nothing can load, or inputs that do not fit it |
+| `1` | yours to fix — a model nothing can load, inputs that do not fit it, or an option value that cannot go in a request |
 | `2` | the driver refused the graph — record it and carry on |
 | `3` | no such device on this phone |
 | `4` | the agent is unreachable — stop |
@@ -505,9 +507,15 @@ their devices to move to a new one.
    the app no longer waits with you.
 
 The app resolves the runtime from the repository named by the
-`droidrunner.runtimeRepo` build property. A manual manifest URL override lives
-under `advanced` for GitHub Enterprise Server or self-hosted bundles. Maintainers
+`droidrunner.runtimeRepo` build property. That repository publishes app and
+runtime releases to one list, so the list is read page by page until a
+`runtime-*` release turns up: the bundle stays findable however many app
+releases were published after it. A manual manifest URL override lives under
+`advanced` for GitHub Enterprise Server or self-hosted bundles. Maintainers
 publish new bundles with the **Runtime bundle** workflow (see `runtime/README.md`).
+
+The repository picker lists every installation the app is on — all of them, not
+just the first hundred — and up to 500 repositories per installation.
 
 Sign-in uses the GitHub App device flow, so no client secret is embedded in the APK
 and no PAT has to be created by hand. The user token is encrypted with the Android
@@ -748,7 +756,8 @@ environment from an Android service.
 DroidRunner is released under the **GNU General Public License v2.0 only
 (`GPL-2.0-only`)** — see [`LICENSE`](LICENSE).
 
-The APK also ships third-party components under their own licenses:
+The APK and the runtime bundle also carry third-party components under their
+own licenses:
 
 | Component | License | Corresponding source |
 | --- | --- | --- |
@@ -761,4 +770,9 @@ The runtime bundle carries more: the [GitHub Actions Runner](https://github.com/
 bundle, provide the corresponding sources, patches, build instructions, and copyright
 notices along with it — `runtime/build-bundle.sh` pins exactly what goes in.
 
-The app's About screen lists the same information on the device.
+The app's About screen makes the same offer on the device: it names
+`droidrunner-<tag>-source.tar.gz` for the release that build came from and
+links to it, points at `PACKAGES.txt` and `SOURCE-OFFER.txt` for the rootfs,
+and says plainly when a development build has no release behind it.
+`tools/check-licence-tables-match.sh` fails the build if a component in this
+table is missing from that screen.

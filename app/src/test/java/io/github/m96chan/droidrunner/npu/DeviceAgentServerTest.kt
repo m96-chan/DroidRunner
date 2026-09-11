@@ -319,16 +319,30 @@ class BatchOverHttpTest {
         server = DeviceAgentServer(
             runtimeDir,
             requestedPort = 0,
-            // A row can be told to outlast the batch budget, so the timeout
-            // path has something to time out on (#174). The list is what proves
-            // no later row was executed.
+            // A row can be told to outlast the batch budget, to throw, or to
+            // answer in the shape a hand-built failure used to have, so each
+            // path has something to happen to it. The list is what proves
+            // which rows were executed and which were not.
             qnnModel = { model, _, _, _, _, _ ->
                 ran += model.name
-                // Longer than the smallest budget the contract allows:
-                // `budgetMs` is coerced to at least 1000ms, so a shorter
-                // sleep never reaches the timeout path at all.
-                if (model.name.startsWith("slow")) Thread.sleep(1_500)
-                """{"ok":true}"""
+                when {
+                    // Longer than the smallest budget the contract allows:
+                    // `budgetMs` is coerced to at least 1000ms, so a shorter
+                    // sleep never reaches the timeout path at all (#174).
+                    model.name.startsWith("slow") -> {
+                        Thread.sleep(1_500)
+                        """{"ok":true}"""
+                    }
+                    // An OutOfMemoryError on a large graph is the case from
+                    // #192; this is the same escape, deliberately raised.
+                    model.name.startsWith("boom") ->
+                        throw IllegalStateException("the delegate walked off with the arena")
+                    // What the not-installed path returned before #200: built
+                    // by hand, with neither a schema nor a code.
+                    model.name.startsWith("bare") ->
+                        """{"ok":false,"error":"the Qualcomm NPU runtime is not installed"}"""
+                    else -> """{"ok":true}"""
+                }
             },
         ) { """{"stub":true}""" }
         server.start()
@@ -403,8 +417,81 @@ class BatchOverHttpTest {
             (0 until results.length()).map { results.getJSONObject(it).getString("id") },
         )
         assertEquals("slow", parsed.getString("stoppedAt"))
+        // A row that really did outlast the budget is the one case that may
+        // say so (#192): the clock, and nothing else.
+        assertTrue(parsed.getBoolean("budgetExhausted"))
         // And the row after it was never handed to a model.
         assertEquals(listOf("slow.tflite"), ran)
+    }
+
+    @Test fun aRowThatThrowsSaysWhatThrewAndLeavesTheBudgetAlone() {
+        // Any throwable escaping a row used to arrive as "took longer than the
+        // batch had left" and to set `stoppedAt`, which stamped
+        // `budgetExhausted` on a sweep that finished well inside its budget.
+        // A caller reading that as "the fleet is behind, resubmit" resubmits a
+        // sweep that already completed (#192).
+        File(runtimeDir, "home/runner/boom.tflite").writeText("x")
+        File(runtimeDir, "home/runner/after.tflite").writeText("x")
+
+        val (status, body) = post(
+            "/v1/tests/models",
+            """{"models":[
+                 {"id":"boom","path":"/home/runner/boom.tflite","device":"qnn-htp"},
+                 {"id":"after","path":"/home/runner/after.tflite","device":"qnn-htp"}
+               ]}""",
+        )
+
+        assertEquals(200, status)
+        val parsed = JSONObject(body)
+        assertFalse("the budget was never approached: $body", parsed.has("budgetExhausted"))
+        assertFalse(parsed.has("stoppedAt"))
+
+        val threw = parsed.getJSONArray("results").getJSONObject(0)
+        assertFalse(threw.getBoolean("ok"))
+        assertEquals("failed", threw.getString("code"))
+        // The thrown thing's own words, which are the half that says what
+        // actually happened.
+        assertTrue("the row must name its cause: $threw", threw.getString("message").contains("arena"))
+        assertFalse(
+            "a memory problem must not be reported as a timing one: $threw",
+            threw.getString("error").contains("longer than the batch"),
+        )
+
+        // And the sweep carried on, because the next model is a different one.
+        assertTrue(parsed.getJSONArray("results").getJSONObject(1).getBoolean("ok"))
+        assertEquals(listOf("boom.tflite", "after.tflite"), ran)
+    }
+
+    @Test fun everyNestedRowCarriesTheSchemaTheEnvelopeDoes() {
+        // The confusing case #200 describes: the response validates at the top
+        // level and its contents do not.
+        File(runtimeDir, "home/runner/fine.tflite").writeText("x")
+
+        val (_, body) = post(
+            "/v1/tests/models",
+            """{"models":[{"id":"fine","path":"/home/runner/fine.tflite","device":"qnn-htp"}]}""",
+        )
+
+        val row = JSONObject(body).getJSONArray("results").getJSONObject(0)
+        assertTrue(row.getBoolean("ok"))
+        assertEquals(ResultContract.SCHEMA, row.getInt("schema"))
+    }
+
+    @Test fun aNestedFailureWithoutACodeIsGivenOneOnTheWayOut() {
+        // `code` is what a sweep branches on to decide whether to abort, and
+        // the contract says it is present on every failure. A row built by
+        // hand somewhere below must not be able to take it away (#200).
+        File(runtimeDir, "home/runner/bare.tflite").writeText("x")
+
+        val (_, body) = post(
+            "/v1/tests/models",
+            """{"models":[{"id":"bare","path":"/home/runner/bare.tflite","device":"qnn-htp"}]}""",
+        )
+
+        val row = JSONObject(body).getJSONArray("results").getJSONObject(0)
+        assertFalse(row.getBoolean("ok"))
+        assertEquals(ResultContract.SCHEMA, row.getInt("schema"))
+        assertEquals(ResultContract.Code.FAILED, row.getString("code"))
     }
 
     @Test fun anEmptyManifestIsARequestError() {
@@ -412,5 +499,247 @@ class BatchOverHttpTest {
 
         assertEquals(400, status)
         assertEquals("invalid-request", JSONObject(body).getString("code"))
+    }
+}
+
+/**
+ * What an unauthenticated neighbour app may spend before the token is looked
+ * at (issue #190).
+ *
+ * Loopback is shared with every app on the phone, and the class doc says so:
+ * the token is the boundary, and everything ahead of it — the request line,
+ * the headers, the clock — is reachable by anything installed. Each of these
+ * used to be unbounded in one dimension.
+ */
+class AgentHeadLimitsTest {
+
+    @Rule @JvmField val temp = TemporaryFolder()
+
+    private lateinit var runtimeDir: File
+    private lateinit var server: DeviceAgentServer
+
+    @Before fun start() {
+        runtimeDir = temp.newFolder("runtime")
+        server = DeviceAgentServer(
+            runtimeDir,
+            requestedPort = 0,
+            // The real deadline is twenty seconds, which is a long time to
+            // watch a test drip bytes. The cap being *some* finite number is
+            // the property under test, not which one.
+            requestDeadlineMs = 1_500,
+        ) { """{"stub":true}""" }
+        server.start()
+        server.onJobActive(true)
+    }
+
+    @After fun stop() = server.stop()
+
+    private val token: String
+        get() = File(runtimeDir, "home/runner/${DeviceAgentServer.TOKEN_FILE_NAME}").readText()
+
+    private fun connect(): java.net.Socket =
+        java.net.Socket("127.0.0.1", server.port).apply { soTimeout = 10_000 }
+
+    /** The status line, or "" if the agent said nothing at all. */
+    private fun statusOf(socket: java.net.Socket): String =
+        socket.getInputStream().bufferedReader().readLine().orEmpty()
+
+    /** Writes what it can; a refusal mid-request may close under our feet. */
+    private fun sendQuietly(socket: java.net.Socket, vararg chunks: String) {
+        runCatching {
+            val out = socket.getOutputStream()
+            chunks.forEach { out.write(it.toByteArray()) }
+            out.flush()
+        }
+    }
+
+    /** The agent is still answering, which is the other half of every case. */
+    private fun stillServes() {
+        connect().use { socket ->
+            sendQuietly(
+                socket,
+                "GET /v1/capabilities HTTP/1.1\r\n",
+                "Authorization: Bearer $token\r\n\r\n",
+            )
+            assertTrue("the worker must be free again", statusOf(socket).contains("200"))
+        }
+    }
+
+    @Test fun aRequestLineThatNeverEndsIsRefusedRatherThanAccumulated() {
+        // No credentials needed: the line is read before the token is looked
+        // at, so this is what any app on the phone could do to the runner.
+        connect().use { socket ->
+            sendQuietly(socket, "GET /", "a".repeat(16 * 1024), " HTTP/1.1\r\n\r\n")
+            assertTrue("expected a status, not silence", statusOf(socket).contains("431"))
+        }
+        stillServes()
+    }
+
+    @Test fun aSingleHeaderValueThatNeverEndsIsRefused() {
+        connect().use { socket ->
+            sendQuietly(
+                socket,
+                "GET /v1/capabilities HTTP/1.1\r\n",
+                "X-Pad: ", "a".repeat(16 * 1024), "\r\n\r\n",
+            )
+            assertTrue(statusOf(socket).contains("431"))
+        }
+        stillServes()
+    }
+
+    @Test fun aHeaderBlockThatIsLargeWithoutAnyOneLineBeingLargeIsRefused() {
+        // Forty headers are allowed and each of these is well under the line
+        // cap, so only the cap on the block as a whole catches this one.
+        connect().use { socket ->
+            sendQuietly(socket, "GET /v1/capabilities HTTP/1.1\r\n")
+            repeat(12) { sendQuietly(socket, "X-Pad-$it: ", "a".repeat(4_000), "\r\n") }
+            sendQuietly(socket, "\r\n")
+            assertTrue(statusOf(socket).contains("431"))
+        }
+        stillServes()
+    }
+
+    @Test fun aClientThatDripsIsDroppedRatherThanHoldingAWorkerForever() {
+        // The variant that needs no memory at all: one byte at a time keeps a
+        // worker inside the header read for as long as the client cares to
+        // keep going, because the per-read timeout restarts on every byte.
+        val drip = java.util.concurrent.atomic.AtomicBoolean(true)
+        connect().use { socket ->
+            sendQuietly(socket, "GET /v1/capabilities HTTP/1.1\r\n", "X-Pad: ")
+            val dripping = Thread {
+                while (drip.get()) {
+                    if (runCatching {
+                            socket.getOutputStream().apply { write('a'.code); flush() }
+                        }.isFailure
+                    ) {
+                        return@Thread
+                    }
+                    Thread.sleep(100)
+                }
+            }
+            dripping.start()
+            val started = System.currentTimeMillis()
+            val status = statusOf(socket)
+            val waited = System.currentTimeMillis() - started
+            drip.set(false)
+            dripping.join(5_000)
+
+            assertTrue("expected a status, not silence: '$status'", status.contains("408"))
+            assertTrue("dropped on the deadline, not on the per-read timeout: $waited ms", waited < 8_000)
+        }
+        stillServes()
+    }
+}
+
+/**
+ * What a full agent says instead of nothing (issue #199).
+ *
+ * Two workers and eight queued slots, and a sweep may legitimately hold a
+ * worker for an hour. Past that the pool used to discard the task — and with
+ * it the only reference to the socket, so the caller waited out its own
+ * timeout against a connection that had been accepted and then went quiet,
+ * while the descriptor stayed open.
+ */
+class AgentUnderLoadTest {
+
+    @Rule @JvmField val temp = TemporaryFolder()
+
+    private lateinit var runtimeDir: File
+    private lateinit var server: DeviceAgentServer
+
+    /** Holds whichever requests reach a worker, so the queue fills up. */
+    private val held = java.util.concurrent.CountDownLatch(1)
+
+    @Before fun start() {
+        runtimeDir = temp.newFolder("runtime")
+        server = DeviceAgentServer(runtimeDir, requestedPort = 0) {
+            held.await(30, java.util.concurrent.TimeUnit.SECONDS)
+            """{"stub":true}"""
+        }
+        server.start()
+        server.onJobActive(true)
+    }
+
+    @After fun stop() {
+        held.countDown()
+        server.stop()
+    }
+
+    private val token: String
+        get() = File(runtimeDir, "home/runner/${DeviceAgentServer.TOKEN_FILE_NAME}").readText()
+
+    /** A connection that has asked for something and is waiting for an answer. */
+    private fun asking(): java.net.Socket =
+        java.net.Socket("127.0.0.1", server.port).apply {
+            soTimeout = 10_000
+            getOutputStream().apply {
+                write(
+                    ("GET /v1/capabilities HTTP/1.1\r\n" +
+                        "Authorization: Bearer $token\r\n\r\n").toByteArray(),
+                )
+                flush()
+            }
+        }
+
+    private fun statusOf(socket: java.net.Socket): String =
+        runCatching { socket.getInputStream().bufferedReader().readLine().orEmpty() }.getOrDefault("")
+
+    /** Two workers plus eight queued slots; the next one has nowhere to go. */
+    private fun fillEveryWorkerAndSlot(): List<java.net.Socket> {
+        val busy = (1..10).map { asking() }
+        // The accept loop has to have taken all ten before the eleventh
+        // arrives, or the eleventh is simply the tenth.
+        Thread.sleep(500)
+        return busy
+    }
+
+    @Test fun anAgentWithNowhereToPutARequestSaysSoAndCloses() {
+        val busy = fillEveryWorkerAndSlot()
+        try {
+            java.net.Socket("127.0.0.1", server.port).use { over ->
+                over.soTimeout = 10_000
+                over.getOutputStream().apply {
+                    write(
+                        ("GET /v1/capabilities HTTP/1.1\r\n" +
+                            "Authorization: Bearer $token\r\n\r\n").toByteArray(),
+                    )
+                    flush()
+                }
+                val reader = over.getInputStream().bufferedReader()
+                val status = reader.readLine().orEmpty()
+
+                // A status is what `droidrunner-device` can retry on, and what
+                // it could not do against silence.
+                assertTrue("expected a status, not silence: '$status'", status.contains("503"))
+                // And the socket is closed rather than left open: reading on
+                // reaches EOF instead of blocking until this test's timeout,
+                // which is the leaked descriptor the accept loop died of.
+                val rest = runCatching { generateSequence { reader.readLine() }.toList() }
+                assertTrue("the agent must close what it refuses", rest.isSuccess)
+                assertTrue(
+                    "the refusal should say why: ${rest.getOrNull()}",
+                    rest.getOrNull().orEmpty().any { it.contains("busy") },
+                )
+            }
+        } finally {
+            held.countDown()
+            busy.forEach { runCatching { it.close() } }
+        }
+    }
+
+    @Test fun stoppingAnswersWhatWasStillQueuedRatherThanDroppingIt() {
+        val busy = fillEveryWorkerAndSlot()
+        try {
+            server.stop()
+
+            // Two of the ten reached a worker and were interrupted; the other
+            // eight never ran at all, and used to be dropped with their
+            // sockets still open.
+            val answered = busy.count { statusOf(it).contains("503") }
+            assertTrue("expected the queue to be drained, got $answered of 8", answered >= 8)
+        } finally {
+            held.countDown()
+            busy.forEach { runCatching { it.close() } }
+        }
     }
 }

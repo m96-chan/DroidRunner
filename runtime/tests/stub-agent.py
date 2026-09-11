@@ -14,8 +14,15 @@ nicely would pass tests the real agent fails.
 Usage: stub-agent.py PORT RESPONSE_DIR
   RESPONSE_DIR/capabilities.json  answered to GET  /v1/capabilities
   RESPONSE_DIR/response.json      answered to every POST
-  RESPONSE_DIR/status            HTTP status for POSTs, default 200
+  RESPONSE_DIR/status             HTTP status for POSTs, default 200
+  RESPONSE_DIR/get-status         HTTP status for GETs, default 200
   RESPONSE_DIR/last-request.json  written with the body of the last POST
+
+A GET always answered 200, which is why an authentication failure on one went
+unnoticed for as long as it did (#205). Ask for a status and the body is the
+envelope the real agent sends with it, not the capabilities payload — a 401 is
+a sentence about the token, and the point of the test is that the wrapper must
+not read it as a list of accelerators.
 """
 import http.server
 import json
@@ -38,6 +45,34 @@ def compact(path, fallback):
         return text
 
 
+# What DeviceAgentServer answers when it will not route a request: the code is
+# invalid-request for all three, and the HTTP status is what tells a token that
+# rotated apart from a URL nobody serves.
+REFUSALS = {
+    401: "missing or invalid capability token",
+    403: "device agent is only available while a job is running",
+    404: "unknown endpoint",
+}
+
+
+def asked_status(name):
+    """The HTTP status a test asked for, or 200."""
+    path = DIR / name
+    return int(path.read_text().strip()) if path.exists() else 200
+
+
+def refusal(status):
+    return json.dumps(
+        {
+            "schema": 1,
+            "ok": False,
+            "code": "invalid-request",
+            "error": REFUSALS.get(status, "refused"),
+        },
+        separators=(",", ":"),
+    )
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def _send(self, body, status=200):
         payload = body.encode()
@@ -48,14 +83,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_GET(self):
+        status = asked_status("get-status")
+        if status != 200:
+            self._send(refusal(status), status)
+            return
         self._send(compact(DIR / "capabilities.json", '{"nnapi":{"devices":[]}}'))
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
         (DIR / "last-request.json").write_bytes(self.rfile.read(length))
-        status_file = DIR / "status"
-        status = int(status_file.read_text().strip()) if status_file.exists() else 200
-        self._send(compact(DIR / "response.json", '{"schema":1,"ok":true}'), status)
+        self._send(
+            compact(DIR / "response.json", '{"schema":1,"ok":true}'),
+            asked_status("status"),
+        )
 
     def log_message(self, *args):
         pass
