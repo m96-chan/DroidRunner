@@ -71,3 +71,9 @@ jobs:
       # other tells half the recipients nothing, which is what happened to the
       # Ubuntu rootfs row until #216. Neither file fails to render over it.
       - run: tools/check-licence-tables-match.sh
+
+      # The tutorial is a page people copy verbatim, so the ref it names is the
+      # action they end up running. It sat on a tag for seven releases and gave
+      # readers a workflow without the outputs the next section tells them to
+      # branch on (#215). Nothing else ties the HTML to the action.
+      - run: tools/check-action-pin.sh
