@@ -86,3 +86,10 @@ jobs:
       # Whether every phone came back from a roll is decided by one grep, and
       # when it was wrong it was wrong silently (#207).
       - run: tools/tests/test-roll-fleet.sh
+
+      # Nothing compiles a workflow either, and the two ways one goes wrong
+      # both look fine in the file: `${{ }}` in a `run:` block is a tag pasted
+      # into the shell of the job holding the signing key (#203), and a
+      # pipeline without `shell: bash` reports the last command's exit code, so
+      # `compare.py | tee` was a gate that could not fail (#204).
+      - run: tools/check-workflow-run-blocks.sh

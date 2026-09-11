@@ -101,37 +101,79 @@ object RunnerRegistration {
     }
 
     /**
-     * Exchanges the stored GitHub credential for a registration token and runs
+     * The credential a registration goes out with, and whether a 401 from it
+     * is worth one renewal (issue #194).
+     */
+    data class RegistrationCredential(
+        val token: String,
+        /**
+         * True only when the token in hand is the stored user sign-in. That
+         * is the only kind that can be renewed; renewing a hand-entered PAT
+         * means nothing, so a 401 from one is the answer.
+         */
+        val renewable: Boolean,
+    )
+
+    /**
+     * Which credential to register with, given what the caller asked for and
+     * what is stored (issue #194).
+     *
+     * [supplied] wins outright. The advanced panel exists precisely to reach a
+     * repository the signed-in user's token cannot, and this used to be
+     * re-derived here as `userToken ?: pat` — so the PAT somebody typed was
+     * only ever sent when no sign-in existed, which is the one case that panel
+     * was not built for. Callers that pass nothing — the service registering
+     * again after an ephemeral job — still fall back in the old order.
+     */
+    fun credentialFor(
+        supplied: String?,
+        userToken: String?,
+        pat: String?,
+    ): RegistrationCredential? {
+        val token = supplied?.takeIf { it.isNotBlank() } ?: userToken ?: pat ?: return null
+        return RegistrationCredential(token, renewable = userToken != null && token == userToken)
+    }
+
+    /**
+     * Exchanges a GitHub credential for a registration token and runs
      * `config.sh`. [ephemeral] makes the runner serve one job and deregister.
+     *
+     * [credential] is the one the caller wants used, whatever else is stored;
+     * passing nothing keeps the old sign-in-then-PAT fallback (issue #194).
      */
     fun register(
         context: Context,
         runtimeDir: File,
         config: RunnerConfig,
         ephemeral: Boolean,
+        credential: String? = null,
         onLine: (String) -> Unit = {},
     ) {
         val store = SecretStore(context)
         val session = UserSession(store, BuildConfig.GITHUB_APP_CLIENT_ID)
         // A user sign-in renews itself before it lapses (issue #42); a
         // hand-entered PAT cannot, so it is used as it stands.
-        val userToken = session.accessToken()
-        val credential = userToken ?: store.getPat()
+        val chosen = credentialFor(credential, session.accessToken(), store.getPat())
             ?: error("No GitHub credential stored — reconnect on the setup screen")
         val api = GitHubApi()
+        // Whatever is actually in hand after the renewal below, so the removal
+        // token is not asked for with a credential GitHub has just refused.
+        var inHand = chosen.token
         val token = try {
-            api.createRegistrationToken(config.target, credential)
+            api.createRegistrationToken(config.target, inHand)
         } catch (rejected: GitHubApiException) {
             // The expiry is only advisory — clocks drift and tokens get revoked
             // early — so a 401 earns one renewal before it counts as a failure.
-            if (rejected.status != 401 || userToken == null) throw rejected
-            api.createRegistrationToken(config.target, session.renew())
+            // Only a sign-in has anything to renew (#194).
+            if (rejected.status != 401 || !chosen.renewable) throw rejected
+            inHand = session.renew()
+            api.createRegistrationToken(config.target, inHand)
         }
         // Leave the previous repository first. `config.sh remove` reads the
         // credentials the next line deletes, so once the device is attached
         // elsewhere there is no way left to deregister properly — only an API
         // delete by name, which never tells the old runner anything (#154).
-        detachFromPrevious(context, runtimeDir, config, credential, api, onLine)
+        detachFromPrevious(context, runtimeDir, config, inHand, api, onLine)
         // config.sh refuses to run while a local configuration exists; --replace
         // only settles the server-side duplicate.
         clearLocalRegistration(runtimeDir)
@@ -175,6 +217,10 @@ object RunnerRegistration {
      * alone. What it costs is said out loud instead, because an entry nobody
      * knows about is one somebody has to find later — and an offline entry
      * carrying live labels can be handed a job that then never starts.
+     *
+     * [credential] is the one the registration itself used, never a freshly
+     * re-derived one: the old repository is being left on the authority of
+     * whoever asked for the move (issue #194).
      */
     private fun detachFromPrevious(
         context: Context,

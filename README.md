@@ -514,6 +514,11 @@ releases were published after it. A manual manifest URL override lives under
 `advanced` for GitHub Enterprise Server or self-hosted bundles. Maintainers
 publish new bundles with the **Runtime bundle** workflow (see `runtime/README.md`).
 
+The runtime panel tells the three outcomes of that lookup apart: a release was
+found, this repository publishes none, or GitHub could not be reached. Only the
+last one is a bad minute rather than a configuration to change, and it is the
+one that offers **Retry** — the others send you to `advanced`.
+
 The repository picker lists every installation the app is on — all of them, not
 just the first hundred — and up to 500 repositories per installation.
 
@@ -528,7 +533,11 @@ person.
 
 A manual fallback (`advanced: manual PAT setup`) accepts a fine-grained PAT with the
 repository Administration read/write permission, for GitHub Enterprise Server or
-builds without a GitHub App.
+builds without a GitHub App. The PAT typed there is the credential that registers,
+whether or not a GitHub sign-in is also active — so it is also the way to reach a
+repository the App is not installed on, with no need to disconnect first. Like
+**Re-register** above it, it waits for the runner to be stopped: registering
+rewrites the identity files a running listener is holding open.
 
 ### GitHub App registration (for self-builders)
 

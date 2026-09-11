@@ -50,6 +50,7 @@ import io.github.m96chan.droidrunner.github.GitHubApi
 import io.github.m96chan.droidrunner.github.GitHubApiException
 import io.github.m96chan.droidrunner.github.GitHubAuth
 import io.github.m96chan.droidrunner.github.RepositoryRef
+import io.github.m96chan.droidrunner.github.RuntimeReleaseResult
 import io.github.m96chan.droidrunner.github.SignInExpiredException
 import io.github.m96chan.droidrunner.github.TokenRefreshPolicy
 import io.github.m96chan.droidrunner.github.UserSession
@@ -122,32 +123,20 @@ fun SetupScreen(
 
     // Latest runtime-* release of the configured runtime repo; lets Register
     // install the runtime automatically with no manifest URL to paste.
-    var resolvedManifest by remember { mutableStateOf<String?>(null) }
-    var resolvingManifest by remember { mutableStateOf(BuildConfig.RUNTIME_REPO.isNotBlank()) }
-    var latestRuntimeVersion by remember { mutableStateOf<String?>(null) }
-    var runtimeFallbackNotice by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) {
-        if (BuildConfig.RUNTIME_REPO.isNotBlank()) {
-            val selectedRelease = runCatching {
-                withContext(Dispatchers.IO) {
-                    api.latestRuntimeManifest(BuildConfig.RUNTIME_REPO, secretStore.getUserToken())
-                }
-            }.getOrNull()
-            resolvedManifest = selectedRelease?.url
-            runtimeFallbackNotice = selectedRelease?.fallbackNotice
-            // The manifest names the bundle version, so an installed runtime
-            // that has fallen behind the latest release can be reported.
-            latestRuntimeVersion = resolvedManifest?.let { url ->
-                runCatching {
-                    withContext(Dispatchers.IO) {
-                        org.json.JSONObject(java.net.URL(url).readText()).optString("version")
-                            .takeIf { it.isNotBlank() }
-                    }
-                }.getOrNull()
-            }
-            resolvingManifest = false
+    var manifest by remember { mutableStateOf(ManifestResolution.initial(BuildConfig.RUNTIME_REPO)) }
+    // A dropped connection deserves another try, and re-entering the screen
+    // was the only way to ask for one — so the effect is keyed on a counter a
+    // button can bump (issue #202).
+    var manifestAttempt by remember { mutableStateOf(0) }
+    LaunchedEffect(manifestAttempt) {
+        if (BuildConfig.RUNTIME_REPO.isBlank()) return@LaunchedEffect
+        manifest = ManifestResolution.Resolving
+        manifest = withContext(Dispatchers.IO) {
+            resolveRuntimeManifest(api, BuildConfig.RUNTIME_REPO, secretStore.getUserToken())
         }
     }
+    val resolved = manifest as? ManifestResolution.Resolved
+    val resolvedManifest = resolved?.url
 
     val statusText = status ?: when {
         runner.state == RunnerState.PAUSED ->
@@ -418,7 +407,15 @@ fun SetupScreen(
         }
     }
 
-    fun registerRunner(target: RunnerTarget, credential: String) {
+    /**
+     * [credential] is for a credential that is *not* the sign-in — the PAT from
+     * the advanced panel. The sign-in path passes nothing on purpose: this
+     * screen's copy of the token is read once into state, and the service may
+     * renew in the background at any moment, so handing that copy down would
+     * send a token GitHub has already rotated out (and mark it unrenewable,
+     * losing #42's recovery). `register()` reads the live session instead.
+     */
+    fun registerRunner(target: RunnerTarget, credential: String? = null) {
         if (RunnerRegistration.load(runtime.runtimeDir)?.target == target) {
             status = null
             return
@@ -440,12 +437,15 @@ fun SetupScreen(
             status = runCatching {
                 config.validate()?.let { error(it) }
                 if (!runtime.installed) {
-                    val manifest = manifestSource()
-                        ?: error("No runtime release found — set a manifest URL under advanced")
+                    val source = manifestSource()
+                        // Says which of the three it was, so a phone that
+                        // could not reach GitHub is not told its build is
+                        // misconfigured (issue #202).
+                        ?: error(runtimeUnavailableMessage(manifest))
                     // runInterruptible so Cancel actually breaks the blocking
                     // download and extraction, rather than leaving them running.
                     runInterruptible(Dispatchers.IO) {
-                        runtime.install(manifest) { phase, fraction ->
+                        runtime.install(source) { phase, fraction ->
                             progress = SetupProgress(phase, fraction)
                         }
                     }
@@ -457,6 +457,10 @@ fun SetupScreen(
                     RunnerRegistration.register(
                         context, runtime.runtimeDir, config,
                         ephemeral = RunnerRegistration.ephemeralEnabled(context),
+                        // The credential this screen was pressed with, not
+                        // whichever one happens to be stored: the advanced
+                        // panel's PAT used to lose to a live sign-in (#194).
+                        credential = credential,
                     ) { line ->
                         RunnerStatus.onRunnerLine(line)
                         progress = SetupProgress("registering ${target.displayName}", detail = line)
@@ -520,7 +524,9 @@ fun SetupScreen(
             onConfirm = {
                 confirming = null
                 val credential = userToken
-                if (target != null && credential != null) registerRunner(target, credential)
+                // Signed in is the gate; the token itself is read live in
+                // `register()`, not taken from this screen's copy.
+                if (target != null && credential != null) registerRunner(target)
             },
             onCancel = { confirming = null },
         )
@@ -658,7 +664,7 @@ fun SetupScreen(
         }
 
         Panel("runtime", titleColor = BtopColors.Cyan) {
-            runtimeFallbackNotice?.let { notice ->
+            resolved?.fallbackNotice?.let { notice ->
                 Text(
                     notice,
                     color = BtopColors.Yellow,
@@ -669,6 +675,7 @@ fun SetupScreen(
             when {
                 runtime.installed -> {
                     val installedVersion = runtime.installedVersion
+                    val latestRuntimeVersion = resolved?.version
                     val outOfDate = latestRuntimeVersion != null &&
                         latestRuntimeVersion != installedVersion
                     Text(
@@ -705,12 +712,9 @@ fun SetupScreen(
                     }
                 }
 
-                resolvingManifest -> Text(
-                    "checking runtime releases…",
-                    color = BtopColors.Dim,
-                    style = MaterialTheme.typography.labelMedium,
-                )
-
+                // Ahead of the "checking…" line, because a manifest URL set
+                // under advanced is an answer already and should not wait on a
+                // round-trip it does not depend on (issue #202).
                 RuntimeRecovery.shouldOfferInstall(runtime.installed, manifestSource() != null) -> {
                     Text(
                         if (configured) {
@@ -746,11 +750,29 @@ fun SetupScreen(
                     }
                 }
 
-                else -> Text(
-                    "no runtime release found — set a manifest URL under advanced",
-                    color = BtopColors.Yellow,
+                manifest is ManifestResolution.Resolving -> Text(
+                    "checking runtime releases…",
+                    color = BtopColors.Dim,
                     style = MaterialTheme.typography.labelMedium,
                 )
+
+                else -> {
+                    Text(
+                        runtimeUnavailableMessage(manifest),
+                        color = BtopColors.Yellow,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    // Only the unreachable case has anything to try again. The
+                    // other two are answers, and a Retry under them would just
+                    // invite the user to keep pressing it (issue #202).
+                    if (manifest is ManifestResolution.Unreachable) {
+                        Spacer(Modifier.padding(top = 6.dp))
+                        OutlinedButton(
+                            onClick = { manifestAttempt++ },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Retry") }
+                    }
+                }
             }
         }
 
@@ -967,14 +989,16 @@ fun SetupScreen(
             selectedRepo != null -> RunnerTarget.Repository(selectedRepo!!.owner, selectedRepo!!.name)
             else -> null
         }
+        // Read once for both register buttons: the advanced one registers
+        // through exactly the same code and needs the same guard (#194).
+        val storedTarget = remember(configured, status, busy) {
+            RunnerRegistration.load(runtime.runtimeDir)?.target
+        }
+        // Re-registering swaps the runner's identity, so the listener has
+        // to be down first — the same reason the runtime update waits.
+        val runnerStopped = runner.state == RunnerState.STOPPED
         if (userToken != null && selectedTarget != null) {
-            val storedTarget = remember(configured, status, busy) {
-                RunnerRegistration.load(runtime.runtimeDir)?.target
-            }
             val alreadyRegistered = storedTarget == selectedTarget
-            // Re-registering swaps the runner's identity, so the listener has
-            // to be down first — the same reason the runtime update waits.
-            val runnerStopped = runner.state == RunnerState.STOPPED
             Button(
                 enabled = !busy && !alreadyRegistered &&
                     (runtime.installed || manifestSource() != null) &&
@@ -985,7 +1009,7 @@ fun SetupScreen(
                     // banner that is always there stops being read, and this
                     // is the moment the answer still changes anything (#64).
                     val warning = registrationWarning(selectedTarget, selectedRepo?.isPrivate)
-                    if (warning == null) registerRunner(selectedTarget, userToken!!) else confirming = warning
+                    if (warning == null) registerRunner(selectedTarget) else confirming = warning
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -1030,8 +1054,14 @@ fun SetupScreen(
             SetupField(repo, { repo = it }, "Repository")
             SetupField(pat, { pat = it }, "Fine-grained PAT")
             Button(
-                enabled = !busy && owner.isNotBlank() && repo.isNotBlank() && pat.isNotBlank() &&
-                    (runtime.installed || manifestSource() != null),
+                enabled = canRegisterWithPat(
+                    busy = busy,
+                    owner = owner,
+                    repository = repo,
+                    pat = pat,
+                    runtimeAvailable = runtime.installed || manifestSource() != null,
+                    runnerStopped = runnerStopped,
+                ),
                 colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Green, contentColor = BtopColors.Background),
                 onClick = {
                     prefs.edit().putString("owner", owner).putString("repo", repo).apply()
@@ -1039,7 +1069,18 @@ fun SetupScreen(
                     registerRunner(RunnerTarget.Repository(owner, repo), pat)
                 },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Register with PAT") }
+            ) {
+                Text(
+                    if (runnerStopped) "Register with PAT" else "Stop the runner to register with a PAT",
+                )
+            }
+            blockedUntilStopped(runner.state, runner.pausedReason, "re-registering")?.let {
+                Text(
+                    it + storedTarget?.let { target -> " Currently ${target.displayName}." }.orEmpty(),
+                    color = BtopColors.Dim,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
         }
 
         AboutPanel(capabilities, runtime)
@@ -1057,6 +1098,185 @@ fun SetupScreen(
         Spacer(Modifier.padding(bottom = 8.dp))
     }
 }
+
+/**
+ * What asking GitHub for this build's newest runtime release came back with
+ * (issue #202).
+ *
+ * It used to come back as one nullable URL, and null had to stand for four
+ * different situations at once — still asking, no such release, no runtime
+ * repository in this build, and a phone that could not reach GitHub. The
+ * screen picked the third reading and told a user on flaky Wi-Fi to go and set
+ * a manifest URL, which would not have helped them.
+ */
+internal sealed interface ManifestResolution {
+    /** Still asking. The runtime panel waits rather than guessing. */
+    data object Resolving : ManifestResolution
+
+    /** GitHub answered, and named a manifest. */
+    data class Resolved(
+        val url: String,
+        /** Set when the newest runtime tag is not the one being used. */
+        val fallbackNotice: String?,
+        /** Bundle version from the manifest, so an old install can be spotted. */
+        val version: String?,
+    ) : ManifestResolution
+
+    /**
+     * GitHub answered, and the feed held no runtime release.
+     *
+     * [truncated] when the scan stopped at its page cap rather than at the end
+     * of the feed, so this is "none in the newest [scanned]" and not quite
+     * "none". Either way it is not worth retrying — the same scan returns the
+     * same answer — so it is stated here rather than borrowing [Unreachable],
+     * which offers a Retry and says GitHub could not be reached.
+     */
+    data class NoRelease(
+        val scanned: Int = 0,
+        val truncated: Boolean = false,
+    ) : ManifestResolution
+
+    /** This build names no runtime repository, so there is nothing to ask. */
+    data object NotConfigured : ManifestResolution
+
+    /**
+     * The request did not get an answer. [reason] is whatever the failure
+     * said, which is usually a timeout or a DNS name — worth showing, because
+     * it is the difference between "GitHub is down" and "this Wi-Fi is not".
+     */
+    data class Unreachable(val reason: String?) : ManifestResolution
+
+    companion object {
+        fun initial(runtimeRepo: String): ManifestResolution =
+            if (runtimeRepo.isBlank()) NotConfigured else Resolving
+    }
+}
+
+/**
+ * Asks the runtime repository for its newest runtime-* release.
+ *
+ * A failure here is a failure, not an absence: it is reported as one so the
+ * screen can offer a retry instead of an explanation that does not apply
+ * (issue #202).
+ */
+internal fun resolveRuntimeManifest(
+    api: GitHubApi,
+    runtimeRepo: String,
+    token: String?,
+): ManifestResolution = runCatching { api.latestRuntimeRelease(runtimeRepo, token) }.fold(
+    onSuccess = { result ->
+        when (result) {
+            is RuntimeReleaseResult.Found -> ManifestResolution.Resolved(
+                url = result.release.url,
+                fallbackNotice = result.release.fallbackNotice,
+                // The manifest names the bundle version, so an installed
+                // runtime that has fallen behind can be reported. Only the
+                // "update available" line depends on it, so a failure to read
+                // it costs that line and not the install button.
+                version = runCatching { manifestVersion(result.release.url) }.getOrNull(),
+            )
+            // The lookup reached GitHub and the feed genuinely holds no runtime
+            // release. `truncated` means the scan stopped at its page cap, so
+            // this is "none in the newest N" rather than "none" — a distinction
+            // that matters because "none" sends the reader to `advanced` and the
+            // other is worth retrying (#193).
+            is RuntimeReleaseResult.NoneFound ->
+                ManifestResolution.NoRelease(result.scanned, result.truncated)
+            RuntimeReleaseResult.NotConfigured -> ManifestResolution.NotConfigured
+            // A status the API itself reported. Carrying it means the panel can
+            // say "GitHub said 403" instead of the blank "could not reach".
+            is RuntimeReleaseResult.Failed -> ManifestResolution.Unreachable(
+                result.status?.let { "GitHub answered $it: ${result.message}" } ?: result.message,
+            )
+        }
+    },
+    // Nothing GitHub said — a socket that never opened, or a body that did not
+    // parse. `latestRuntimeRelease` turns most of these into `Failed` itself;
+    // this is the backstop, so an exception cannot read as "no release exists".
+    onFailure = { ManifestResolution.Unreachable(it.message) },
+)
+
+/**
+ * Reads the `version` out of a runtime manifest.
+ *
+ * The timeouts are the point. This was `URL(url).readText()`, which inherits
+ * `HttpURLConnection`'s defaults — no timeout at all — so a captive portal
+ * that accepts the connection and never answers left the runtime panel on
+ * "checking runtime releases…" forever, and the Install runtime button never
+ * appeared on a device that had no runtime (issue #202). Fifteen seconds is
+ * what every other request in this app waits.
+ */
+private fun manifestVersion(url: String): String? {
+    val connection = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
+        connectTimeout = 15_000
+        readTimeout = 15_000
+        setRequestProperty("User-Agent", "DroidRunner/0.1")
+    }
+    val body = try {
+        connection.inputStream.bufferedReader().use { it.readText() }
+    } finally {
+        connection.disconnect()
+    }
+    return org.json.JSONObject(body).optString("version").takeIf { it.isNotBlank() }
+}
+
+/**
+ * Why there is no runtime to install, in words that name the actual cause.
+ *
+ * The unreachable case is a bad minute and says so; the other two are the
+ * build's configuration, and only those are worth sending someone to the
+ * advanced panel over (issue #202).
+ */
+internal fun runtimeUnavailableMessage(resolution: ManifestResolution): String = when (resolution) {
+    is ManifestResolution.Unreachable -> {
+        val because = resolution.reason?.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty()
+        "could not reach GitHub to look for a runtime release$because — " +
+            "retry, or set a manifest URL under advanced"
+    }
+
+    is ManifestResolution.NoRelease ->
+        if (resolution.truncated) {
+            "no runtime release in the newest ${resolution.scanned} — " +
+                "set a manifest URL under advanced"
+        } else {
+            "this runtime repository publishes no runtime release — " +
+                "set a manifest URL under advanced"
+        }
+
+    ManifestResolution.NotConfigured ->
+        "this build names no runtime repository — set a manifest URL under advanced"
+
+    ManifestResolution.Resolving -> "checking runtime releases…"
+
+    is ManifestResolution.Resolved -> "runtime release found"
+}
+
+/**
+ * Whether the advanced panel's **Register with PAT** button can be pressed
+ * (issue #194).
+ *
+ * It registers through the same code as the button above it, which means
+ * `clearLocalRegistration` and then `config.sh` over the identity files the
+ * listener is holding open — and it had no `runnerStopped` term at all, so it
+ * walked straight past the guard the other button applies (#154, #150).
+ *
+ * Stricter than the OAuth button, which lets a first registration through
+ * without a stop because nothing can be listening yet. Down here there is no
+ * stored target on screen to reason from, and `load()` returns null for a
+ * device configured before `runner-config.json` existed — one that may well be
+ * running. So "nothing stored" is not evidence that nothing is running, and
+ * this waits for the listener either way.
+ */
+internal fun canRegisterWithPat(
+    busy: Boolean,
+    owner: String,
+    repository: String,
+    pat: String,
+    runtimeAvailable: Boolean,
+    runnerStopped: Boolean,
+): Boolean =
+    !busy && owner.isNotBlank() && repository.isNotBlank() && pat.isNotBlank() &&
+        runtimeAvailable && runnerStopped
 
 @Composable
 private fun DeviceCodePrompt(

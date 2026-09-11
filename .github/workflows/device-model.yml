@@ -52,6 +52,7 @@ jobs:
       # No "|| true" — a Snapdragon that cannot run this should fail loudly,
       # and the agent refuses rather than falling back to the CPU.
       - name: Hexagon HTP, on devices that have Qualcomm's runtime
+        shell: bash
         run: |
           if droidrunner-device capabilities | grep -q '"version": *[0-9]'; then
             echo "=== int8 on qnn-htp ==="
@@ -66,6 +67,7 @@ jobs:
       # different processors, and a comparison of what came back. Latency says
       # the graph was accepted; this says whether it was computed the same way.
       - name: Same input, CPU and accelerator, compared
+        shell: bash
         run: |
           head -c 150528 /dev/urandom > input.bin
           mkdir -p out-cpu out-npu
@@ -103,6 +105,7 @@ jobs:
       # #93 changed, and the wrapper on the device can lag a fresh app build
       # (#107).
       - name: Who actually ran it, against its own baseline
+        shell: bash
         run: |
           token="$(cat "$DROIDRUNNER_DEVICE_TOKEN_FILE")"
           model="$PWD/int8.tflite"
@@ -131,17 +134,27 @@ jobs:
           iterations: "20"
           results-path: action-result.json
 
+      # Through `env:` like every other value that did not come from this file
+      # (#203). `executed-by` in particular is a delegate's own words, read off
+      # a line TFLite printed, and there is nothing stopping a future one from
+      # printing a quote.
       - name: The action's outputs are usable without parsing anything
+        env:
+          EXECUTED: ${{ steps.device.outputs.executed }}
+          EXECUTED_BY: ${{ steps.device.outputs.executed-by }}
+          MEDIAN_US: ${{ steps.device.outputs.median-us }}
+          RESULTS_PATH: ${{ steps.device.outputs.results-path }}
         run: |
-          echo "executed=${{ steps.device.outputs.executed }}"
-          echo "by=${{ steps.device.outputs.executed-by }}"
-          echo "median=${{ steps.device.outputs.median-us }}us"
-          test -s "${{ steps.device.outputs.results-path }}"
-          grep -q '"schema":1' "${{ steps.device.outputs.results-path }}"
+          echo "executed=$EXECUTED"
+          echo "by=$EXECUTED_BY"
+          echo "median=${MEDIAN_US}us"
+          test -s "$RESULTS_PATH"
+          grep -q '"schema":1' "$RESULTS_PATH"
 
       # #94: the shape a compiler's sweep has — many models, one request, and
       # a rejection recorded rather than aborting the rest.
       - name: A sweep in one request
+        shell: bash
         run: |
           token="$(cat "$DROIDRUNNER_DEVICE_TOKEN_FILE")"
           cat > manifest.json <<JSON
@@ -166,6 +179,7 @@ jobs:
       # because the wrapper on the device ships with the runtime bundle and
       # lags a fresh app build (#107) — `--timings` is not in the published one.
       - name: What the phone was doing while it was measured
+        shell: bash
         run: |
           token="$(cat "$DROIDRUNNER_DEVICE_TOKEN_FILE")"
           curl -fsS -X POST -H "Authorization: Bearer $token" \
@@ -198,6 +212,7 @@ jobs:
       # phone is the only kind that proves the parser reads what is actually
       # printed — one written by hand only proves it reads itself.
       - name: What the delegate actually printed
+        shell: bash
         run: |
           droidrunner-device test model int8.tflite --device "$(droidrunner-device devices | head -1)" \
             --iterations 1 --delegate-log --output delegate-log.json
@@ -213,6 +228,7 @@ jobs:
       # `failed` that a sweep would record and carry on from. Reported by the
       # first consumer outside this project.
       - name: A model nothing can load is named as the caller's fault
+        shell: bash
         run: |
           head -c 4096 /dev/urandom > broken.tflite
           printf 'TFL3' | dd of=broken.tflite bs=1 seek=4 conv=notrunc status=none
@@ -247,6 +263,7 @@ jobs:
       # network where there is no ULP to be off by. Prompted by NxPU finding
       # 1024 of 1024 f32 ADD results high by exactly one ULP on a Hexagon V73.
       - name: What the accelerator computed, not just who computed it
+        shell: bash
         run: |
           mkdir -p out-cpu-f32 out-dev-f32
           # The CPU runs the same fixtures as a control: a reference the CPU
@@ -265,7 +282,11 @@ jobs:
           else
             # Every other vendor reaches its accelerator through NNAPI, and the
             # question is the same one: does it compute what it was asked to?
-            driver="$(droidrunner-device devices | grep -v nnapi-reference | head -1)"
+            # `|| true` inside the substitution, not outside: `shell: bash`
+            # turns pipefail on, and "no accelerator on this phone" arrives as
+            # a `grep -v` that matched nothing. That is the case the `else`
+            # below exists to report, not a reason to abort the step.
+            driver="$(droidrunner-device devices | grep -v nnapi-reference | head -1 || true)"
             if [ -n "$driver" ]; then
               droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
                 --device "$driver" \
@@ -288,7 +309,7 @@ jobs:
             --input tools/ulp/fixtures/signed-input-1.bin \
             --output-dir out-cpu-signed --iterations 1 > /dev/null
           if [ -s f32-device.json ]; then
-            driver="$(grep -o '"requestedDevice":"[^"]*"' f32-device.json | cut -d'"' -f4)"
+            driver="$(grep -o '"requestedDevice":"[^"]*"' f32-device.json | cut -d'"' -f4 || true)"
             droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
               --device "$driver" \
               --input tools/ulp/fixtures/signed-input-0.bin \
@@ -303,7 +324,7 @@ jobs:
             --input tools/ulp/fixtures/odd-input-1.bin \
             --output-dir out-cpu-odd --iterations 1 > /dev/null
           if [ -s f32-device.json ]; then
-            driver="$(grep -o '"requestedDevice":"[^"]*"' f32-device.json | cut -d'"' -f4)"
+            driver="$(grep -o '"requestedDevice":"[^"]*"' f32-device.json | cut -d'"' -f4 || true)"
             droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
               --device "$driver" \
               --input tools/ulp/fixtures/odd-input-0.bin \
@@ -318,7 +339,7 @@ jobs:
             --input tools/ulp/fixtures/resolution-input-1.bin \
             --output-dir out-cpu-res --iterations 1 > /dev/null
           if [ -s f32-device.json ]; then
-            driver="$(grep -o '"requestedDevice":"[^"]*"' f32-device.json | cut -d'"' -f4)"
+            driver="$(grep -o '"requestedDevice":"[^"]*"' f32-device.json | cut -d'"' -f4 || true)"
             droidrunner-device test model tools/ulp/fixtures/add-f32.tflite \
               --device "$driver" \
               --input tools/ulp/fixtures/resolution-input-0.bin \
@@ -334,6 +355,7 @@ jobs:
       # NNAPI. Precision is a declared choice here, unlike the Hexagon, which
       # computes f32 in fp16 without saying so (tools/ulp).
       - name: The GPU, which is not an NNAPI driver
+        shell: bash
         run: |
           # Not gated on the compatibility list: it is a table shipped inside
           # TFLite 2.16.1, an SM8650 is not in it, and "not in the table" is not
@@ -363,6 +385,7 @@ jobs:
       # already works and Qualcomm GPU coverage exists, or it does not and the
       # message says why. Not fatal: this step exists to find out.
       - name: The Adreno, through QNN, which has never been tried
+        shell: bash
         run: |
           if droidrunner-device capabilities | grep -q '"version": *[0-9]'; then
             status=0
@@ -407,6 +430,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Nothing came back unattributable
+        shell: bash
         run: |
           for f in sweep.json action-result.json conditions.json quiet.json; do
             [ -s "$f" ] || continue
