@@ -35,6 +35,9 @@ die() {
 [ "$(id -u)" = "0" ] || die "Must run as root (chroot dependency install)"
 
 command -v curl >/dev/null || die "curl is required"
+# cleanup() asks it whether a bind is still there before deciding the build has
+# failed, so its absence would turn that check into a no-op.
+command -v mountpoint >/dev/null || die "mountpoint is required"
 
 if [ -z "${RUNNER_VERSION:-}" ]; then
     # Unauthenticated API calls are rate limited per source address, and CI
@@ -75,10 +78,18 @@ EOF
 for fs in dev proc sys; do
     mount --bind "/$fs" "$WORK_DIR/rootfs/$fs"
 done
+# A bind that will not come off is not a condition to package around: tar would
+# then walk the host's live /dev, /proc and /sys into the bundle every device
+# downloads, /proc/kcore and its 128 TiB included. Lazy still, because the
+# chroot may have left something open, but a failure is the end of the build
+# rather than a message nobody sees (issue #208).
 cleanup() {
+    local failed=""
     for fs in dev proc sys; do
-        umount -l "$WORK_DIR/rootfs/$fs" 2>/dev/null || true
+        mountpoint -q "$WORK_DIR/rootfs/$fs" || continue
+        umount -l "$WORK_DIR/rootfs/$fs" || failed="$failed $fs"
     done
+    [ -z "$failed" ] || die "Unable to unmount$failed under $WORK_DIR/rootfs"
 }
 trap cleanup EXIT
 
@@ -149,9 +160,42 @@ source ships with the app release as droidrunner-<tag>-source.tar.gz.
 OFFER
 
 echo "==> Packaging $BUNDLE_NAME"
+# No ./ on the patterns: tar matches --exclude against the member names it is
+# writing, and the operands below are `rootfs home`, so the members are
+# `rootfs/dev/null` and never `./rootfs/dev/null`. With the prefix all three
+# patterns matched nothing at all, which is why the mount points above are now
+# checked twice over (issue #208). The directories themselves stay in — the
+# guest needs somewhere to mount on.
 tar -C "$WORK_DIR" --hard-dereference --numeric-owner --owner=0 --group=0 \
-    --exclude='./rootfs/dev/*' --exclude='./rootfs/proc/*' --exclude='./rootfs/sys/*' \
+    --exclude='rootfs/dev/*' --exclude='rootfs/proc/*' --exclude='rootfs/sys/*' \
     -czf "$OUT_DIR/$BUNDLE_NAME" rootfs home "$OFFER_NAME" PACKAGES.txt
+
+##
+## What is actually in the file, asked of the file
+##
+## The exclusions above are the only thing standing between the host's live
+## /proc and an artifact every device downloads, and for as long as they were
+## written with a ./ they were decoration. Both of these are pennies, and
+## either one on its own would have caught that.
+##
+
+echo "==> Checking $BUNDLE_NAME"
+strays="$(tar -tzf "$OUT_DIR/$BUNDLE_NAME" \
+    | grep -E '^(\./)?rootfs/(dev|proc|sys)/.' | head -n5 || true)"
+[ -z "$strays" ] || die "The bundle carries host filesystem contents: $(echo $strays)"
+
+# A band, not a number: the bundle is around 200 MB and drifts with the runner
+# release and the package versions. Outside it, something other than drift
+# happened — a rootfs that never installed below the floor, and above the
+# ceiling the thing this is here to stop.
+BUNDLE_MIN_BYTES="${BUNDLE_MIN_BYTES:-$((120 * 1024 * 1024))}"
+BUNDLE_MAX_BYTES="${BUNDLE_MAX_BYTES:-$((400 * 1024 * 1024))}"
+bundle_bytes="$(stat -c %s "$OUT_DIR/$BUNDLE_NAME")"
+[ "$bundle_bytes" -ge "$BUNDLE_MIN_BYTES" ] \
+    || die "$BUNDLE_NAME is $bundle_bytes bytes, under the $BUNDLE_MIN_BYTES floor"
+[ "$bundle_bytes" -le "$BUNDLE_MAX_BYTES" ] \
+    || die "$BUNDLE_NAME is $bundle_bytes bytes, over the $BUNDLE_MAX_BYTES ceiling"
+echo "==> $bundle_bytes bytes, no host filesystem members"
 
 SHA256="$(sha256sum "$OUT_DIR/$BUNDLE_NAME" | cut -d' ' -f1)"
 VERSION="runner-$RUNNER_VERSION-ubuntu-$UBUNTU_VERSION"

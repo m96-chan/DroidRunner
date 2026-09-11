@@ -14,14 +14,16 @@ different machines:
 | `reduce.py` | a hosted runner | turns the device's sweep into `matrix.md` and `matrix.json` |
 | `compare.py` | a hosted runner | compares a matrix against the one committed for that phone, and fails on a regression |
 | `baseline-path.py` | either | says where a given phone's committed matrix lives |
+| `index.py` | either | writes `docs/matrices/README.md`'s table of committed matrices, and with `--check` fails when it has drifted |
 
 The phone itself only runs the sweep, in bash and curl: **the guest has neither
 python3 nor jq**, checked against the published bundle's dpkg status rather than
 assumed.
 
-`test_reduce.py` and `test_compare.py` have no dependencies and run in CI on
-every push. Every mistake in that reduction reads as a statement about somebody's
-silicon, which is why they are not left to the machine with TensorFlow on it.
+`test_reduce.py`, `test_compare.py` and `test_index.py` have no dependencies and
+run in CI on every push, alongside `index.py --check`. Every mistake in that
+reduction reads as a statement about somebody's silicon, which is why they are
+not left to the machine with TensorFlow on it.
 
 Run the tests with:
 
@@ -65,6 +67,20 @@ with nothing failing anywhere.
 
 Runs on every build. See [#128](https://github.com/m96-chan/DroidRunner/issues/128).
 
+## `check-action-pin.sh`
+
+The tutorial is a copy-paste page, so the ref it names for `actions/run-model`
+is the one that ends up in someone else's workflow. It sat on `@v0.7.0` for
+seven releases: a tag pins the action, not the document, and that one has
+neither the `stable` nor the `p90-us` output the next section tells the reader
+to branch on. Nothing failed — the workflow simply could not do what the page
+said.
+
+This takes the pin from the READMEs, which is the one the project stands behind,
+and fails when any page on the site names a different one.
+
+Runs on every push. See [#215](https://github.com/m96-chan/DroidRunner/issues/215).
+
 ## `ulp/`
 
 Does an accelerator compute what it was asked to, or only run it? Nothing in
@@ -86,3 +102,16 @@ Refuses to run while any runner is busy — replacing the APK kills the process
 group with a signal nothing catches, and the job dies with it — and refuses a
 release tag outright, because the fleet runs `0.0.0-dev` and a signature change
 strands a registration.
+
+**A phone can only answer for itself.** Each rolled phone is waited for under
+the exact name it registered under, read from its own `.runner`, and matched
+whole. A record of `Build.MODEL` strings word-split into fragments, and each
+fragment substring-matched other phones' runner names, so a "Pixel 7 Pro" that
+came back reported a "Pixel 7" that never did as online and the roll exited 0
+with that phone still serving the old APK
+([#207](https://github.com/m96-chan/DroidRunner/issues/207)). A phone that does
+not come back now fails the roll and is named.
+
+`tests/test-roll-fleet.sh` drives that waiting loop against a fixture registry
+— no phone, no network, no five minutes of waiting — and runs in CI on every
+push.

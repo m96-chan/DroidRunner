@@ -163,6 +163,47 @@ check "the JSON form says so explicitly" \
 )
 
 echo
+echo "an HTTP error the agent answers with"
+
+# -f hides the body, so ask() asks again without it — and that retry was a
+# hard-coded POST, so a GET arrived at a path the agent does not route as one,
+# came back 404 with curl exiting 0, and the error envelope was handed on as
+# the payload. `devices --json` then said {"ok":true,"devices":[]} and exited
+# 0, which reads as "this phone has no accelerators" and was in fact a token
+# that had rotated (#205). Nothing here could catch it while the stub answered
+# every GET with 200.
+for code in 401 403; do
+    printf '%s' "$code" > "$WORK/get-status"
+    for form in "capabilities" "devices" "devices --json" "devices --all" \
+                "devices --all --json" "bench-all --json"; do
+        run $form >/dev/null
+        check "$form exits 1 on HTTP $code, the status invalid-request publishes" \
+            1 "$(status_of)"
+        contains "$form names the status on HTTP $code" "$code" "$(cat "$WORK/stderr")"
+        check "$form prints no result on HTTP $code" "" "$(run $form 2>/dev/null)"
+    done
+    check "devices --json does not answer HTTP $code with an empty fleet" \
+        "" "$(run devices --json 2>/dev/null)"
+    rm -f "$WORK/http-$code.json"
+    run capabilities --output "$WORK/http-$code.json" >/dev/null
+    check "HTTP $code writes no --output file either" "no" \
+        "$([ -f "$WORK/http-$code.json" ] && echo yes || echo no)"
+done
+rm -f "$WORK/get-status"
+
+# A POST is not the same story, and the fix must not make it one: the agent
+# answers 400 with the contract's own code and message about the request that
+# was sent, and that body is the result a consumer keeps with --output.
+says '{"schema":1,"ok":false,"code":"unknown-device","error":"no such device"}'
+printf '400' > "$WORK/status"
+run test model "$WORK/model.tflite" --device nnapi-reference >/dev/null
+check "a POST answered 400 still exits on the code in the body" 3 "$(status_of)"
+check "and that body still reaches stdout, because it is the result" \
+    '{"schema":1,"ok":false,"code":"unknown-device","error":"no such device"}' \
+    "$(run test model "$WORK/model.tflite" --device nnapi-reference 2>/dev/null)"
+rm -f "$WORK/status"
+
+echo
 echo "stdout is the result and nothing else"
 
 says '{"schema":1,"ok":true,"avgUs":12.5}'
@@ -245,6 +286,50 @@ contains "--budget-ms reaches the agent" '"budgetMs":1234' "$(sent)"
 printf '{"not":"an array"}' > "$WORK/bad.json"
 run test batch "$WORK/bad.json" >/dev/null
 check "a manifest that is not an array is refused before anything is sent" 1 "$(status_of)"
+
+echo
+echo "option values that would rewrite the request"
+
+# The request body is built by concatenation, so a value carrying a comma or a
+# quote writes fields of its own: --iterations '1,"device":"qnn-htp"' moved the
+# benchmark onto the Hexagon while the caller read the numbers as the default
+# driver's, and actions/run-model forwards that input verbatim from a consumer's
+# workflow_dispatch (#206). Refusing it by name, before anything is sent, is the
+# only answer that does not publish a measurement of something nobody asked for.
+rejects() {  # rejects <name> <option it must name> <args...>
+    local name="$1" option="$2"; shift 2
+    rm -f "$WORK/last-request.json"
+    run "$@" >/dev/null
+    check "$name exits 1, the status invalid-request publishes" 1 "$(status_of)"
+    check "$name sends no request at all" "no" \
+        "$([ -f "$WORK/last-request.json" ] && echo yes || echo no)"
+    contains "$name says which option it refused" "$option" "$(cat "$WORK/stderr")"
+}
+
+says '{"schema":1,"ok":true,"avgUs":1.0}'
+rejects "a non-numeric --iterations" --iterations \
+    test model "$WORK/model.tflite" --iterations abc
+rejects "an --iterations carrying a comma" --iterations \
+    test model "$WORK/model.tflite" --iterations '1,"device":"qnn-htp"'
+rejects "a --device carrying a quote" --device \
+    test model "$WORK/model.tflite" --device 'a","iterations":9999'
+rejects "a --feature carrying a quote" --feature \
+    test model "$WORK/model.tflite" --feature 'x","baseline":true'
+rejects "a --size that is not a number" --size \
+    test conv --size '8,"device":"qnn-htp"'
+rejects "a bench-all --iterations carrying a comma" --iterations \
+    bench-all --iterations '1,"device":"qnn-htp"'
+rejects "a --budget-ms that is not a number" --budget-ms \
+    test batch "$WORK/manifest.json" --budget-ms '1,"models":[]'
+
+# And the values that are real still travel: the + in a multi-delegate device
+# name, the - in a feature, and the 0 iterations that mean load it and delegate
+# it but time nothing.
+rm -f "$WORK/last-request.json"
+run test model "$WORK/model.tflite" --device 'mtk-neuron_shim+gpu' \
+    --feature multi-delegate --iterations 0 >/dev/null
+check "a device name carrying + and _ is still accepted" 0 "$(status_of)"
+contains "and travels with the iterations asked for" '"iterations":0' "$(sent)"
 
 echo
 echo "misuse"

@@ -16,7 +16,37 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import java.io.File
 
-data class CoreStat(val usage: Float, val curFreqMhz: Int)
+/** Where a core's meter reading came from. These are not the same measurement. */
+enum class CoreUsageSource {
+    /** Busy fraction between two /proc/stat samples of this same core. */
+    PROC_STAT,
+
+    /** scaling_cur_freq over cpuinfo_max_freq: clock headroom, not busy time. */
+    FREQUENCY,
+
+    /** Nothing to report for this core in this sample. */
+    NONE,
+}
+
+/**
+ * One core's row in the cpu panel.
+ *
+ * [index] is the cpu's own number — cpu3 is `index = 3` whether or not cpu2 is
+ * parked — and not its position in the list, because a position is exactly
+ * what stopped meaning anything in issue #195.
+ *
+ * [usage] is null when there is no utilisation to report: /proc/stat lists
+ * only the CPUs that are online, so a core parked for either of the two
+ * samples a delta is taken across has no delta at all. Null is not zero — the
+ * whole point is that a parked core must not be drawn as an idle one, which is
+ * what reading a neighbour's counters used to make it.
+ */
+data class CoreStat(
+    val index: Int,
+    val usage: Float?,
+    val curFreqMhz: Int,
+    val source: CoreUsageSource = CoreUsageSource.NONE,
+)
 
 data class SystemSnapshot(
     val cores: List<CoreStat> = emptyList(),
@@ -39,13 +69,27 @@ data class SystemSnapshot(
 }
 
 /**
- * Polls lightweight system metrics for the dashboard. Per-core load prefers
- * /proc/stat deltas; when Android blocks that file it falls back to the current
- * scaling frequency relative to each core's maximum.
+ * Polls lightweight system metrics for the dashboard.
+ *
+ * Per-core load is the busy fraction between two /proc/stat samples of the
+ * same core. When that file cannot be read at all, each core falls back to its
+ * scaling frequency over its maximum — a different measurement, reported as
+ * such ([CoreUsageSource.FREQUENCY]) and kept out of the average and the
+ * history graph, which carry measured utilisation only (issue #195).
  */
 class SystemMonitor(private val context: Context) {
-    private val coreCount = Runtime.getRuntime().availableProcessors()
-    private var previousProcStat: List<LongArray>? = null
+    private val cpu = ProcStatCpuSampler()
+
+    /**
+     * The cores this device has, from /sys/devices/system/cpu/present.
+     *
+     * Not availableProcessors(): that counts the cores online at the moment it
+     * is asked, and asking once at construction left the panel a core short
+     * for the life of the process on a phone started with one parked. Read
+     * lazily and cached only on success, since `present` describes what the
+     * hardware has and does not change while the phone is on.
+     */
+    private var present: List<Int>? = null
     private var previousRxBytes = -1L
     private var previousTxBytes = -1L
     private var previousNetAtMillis = 0L
@@ -61,14 +105,23 @@ class SystemMonitor(private val context: Context) {
 
     fun sample(): SystemSnapshot {
         val cores = readCores()
-        val cpuAverage = if (cores.isEmpty()) 0f else cores.map { it.usage }.average().toFloat()
+        // Measured cores only. Folding in a frequency ratio, or a zero stood in
+        // for a core with nothing to report, would put two different metrics on
+        // one line (issue #195) — and this is the number the graph plots.
+        val measured = cores.mapNotNull { core ->
+            core.usage.takeIf { core.source == CoreUsageSource.PROC_STAT }
+        }
+        val cpuAverage = if (measured.isEmpty()) 0f else measured.average().toFloat()
 
         val memory = ActivityManager.MemoryInfo().also {
             context.getSystemService(ActivityManager::class.java).getMemoryInfo(it)
         }
         val memUsed = memory.totalMem - memory.availMem
 
-        push(cpuHistory, cpuAverage)
+        // Nothing measured is not a measurement of nothing: the first poll
+        // after start has no previous /proc/stat to subtract from, and a 0%
+        // notch drawn there is a load the phone never had.
+        if (measured.isNotEmpty()) push(cpuHistory, cpuAverage)
         push(memHistory, memUsed.toFloat() / memory.totalMem)
 
         val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
@@ -111,37 +164,40 @@ class SystemMonitor(private val context: Context) {
     }
 
     private fun readCores(): List<CoreStat> {
-        val fromProcStat = readProcStat()
-        return List(coreCount) { core ->
+        val body = runCatching { File(PROC_STAT).readText() }.getOrNull()
+        // An unreadable file is fed through as an empty one on purpose: it
+        // clears the baseline, so if the file comes back the next reading is
+        // not a delta across however long it was gone for.
+        val usages = cpu.sample(body.orEmpty())
+        return coreIndices(usages.keys).map { core ->
             val curKhz = readLong("/sys/devices/system/cpu/cpu$core/cpufreq/scaling_cur_freq")
             val maxKhz = readLong("/sys/devices/system/cpu/cpu$core/cpufreq/cpuinfo_max_freq")
-            val freqUsage = if (curKhz > 0 && maxKhz > 0) curKhz.toFloat() / maxKhz else 0f
-            CoreStat(
-                usage = fromProcStat?.getOrNull(core) ?: freqUsage,
-                curFreqMhz = (curKhz / 1000).toInt(),
-            )
+            val mhz = if (curKhz > 0) (curKhz / 1000).toInt() else 0
+            val measured = usages[core]
+            when {
+                measured != null -> CoreStat(core, measured, mhz, CoreUsageSource.PROC_STAT)
+                // Only when the file itself is unreadable. A core missing from
+                // a readable /proc/stat is parked, and a parked core's cpufreq
+                // nodes are unreadable too, so there is nothing to stand in
+                // with — and a neighbour's counters are not it.
+                body == null && curKhz > 0 && maxKhz > 0 ->
+                    CoreStat(core, curKhz.toFloat() / maxKhz, mhz, CoreUsageSource.FREQUENCY)
+                else -> CoreStat(core, null, mhz, CoreUsageSource.NONE)
+            }
         }
     }
 
-    /** Per-core busy fraction from /proc/stat deltas, or null when unreadable. */
-    private fun readProcStat(): List<Float>? {
-        val lines = runCatching {
-            File("/proc/stat").readLines().filter { it.matches(Regex("cpu\\d+ .*")) }
-        }.getOrNull()
-        if (lines.isNullOrEmpty()) return null
-        val current = lines.map { line ->
-            line.split(Regex("\\s+")).drop(1).mapNotNull(String::toLongOrNull).toLongArray()
-        }
-        val previous = previousProcStat
-        previousProcStat = current
-        if (previous == null || previous.size != current.size) return null
-        return current.mapIndexed { index, now ->
-            val before = previous[index]
-            val total = now.sum() - before.sum()
-            val idle = (now.getOrElse(3) { 0 } + now.getOrElse(4) { 0 }) -
-                (before.getOrElse(3) { 0 } + before.getOrElse(4) { 0 })
-            if (total <= 0) 0f else ((total - idle).toFloat() / total).coerceIn(0f, 1f)
-        }
+    /**
+     * Which cores to draw: every core the hardware has, plus any index seen in
+     * /proc/stat that `present` did not account for, so a core can never go
+     * missing from the panel and the row for cpuN is always the row for cpuN.
+     */
+    private fun coreIndices(seen: Set<Int>): List<Int> {
+        val known = present ?: parseCpuList(runCatching { File(PRESENT).readText() }.getOrNull())
+            .takeIf { it.isNotEmpty() }
+            ?.also { present = it }
+            ?: (0 until Runtime.getRuntime().availableProcessors()).toList()
+        return (known + seen).distinct().sorted()
     }
 
     private fun netRates(): Pair<Long, Long> {
@@ -166,5 +222,91 @@ class SystemMonitor(private val context: Context) {
 
     private companion object {
         const val HISTORY = 120
+        const val PROC_STAT = "/proc/stat"
+        const val PRESENT = "/sys/devices/system/cpu/present"
     }
 }
+
+/**
+ * Per-core busy fractions from successive /proc/stat bodies, keyed by the
+ * number in the `cpuN` label (issue #195).
+ *
+ * The label is the whole point. /proc/stat lists only the CPUs that are
+ * online, and every phone in the fleet runs core control, so the rows move
+ * under the reader: park cpu4 while cpu7 unparks and the row count does not
+ * change, but the fifth row is now cpu5. Subtracting position from position
+ * then measured cpu5 against cpu4 — a negative delta, drawn as an idle core
+ * while it was fully loaded.
+ *
+ * A core is therefore only ever compared against itself, and a core that was
+ * not online for both samples is simply absent from the result. That is what
+ * an offline core has: no utilisation, which is not the same as no load.
+ *
+ * Stateful, so it is a class rather than a function, and it takes the file
+ * body rather than reading it — the whole behaviour is two bodies in sequence,
+ * and that is how the test drives it.
+ */
+internal class ProcStatCpuSampler {
+    private var previous: Map<Int, LongArray> = emptyMap()
+
+    /** Busy fraction per cpu index, for the cores measurable this time. */
+    fun sample(procStat: String): Map<Int, Float> {
+        val current = parse(procStat)
+        val before = previous
+        previous = current
+        return buildMap {
+            current.forEach { (index, now) ->
+                // Absent from the previous body: offline then, or this is the
+                // first sample. Either way there is no interval to divide by.
+                val was = before[index] ?: return@forEach
+                val total = now.sum() - was.sum()
+                // Counters that did not advance, or went backwards because the
+                // core was hotplugged between the two reads, describe no
+                // interval either. Reporting 0f here is what used to make a
+                // busy core look idle.
+                if (total <= 0) return@forEach
+                val idle = (now.idle() - was.idle()).coerceIn(0, total)
+                put(index, ((total - idle).toFloat() / total).coerceIn(0f, 1f))
+            }
+        }
+    }
+
+    /** idle + iowait, fields 4 and 5 of the cpu line. */
+    private fun LongArray.idle(): Long = getOrElse(3) { 0 } + getOrElse(4) { 0 }
+
+    private fun parse(procStat: String): Map<Int, LongArray> = buildMap {
+        procStat.lineSequence().forEach { line ->
+            // The aggregate `cpu ` line carries no number and is not a core.
+            val match = CPU_LINE.matchEntire(line.trim()) ?: return@forEach
+            val index = match.groupValues[1].toIntOrNull() ?: return@forEach
+            put(
+                index,
+                match.groupValues[2].split(FIELDS).mapNotNull(String::toLongOrNull).toLongArray(),
+            )
+        }
+    }
+
+    private companion object {
+        val CPU_LINE = Regex("""cpu(\d+)\s+(.*)""")
+        val FIELDS = Regex("""\s+""")
+    }
+}
+
+/**
+ * The cpu indices in a sysfs cpulist such as `0-7` or `0-3,5,7`.
+ *
+ * Empty when the file could not be read or says something unexpected, which
+ * the caller takes as "ask the runtime instead" rather than "this phone has no
+ * cores".
+ */
+internal fun parseCpuList(text: String?): List<Int> =
+    text.orEmpty().trim().split(',').flatMap { part ->
+        val bounds = part.split('-')
+        val from = bounds.firstOrNull()?.toIntOrNull()
+        val to = bounds.lastOrNull()?.toIntOrNull()
+        if (from == null || to == null || bounds.size > 2 || from > to) {
+            emptyList()
+        } else {
+            (from..to).toList()
+        }
+    }.distinct().sorted()

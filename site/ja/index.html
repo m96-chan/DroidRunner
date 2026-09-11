@@ -62,10 +62,8 @@ thermal  <span class="ok">none</span> &middot; battery <span class="ok">93%</spa
 </div>
 
 <div class="note danger">
-  <b>現在は初期PoCです。</b> Runner管理は実機で動作していますが、NPU Device Agentは
-  組み込みベンチマークのみ対応で、任意モデルの実行は開発中です。self-hosted runnerは
-  Workflowに書かれたコードをそのまま端末上で実行します。信頼できないRepositoryには
-  接続しないでください。
+  <b>これはself-hosted runnerです。</b> Workflowに書かれたコードを、そのまま端末上で
+  実行します。信頼できないRepositoryには接続しないでください。
 </div>
 
 <section class="panel">
@@ -173,7 +171,7 @@ thermal  <span class="ok">none</span> &middot; battery <span class="ok">93%</spa
     <div><h4>GitHub Appログイン</h4><p>Device Flowでサインインして登録先を選ぶだけ。PAT発行もclient secret同梱も不要。</p></div>
     <div><h4>Repo / Orgスコープ</h4><p>1リポジトリ、または組織内の全リポジトリを担当。</p></div>
     <div><h4>ラベル自動生成</h4><p>Android APIレベル、SoC、NPU候補からRunnerラベルを生成。</p></div>
-    <div><h4>自己防衛</h4><p>非充電・残量低下・高温・容量不足のあいだはジョブを保留。</p></div>
+    <div><h4>自己防衛</h4><p>高温・容量不足、あるいはバッテリー動作かつ残量がしきい値未満のあいだはジョブを保留。給電時のみ動かす設定は既定でオフ。</p></div>
     <div><h4>クラッシュ復帰</h4><p>異常終了してもバックオフ付きで自動再起動。</p></div>
     <div><h4>ephemeralモード</h4><p>ジョブごとに再登録し、work directoryを消去。</p></div>
     <div><h4>署名付きruntime</h4><p>ECDSA署名のmanifestを、APKに埋め込んだ鍵で検証。</p></div>
@@ -216,7 +214,7 @@ nnapi-reference              1107.7      17.04</pre>
     <tr><td><code>arm64</code></td><td>ARM64端末</td></tr>
     <tr><td><code>android-api-N</code></td><td>Android APIレベル</td></tr>
     <tr><td><code>soc-*</code></td><td>検出したSoC情報</td></tr>
-    <tr><td><code>android-npu</code> / <code>android-no-npu</code></td><td>NPUを検出したかどうか</td></tr>
+    <tr><td><code>android-npu</code></td><td>そのSoCファミリーにNPUがあることは分かっている。約束ではなくヒント</td></tr>
     <tr><td><code>nnapi-accelerator</code></td>
         <td><b>アクセラレータがプローブに応答した</b> &mdash; 指定すべきラベル</td></tr>
     <tr><td><code>npu-qnn</code></td>

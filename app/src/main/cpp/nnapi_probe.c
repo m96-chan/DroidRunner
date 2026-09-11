@@ -4,6 +4,7 @@
 // (deprecated in Android 15 but present and driver-backed on vendor SoCs).
 #include <jni.h>
 #include <dlfcn.h>
+#include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -63,10 +64,37 @@ static int (*p_compute)(ANeuralNetworksExecution*);
 
 #define LOAD(sym, var) do { var = dlsym(g_lib, sym); } while (0)
 
+// The symbol table above is filled in once and read by everyone afterwards,
+// and two agent workers can arrive here at the same moment (issue #197).
+// dlopen itself is safe to call twice and returns the same handle, but the
+// pointers are not: a second thread that found `g_lib` already set would
+// return success while the first was still resolving symbols, and then call
+// through a pointer that is still NULL. Loading under a lock makes the table
+// either untouched or complete to anybody else.
+//
+// A mutex rather than pthread_once, because a load that failed is not a
+// verdict: nothing caches the failure today and a later call is free to try
+// again. Both exits answer the same question — are the four symbols every
+// caller needs actually here — so a second call cannot report success for a
+// library that only half resolved.
+static pthread_mutex_t g_lib_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static int resolved(void) {
+    return p_getDeviceCount && p_getDevice && p_devName && p_modelCreate;
+}
+
 static int ensure_lib(void) {
-    if (g_lib) return 1;
+    pthread_mutex_lock(&g_lib_lock);
+    if (g_lib) {
+        int already = resolved();
+        pthread_mutex_unlock(&g_lib_lock);
+        return already;
+    }
     g_lib = dlopen("libneuralnetworks.so", RTLD_NOW);
-    if (!g_lib) return 0;
+    if (!g_lib) {
+        pthread_mutex_unlock(&g_lib_lock);
+        return 0;
+    }
     LOAD("ANeuralNetworks_getDeviceCount", p_getDeviceCount);
     LOAD("ANeuralNetworks_getDevice", p_getDevice);
     LOAD("ANeuralNetworksDevice_getName", p_devName);
@@ -91,7 +119,9 @@ static int ensure_lib(void) {
     LOAD("ANeuralNetworksExecution_setInput", p_setInput);
     LOAD("ANeuralNetworksExecution_setOutput", p_setOutput);
     LOAD("ANeuralNetworksExecution_compute", p_compute);
-    return p_getDeviceCount && p_getDevice && p_devName && p_modelCreate;
+    int ok = resolved();
+    pthread_mutex_unlock(&g_lib_lock);
+    return ok;
 }
 
 
@@ -127,10 +157,134 @@ static const char* device_type_name(int32_t type) {
     }
 }
 
+// Bounded JSON assembly (issues #197, #198).
+//
+// Every reply here used to be built with `off += snprintf(out + off,
+// sizeof(out) - off, ...)`. snprintf returns the length it *would* have
+// written, not the length it wrote, so one long driver name pushed `off` past
+// the end of the buffer — and the next call then took `out + off` for its
+// destination and `sizeof(out) - off` for its bound, which is a size_t and so
+// an enormous positive number rather than a negative one. The loop guard
+// bounded the loop; nothing bounded the write after it.
+//
+// So nothing below ever advances a cursor by a length a write did not
+// actually produce. A json_buf carries its own capacity and its own cursor,
+// every append works out the room it needs before it writes anything, and
+// `at` stays inside [0, cap) for the life of the buffer, with a NUL at `at`
+// after every call. That last part is what makes a truncated reply still a
+// reply.
+//
+// An append that does not fit writes nothing at all and sets `truncated`,
+// rather than writing the part that fits: half of a `\"` is not a shorter
+// string, it is a broken one. Callers keep JSON_TAIL_BYTES of the buffer back
+// while they fill the body, hand the reserve back to close, and say
+// `"truncated":true` — a short answer the caller can parse beats a complete
+// one it cannot.
+//
+// This is the shape `append` and `append_escaped` have had in qnn_probe.c
+// next door since it was written, and it is deliberately not a third way of
+// doing the same thing. The one difference is that the capacity travels with
+// the buffer instead of being a #define, because these three replies are not
+// all the same size.
+typedef struct {
+    char* out;
+    size_t cap;
+    size_t at;
+    int truncated;
+} json_buf;
+
+// The longest close any reply here needs is `","truncated":true}` — nineteen
+// bytes and the NUL. Holding that much back until the body is finished is
+// what stops the closing brace from being the write that does not fit, which
+// is exactly the write that ran off the end before.
+#define JSON_TAIL_BYTES 24
+
+static void json_init(json_buf* buf, char* out, size_t cap) {
+    buf->out = out;
+    buf->cap = cap;
+    buf->at = 0;
+    buf->truncated = 0;
+    if (cap > 0) out[0] = '\0';
+}
+
+static void json_append(json_buf* buf, const char* text) {
+    if (!text) return;
+    size_t length = strlen(text);
+    if (buf->at + length + 1 > buf->cap) {
+        buf->truncated = 1;
+        return;
+    }
+    memcpy(buf->out + buf->at, text, length);
+    buf->at += length;
+    buf->out[buf->at] = '\0';
+}
+
+// Escapes a string that came from somewhere else into the body of a JSON
+// string.
+//
+// `name` and `version` are the vendor driver's, and the requested device name
+// arrives over the wire; all three used to go in through a bare %s. A driver
+// called `my "npu"` — or a caller who asks for one — produced a reply no
+// parser would take, which is a worse failure than a wrong answer because it
+// lands at the far end, in whatever was reading the matrix, with nothing to
+// point at.
+//
+// A backslash goes in front of `"` and `\`, and anything below 0x20 becomes a
+// space, since a raw control character is not legal inside a JSON string
+// either. Bytes at 0x80 and above pass through untouched: they are the
+// driver's UTF-8 and not ours to reinterpret. Each character is written whole
+// or not at all, so a string the capacity cuts short is still a string.
+static void json_append_escaped(json_buf* buf, const char* text) {
+    if (!text) return;
+    for (const char* c = text; *c; c++) {
+        unsigned char ch = (unsigned char) *c;
+        char piece[2];
+        size_t n = 0;
+        if (ch == '"' || ch == '\\') {
+            piece[n++] = '\\';
+            piece[n++] = (char) ch;
+        } else if (ch < 0x20) {
+            piece[n++] = ' ';
+        } else {
+            piece[n++] = (char) ch;
+        }
+        if (buf->at + n + 1 > buf->cap) {
+            buf->truncated = 1;
+            return;
+        }
+        memcpy(buf->out + buf->at, piece, n);
+        buf->at += n;
+        buf->out[buf->at] = '\0';
+    }
+}
+
+// A double that %f can print and a parser can read back.
+//
+// JSON has no infinity and no NaN, and printf writes both as words. Neither
+// is reachable from any run the iteration and shape caps allow, but a rate is
+// a division and a clock is a thing that can jump, so the one place that
+// could produce `inf` is closed here rather than argued about. The clamp also
+// fixes the printed width — under 1e12 a "%.1f" is at most seventeen
+// characters — which is what keeps the fixed scratch buffers below provably
+// large enough.
+static double json_number(double value) {
+    if (!(value > -1e12 && value < 1e12)) return 0.0;  // false for NaN too
+    return value;
+}
+
+#define DEVICES_BYTES 8192
+
 JNIEXPORT jstring JNICALL
 Java_io_github_m96chan_droidrunner_npu_NnapiProbe_devicesJson(JNIEnv* env, jobject thiz) {
     (void) thiz;
-    static char out[8192];
+    // A local, not a `static` (issue #197). The agent runs two workers and
+    // nothing serialises them, so a process-wide buffer could hand one caller
+    // the other's list of devices. NewStringUTF copies before this returns,
+    // which is already how the buffer was being consumed, so nothing needs to
+    // outlive the frame. Eight kilobytes is a small corner of a thread's
+    // stack; the twelve kilobytes of tensors in addBenchmark are not, and go
+    // on the heap instead.
+    char out[DEVICES_BYTES];
     if (!ensure_lib()) {
         return (*env)->NewStringUTF(env, "{\"available\":false,\"error\":\"libneuralnetworks unavailable\"}");
     }
@@ -138,9 +292,15 @@ Java_io_github_m96chan_droidrunner_npu_NnapiProbe_devicesJson(JNIEnv* env, jobje
     if (p_getDeviceCount(&count) != 0) {
         return (*env)->NewStringUTF(env, "{\"available\":false,\"error\":\"getDeviceCount failed\"}");
     }
-    size_t off = 0;
-    off += snprintf(out + off, sizeof(out) - off, "{\"available\":true,\"devices\":[");
-    for (uint32_t i = 0; i < count && off < sizeof(out) - 256; i++) {
+    json_buf reply;
+    json_init(&reply, out, DEVICES_BYTES - JSON_TAIL_BYTES);
+    json_append(&reply, "{\"available\":true,\"devices\":[");
+    // Counted rather than taken from `i`, because a device the runtime
+    // refuses to hand over is skipped: with the old `i == 0 ? "" : ","` a
+    // failure on device zero put a comma straight after the `[`, which is
+    // another way to return something nobody can parse.
+    size_t listed = 0;
+    for (uint32_t i = 0; i < count; i++) {
         ANeuralNetworksDevice* device = NULL;
         if (p_getDevice(i, &device) != 0 || !device) continue;
         const char* name = "?";
@@ -151,11 +311,43 @@ Java_io_github_m96chan_droidrunner_npu_NnapiProbe_devicesJson(JNIEnv* env, jobje
         if (p_devVersion) p_devVersion(device, &version);
         if (p_devType) p_devType(device, &type);
         if (p_devFeatureLevel) p_devFeatureLevel(device, &feature);
-        off += snprintf(out + off, sizeof(out) - off,
-            "%s{\"name\":\"%s\",\"type\":\"%s\",\"version\":\"%s\",\"featureLevel\":%lld}",
-            i == 0 ? "" : ",", name, device_type_name(type), version, (long long) feature);
+        // A driver that reports a name by leaving the pointer alone is one
+        // thing; one that answers with NULL is another, and assuming neither
+        // is the job of whoever is calling a vendor blob.
+        if (!name) name = "?";
+        if (!version) version = "?";
+
+        char level[32];
+        snprintf(level, sizeof(level), "%lld", (long long) feature);
+
+        // A device goes in whole or not at all: a list that stops in the
+        // middle of `{"name":"qti-` is not JSON. The cursor is marked before
+        // the entry and wound back if any part of it did not fit, and the
+        // loop stops there rather than trying the next one — the buffer is
+        // full, and a shorter name further down appearing while a longer one
+        // above it vanished would be a strange list to publish.
+        size_t mark = reply.at;
+        if (listed > 0) json_append(&reply, ",");
+        json_append(&reply, "{\"name\":\"");
+        json_append_escaped(&reply, name);
+        json_append(&reply, "\",\"type\":\"");
+        json_append(&reply, device_type_name(type));
+        json_append(&reply, "\",\"version\":\"");
+        json_append_escaped(&reply, version);
+        json_append(&reply, "\",\"featureLevel\":");
+        json_append(&reply, level);
+        json_append(&reply, "}");
+        if (reply.truncated) {
+            reply.at = mark;
+            out[mark] = '\0';
+            break;
+        }
+        listed++;
     }
-    snprintf(out + off, sizeof(out) - off, "]}");
+    // The reserve comes back now the body is done, so the close always fits.
+    // A reply that lost devices says so; it does not pretend the list ended.
+    reply.cap = DEVICES_BYTES;
+    json_append(&reply, reply.truncated ? "],\"truncated\":true}" : "]}");
     return (*env)->NewStringUTF(env, out);
 }
 
@@ -185,7 +377,9 @@ Java_io_github_m96chan_droidrunner_npu_NnapiProbe_convBenchmark(
         JNIEnv* env, jobject thiz, jstring jDeviceName, jint iterations,
         jint size, jint channels, jint filters) {
     (void) thiz;
-    static char out[1024];
+    // Local for the reason devicesJson's is (issue #197): two workers, one
+    // buffer, and whichever of them wrote last used to answer for both.
+    char out[1024];
     if (!ensure_lib() || !p_modelCreate || !p_compute) {
         return (*env)->NewStringUTF(env, "{\"ok\":false,\"error\":\"NNAPI unavailable\"}");
     }
@@ -346,21 +540,48 @@ Java_io_github_m96chan_droidrunner_npu_NnapiProbe_convBenchmark(
         avgUs = ((t1.tv_sec - t0.tv_sec) * 1e6 + (t1.tv_nsec - t0.tv_nsec) / 1e3) / iterations;
     } while (0);
 
+    // The device name is the last field in both replies now, and it is the
+    // only one that did not come from this file: it arrives over the wire
+    // from the agent, so it is escaped, and it is the only field with no
+    // length of its own. Last is where a field like that belongs — a name too
+    // long for what is left of the buffer is then cut inside a JSON string
+    // that the closing `"}` still finishes properly.
+    //
+    // Everything before it is measured: the literals come to about 140 bytes,
+    // five `%d` to at most 11 each, `err` and result_name to at most 25 each,
+    // `supported` to 5, and json_number holds the two doubles to 17 — under
+    // 300 in the worst case, in a 512-byte scratch.
+    json_buf reply;
+    json_init(&reply, out, sizeof(out) - JSON_TAIL_BYTES);
+    char detail[512];
     if (err) {
-        snprintf(out, sizeof(out),
+        snprintf(detail, sizeof(detail),
                  "{\"ok\":false,\"error\":\"%s\",\"resultCode\":%d,\"result\":\"%s\","
-                 "\"device\":\"%s\",\"supported\":%s}",
-                 err, rc, result_name(rc), wantedName ? wantedName : "default",
+                 "\"supported\":%s,\"device\":\"",
+                 err, rc, result_name(rc),
                  supported < 0 ? "null" : (supported ? "true" : "false"));
+        json_append(&reply, detail);
+        json_append_escaped(&reply, wantedName ? wantedName : "default");
     } else {
-        // 2 * K*K * Cin * Cout * H * W flops for the convolution.
-        double gflops = 2.0 * 9.0 * channels * filters * size * size / (avgUs * 1e3);
-        snprintf(out, sizeof(out),
-                 "{\"ok\":true,\"device\":\"%s\",\"op\":\"CONV_2D %dx%dx%d -> %d filters\","
-                 "\"iterations\":%d,\"avgUs\":%.1f,\"gflops\":%.2f,\"supported\":%s}",
-                 usedDevice, size, size, channels, filters, (int) iterations, avgUs, gflops,
+        // 2 * K*K * Cin * Cout * H * W flops for the convolution. A run the
+        // clock could not separate would divide by zero here, and `inf` is
+        // not a rate any parser will read back; no rate is the honest answer
+        // to a duration of nothing anyway.
+        double gflops = avgUs > 0
+                ? 2.0 * 9.0 * channels * filters * size * size / (avgUs * 1e3)
+                : 0.0;
+        snprintf(detail, sizeof(detail),
+                 "{\"ok\":true,\"op\":\"CONV_2D %dx%dx%d -> %d filters\","
+                 "\"iterations\":%d,\"avgUs\":%.1f,\"gflops\":%.2f,\"supported\":%s,"
+                 "\"device\":\"",
+                 size, size, channels, filters, (int) iterations,
+                 json_number(avgUs), json_number(gflops),
                  supported < 0 ? "null" : (supported ? "true" : "false"));
+        json_append(&reply, detail);
+        json_append_escaped(&reply, usedDevice);
     }
+    reply.cap = sizeof(out);
+    json_append(&reply, reply.truncated ? "\",\"truncated\":true}" : "\"}");
 
     if (compilation) p_compFree(compilation);
     if (model) p_modelFree(model);
@@ -373,7 +594,8 @@ JNIEXPORT jstring JNICALL
 Java_io_github_m96chan_droidrunner_npu_NnapiProbe_addBenchmark(
         JNIEnv* env, jobject thiz, jstring jDeviceName, jint iterations) {
     (void) thiz;
-    static char out[1024];
+    // Local, as above (issue #197).
+    char out[1024];
     if (!ensure_lib() || !p_modelCreate || !p_compute) {
         return (*env)->NewStringUTF(env, "{\"ok\":false,\"error\":\"NNAPI unavailable\"}");
     }
@@ -384,10 +606,32 @@ Java_io_github_m96chan_droidrunner_npu_NnapiProbe_addBenchmark(
     if (jDeviceName) wantedName = (*env)->GetStringUTFChars(env, jDeviceName, NULL);
 
     enum { N = 1024 };
-    static const uint32_t dims[1] = { N };
+    const uint32_t dims[1] = { N };
     OperandType tensor = { OP_TENSOR_FLOAT32, 1, dims, 0.0f, 0 };
     OperandType scalar = { OP_INT32, 0, NULL, 0.0f, 0 };
-    static float a[N], b[N], sum[N];
+
+    // On the heap, where `static float a[N], b[N], sum[N]` used to be (issue
+    // #197). Those three arrays belonged to every caller at once: a second
+    // request refilled `a` and `b` underneath the first one's running
+    // compute, so a timed run was not timing the input that was set up for
+    // it, and `correct` was read out of a `sum` the other execution was
+    // writing — which is to say the one field that exists to prove the
+    // arithmetic reached the accelerator proved nothing at all. Twelve
+    // kilobytes is more than belongs on a stack the way `out` does, so it is
+    // allocated and freed per call, the way convBenchmark next door already
+    // handles its own tensors, with the same answer when there is no memory.
+    const size_t bytes = N * sizeof(float);
+    float* a = malloc(bytes);
+    float* b = malloc(bytes);
+    // Zeroed rather than merely allocated: `correct` reads three cells of
+    // this, and reading them out of whatever the allocator last had there
+    // would make a claim about the driver out of a claim about the heap.
+    float* sum = calloc(N, sizeof(float));
+    if (!a || !b || !sum) {
+        free(a); free(b); free(sum);
+        if (wantedName) (*env)->ReleaseStringUTFChars(env, jDeviceName, wantedName);
+        return (*env)->NewStringUTF(env, "{\"ok\":false,\"error\":\"out of memory\"}");
+    }
     for (int i = 0; i < N; i++) { a[i] = (float) i; b[i] = 2.0f; }
 
     ANeuralNetworksModel* model = NULL;
@@ -447,9 +691,12 @@ Java_io_github_m96chan_droidrunner_npu_NnapiProbe_addBenchmark(
         for (int iter = 0; iter < iterations; iter++) {
             ANeuralNetworksExecution* execution = NULL;
             if (p_execCreate(compilation, &execution) != 0) { err = "execution_create"; break; }
-            if (p_setInput(execution, 0, NULL, a, sizeof(a)) != 0 ||
-                p_setInput(execution, 1, NULL, b, sizeof(b)) != 0 ||
-                p_setOutput(execution, 0, NULL, sum, sizeof(sum)) != 0 ||
+            // `bytes`, not `sizeof(a)`: these are pointers now, and sizeof a
+            // pointer would have told the driver the tensor was eight bytes
+            // long.
+            if (p_setInput(execution, 0, NULL, a, bytes) != 0 ||
+                p_setInput(execution, 1, NULL, b, bytes) != 0 ||
+                p_setOutput(execution, 0, NULL, sum, bytes) != 0 ||
                 p_compute(execution) != 0) {
                 err = "compute";
                 p_execFree(execution);
@@ -463,20 +710,31 @@ Java_io_github_m96chan_droidrunner_npu_NnapiProbe_addBenchmark(
         correct = (sum[0] == 2.0f && sum[100] == 102.0f && sum[N - 1] == (float) (N - 1) + 2.0f);
     } while (0);
 
+    // Device name last and escaped, for the reasons given in convBenchmark.
+    json_buf reply;
+    json_init(&reply, out, sizeof(out) - JSON_TAIL_BYTES);
+    char detail[512];
     if (err) {
-        snprintf(out, sizeof(out),
+        snprintf(detail, sizeof(detail),
                  "{\"ok\":false,\"error\":\"%s\",\"resultCode\":%d,\"result\":\"%s\","
-                 "\"device\":\"%s\"}",
-                 err, rc, result_name(rc), wantedName ? wantedName : "default");
+                 "\"device\":\"",
+                 err, rc, result_name(rc));
+        json_append(&reply, detail);
+        json_append_escaped(&reply, wantedName ? wantedName : "default");
     } else {
-        snprintf(out, sizeof(out),
-                 "{\"ok\":true,\"device\":\"%s\",\"op\":\"ADD float32[%d]\",\"iterations\":%d,"
-                 "\"avgUs\":%.1f,\"correct\":%s}",
-                 usedDevice, N, (int) iterations, avgUs, correct ? "true" : "false");
+        snprintf(detail, sizeof(detail),
+                 "{\"ok\":true,\"op\":\"ADD float32[%d]\",\"iterations\":%d,"
+                 "\"avgUs\":%.1f,\"correct\":%s,\"device\":\"",
+                 N, (int) iterations, json_number(avgUs), correct ? "true" : "false");
+        json_append(&reply, detail);
+        json_append_escaped(&reply, usedDevice);
     }
+    reply.cap = sizeof(out);
+    json_append(&reply, reply.truncated ? "\",\"truncated\":true}" : "\"}");
 
     if (compilation) p_compFree(compilation);
     if (model) p_modelFree(model);
+    free(a); free(b); free(sum);
     if (wantedName) (*env)->ReleaseStringUTFChars(env, jDeviceName, wantedName);
     return (*env)->NewStringUTF(env, out);
 }
