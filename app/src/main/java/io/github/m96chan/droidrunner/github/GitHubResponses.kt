@@ -7,6 +7,9 @@ import org.json.JSONObject
 /** One page of repositories, plus whether GitHub still has more to hand out. */
 internal data class RepositoryPage(val repositories: List<RepositoryRef>, val hasMore: Boolean)
 
+/** One page of installations, plus whether GitHub still has more to hand out. */
+internal data class InstallationPage(val installations: List<Installation>, val hasMore: Boolean)
+
 /** The manifest selected from GitHub's newest-first release list. */
 internal data class RuntimeManifestRelease(
     val url: String,
@@ -17,6 +20,22 @@ internal data class RuntimeManifestRelease(
         get() = if (tag == newestRuntimeTag) null
         else "using $tag because $newestRuntimeTag is not ready yet"
 }
+
+/**
+ * One page of the release feed, read for a runtime manifest.
+ *
+ * The feed mixes `v*` app releases with `runtime-*` bundles and the app ones
+ * are far more frequent, so the bundle a device needs can sit pages deep
+ * (issue #193). Scanning it therefore spans requests, and everything the next
+ * request needs in order to carry on is here: [newestRuntimeTag] so a manifest
+ * found later still knows which tag it is standing in for, and [releaseCount]
+ * so the caller can tell a full page -- there is more -- from the last one.
+ */
+internal data class RuntimeManifestPage(
+    val release: RuntimeManifestRelease?,
+    val newestRuntimeTag: String?,
+    val releaseCount: Int,
+)
 
 /**
  * Reads GitHub's JSON into the values [GitHubApi] returns.
@@ -39,9 +58,24 @@ internal object GitHubResponses {
     fun registrationToken(body: String): String = JSONObject(body).getString("token")
 
     /** Installations of the app, with the account each one belongs to. */
-    fun installations(body: String): List<Installation> {
+    fun installations(body: String): List<Installation> =
+        installationsIn(JSONObject(body).getJSONArray("installations"))
+
+    /** One page of [installations], and whether another page is waiting. */
+    fun installationPage(body: String): InstallationPage {
         val installations = JSONObject(body).getJSONArray("installations")
-        return (0 until installations.length()).mapNotNull { index ->
+        // "Is there another page" is a question about what GitHub sent, not
+        // about what survived parsing: an installation whose account is gone
+        // is dropped below, and counting only the survivors would end the
+        // paging one organisation early (issue #201).
+        return InstallationPage(
+            installationsIn(installations),
+            hasMore = installations.length() >= PAGE_SIZE,
+        )
+    }
+
+    private fun installationsIn(installations: JSONArray): List<Installation> =
+        (0 until installations.length()).mapNotNull { index ->
             runCatching {
                 val installation = installations.getJSONObject(index)
                 Installation(
@@ -52,7 +86,6 @@ internal object GitHubResponses {
                 )
             }.getOrNull()
         }
-    }
 
     /** The subset of [installations] that can host organization runners. */
     fun organizations(installations: List<Installation>): List<RunnerTarget.Organization> =
@@ -60,7 +93,6 @@ internal object GitHubResponses {
             .filter { it.accountType == "Organization" && it.account.isNotBlank() }
             .map { RunnerTarget.Organization(it.account) }
 
-    /** The repositories on one page of the installation-repositories endpoint. */
     /**
      * The id of the runner registered under [name], or null when this target
      * has no such runner — which is the normal answer after someone removed it
@@ -87,6 +119,7 @@ internal object GitHubResponses {
         return emptySet()
     }
 
+    /** The repositories on one page of the installation-repositories endpoint. */
     fun repositoryPage(body: String): RepositoryPage {
         val batch = JSONObject(body).getJSONArray("repositories")
         val repositories = (0 until batch.length()).map { index ->
@@ -102,12 +135,20 @@ internal object GitHubResponses {
     }
 
     /**
-     * URL of runtime-manifest.json from the newest `runtime-*` release that
-     * carries one, or null when no listed release does.
+     * Reads one page of the release feed for runtime-manifest.json.
+     *
+     * [newestRuntimeTagSoFar] is the newest `runtime-*` tag an earlier page
+     * already turned up. It is handed back in because the newest runtime
+     * release and the newest one carrying a manifest need not be on the same
+     * page, and the difference between those two is what the fallback notice
+     * is about.
      */
-    fun runtimeManifest(body: String): RuntimeManifestRelease? {
+    fun runtimeManifestPage(
+        body: String,
+        newestRuntimeTagSoFar: String? = null,
+    ): RuntimeManifestPage {
         val releases = JSONArray(body)
-        var newestRuntimeTag: String? = null
+        var newestRuntimeTag = newestRuntimeTagSoFar
         for (index in 0 until releases.length()) {
             val release = releases.optJSONObject(index) ?: continue
             val tag = release.optString("tag_name").takeIf { it.startsWith("runtime-") } ?: continue
@@ -117,11 +158,23 @@ internal object GitHubResponses {
                 val asset = assets.optJSONObject(assetIndex) ?: continue
                 if (asset.optString("name") != MANIFEST_ASSET) continue
                 val url = asset.optString("browser_download_url").takeIf { it.isNotBlank() } ?: continue
-                return RuntimeManifestRelease(url, tag, newestRuntimeTag)
+                return RuntimeManifestPage(
+                    RuntimeManifestRelease(url, tag, newestRuntimeTag),
+                    newestRuntimeTag,
+                    releases.length(),
+                )
             }
         }
-        return null
+        return RuntimeManifestPage(null, newestRuntimeTag, releases.length())
     }
+
+    /**
+     * URL of runtime-manifest.json from the newest `runtime-*` release that
+     * carries one, or null when nothing on this one page does. Callers holding
+     * a repository rather than a page want [GitHubApi.latestRuntimeRelease],
+     * which keeps asking until the feed runs out.
+     */
+    fun runtimeManifest(body: String): RuntimeManifestRelease? = runtimeManifestPage(body).release
 
     fun runtimeManifestUrl(body: String): String? = runtimeManifest(body)?.url
 

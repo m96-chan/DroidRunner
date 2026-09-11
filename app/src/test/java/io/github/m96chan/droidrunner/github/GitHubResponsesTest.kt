@@ -99,6 +99,33 @@ class GitHubResponsesTest {
         assertNull(GitHubResponses.runtimeManifestUrl("[]"))
     }
 
+    @Test fun aPageSaysHowManyReleasesItHeldSoThePagingKnowsToGoOn() {
+        // A page that is full is not evidence that there is no runtime
+        // release, only that there was none in the first hundred (issue #193).
+        val page = GitHubResponses.runtimeManifestPage(
+            "[${release("v1.4.0", "app-release.apk")},${release("v1.3.0", "app-release.apk")}]",
+        )
+
+        assertNull(page.release)
+        assertNull(page.newestRuntimeTag)
+        assertEquals(2, page.releaseCount)
+    }
+
+    @Test fun aRuntimeTagFromAnEarlierPageSurvivesIntoTheNextOne() {
+        // The release whose assets are still uploading and the older one that
+        // gets installed instead can now sit on different pages, and the
+        // fallback notice has to name both of them.
+        val page = GitHubResponses.runtimeManifestPage(
+            "[${release("runtime-2024.04", "runtime-manifest.json")}]",
+            newestRuntimeTagSoFar = "runtime-2024.05",
+        )
+
+        assertEquals(
+            "using runtime-2024.04 because runtime-2024.05 is not ready yet",
+            page.release?.fallbackNotice,
+        )
+    }
+
     // --- installations ---------------------------------------------------
 
     @Test fun installationsCarryTheirAccountTheAccountTypeAndTheAppSlug() {
@@ -156,6 +183,44 @@ class GitHubResponsesTest {
 
         assertEquals(listOf(3L), installations.map { it.id })
         assertEquals("acme-inc", installations.single().account)
+    }
+
+    @Test fun aFullPageOfInstallationsMeansThereIsAnotherOneToFetch() {
+        // A user can belong to more than a hundred installations, and whole
+        // organisations were disappearing from the picker when the second page
+        // was never asked for (issue #201).
+        val body = """{"installations": [""" +
+            (1..GitHubResponses.PAGE_SIZE).joinToString(",") {
+                """{"id": $it, "app_slug": "droidrunner",
+                    "account": {"login": "org-$it", "type": "Organization"}}"""
+            } + "]}"
+
+        val page = GitHubResponses.installationPage(body)
+
+        assertEquals(GitHubResponses.PAGE_SIZE, page.installations.size)
+        assertTrue(page.hasMore)
+    }
+
+    @Test fun aShortPageOfInstallationsIsTheLastPage() {
+        val page = GitHubResponses.installationPage(
+            """{"installations": [{"id": 1, "app_slug": "droidrunner"}]}""",
+        )
+
+        assertEquals(1, page.installations.size)
+        assertFalse(page.hasMore)
+    }
+
+    @Test fun aFullPageOfBrokenInstallationsStillHasAPageAfterIt() {
+        // hasMore is about what GitHub sent, not what parsed. Counting only
+        // the entries that survived would stop the paging at a page full of
+        // suspended accounts and lose everything behind it.
+        val body = """{"installations": [""" +
+            (1..GitHubResponses.PAGE_SIZE).joinToString(",") { "null" } + "]}"
+
+        val page = GitHubResponses.installationPage(body)
+
+        assertTrue(page.installations.isEmpty())
+        assertTrue(page.hasMore)
     }
 
     @Test fun onlyOrganizationAccountsBecomeOrganizationTargets() {

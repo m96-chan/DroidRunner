@@ -16,6 +16,13 @@
 # Nothing else catches it. Both files render, both tables look complete, and
 # the short one is short in a language the person adding the component may not
 # read.
+#
+# Since #226 the same list also holds a third copy: the About screen in the
+# app. The two tables are on GitHub; the screen is what someone who has only
+# the APK has, and that person is who the offer is for. It drifted the whole
+# way — the tables pointed at the archive published beside the binary while the
+# screen still told the reader to rebuild proot from a commit and a patch
+# directory — because nothing was comparing it to anything.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -95,4 +102,107 @@ echo "$en" | while IFS= read -r key; do
     echo "  ok   $key is listed in both READMEs" >&2
 done
 
-echo "both licence tables list the same components" >&2
+##
+## The third copy: the About screen (issue #226).
+##
+## Listing the component is not enough here. Every row a presence check would
+## have looked for was already on the screen throughout #226 — proot, talloc
+## and the rootfs each had a line. What was missing was where each one's source
+## is, which is the whole of what §3 asks. So a row carries the pointers that
+## must appear in the file alongside it, and a row that owes nothing says so.
+about="app/src/main/java/io/github/m96chan/droidrunner/ui/AboutPanel.kt"
+[ -f "$about" ] || die "$about is gone; the offer still has to reach someone holding only the APK"
+
+# key:label pattern:pointers. The label is the Field under the panel's
+# "licences" heading. The screen is not a translation of either table, so it is
+# matched to the same keys rather than to the tables themselves. Pointers are
+# space-separated and all of them are required: talloc's source is in the same
+# archive as proot's, and the rootfs's offer is two files inside the bundle.
+about_rows=(
+    'proot:^proot$:droidrunner-.*-source\.tar\.gz'
+    'talloc:^talloc$:droidrunner-.*-source\.tar\.gz'
+    'ubuntu-rootfs:^rootfs$:PACKAGES\.txt SOURCE-OFFER\.txt'
+    # Two rows the tables do not carry and that owe nothing: the app's own
+    # source is this repository, linked from the panel, and the actions runner
+    # is MIT. Declared anyway, so that an unrecognised row is still an error.
+    'droidrunner-app:^app$:'
+    'actions-runner:^runner$:'
+)
+
+# The licence rows on the screen: the Fields under the "licences" heading, up
+# to where that block ends. The panel's other Fields are version and device
+# information, not a source offer, and must not be read as one.
+about_labels() {
+    awk '
+        /Text\("licences"/ { licences = 1; next }
+        !licences { next }
+        /Field\("/ {
+            if (match($0, /Field\("[^"]*"/)) print substr($0, RSTART + 7, RLENGTH - 8)
+            next
+        }
+        /Spacer\(/ { next }
+        /^[[:space:]]*$/ { next }
+        { exit }
+    ' "$about"
+}
+
+about_keys="$(
+    about_labels | while IFS= read -r label; do
+        matched=""
+        for row in "${about_rows[@]}"; do
+            rest="${row#*:}"
+            if printf '%s' "$label" | grep -qE "${rest%%:*}"; then
+                [ -z "$matched" ] || die \
+                    "$about: licence row '$label' matches both $matched and ${row%%:*}; the patterns no longer tell the components apart"
+                matched="${row%%:*}"
+            fi
+        done
+        [ -n "$matched" ] || die \
+            "$about: no pattern in this script matches the licence row '$label'. Add it to \`about_rows\` with the pointers to its source, or with none if it owes none."
+        echo "$matched"
+    done
+)"
+
+[ -n "$about_keys" ] || die \
+    "$about: found no licence rows under the \"licences\" heading; if the panel moved, this check has to move with it"
+
+about_failed=""
+for key in $en; do
+    row=""
+    for candidate in "${about_rows[@]}"; do
+        case "$candidate" in "$key:"*) row="$candidate" ;; esac
+    done
+    [ -n "$row" ] || die \
+        "the READMEs list $key but \`about_rows\` says nothing about it; add the row the About screen must carry for it"
+
+    key_failed=""
+    if ! printf '%s\n' "$about_keys" | grep -qx "$key"; then
+        echo "  FAIL $key is in the licence table but not on the About screen" >&2
+        key_failed=1
+    else
+        pointers="${row#*:}"
+        pointers="${pointers#*:}"
+        # Unquoted on purpose: several patterns, all of which must be there.
+        for pattern in $pointers; do
+            if ! grep -qE "$pattern" "$about"; then
+                echo "  FAIL the About screen lists $key without saying where its source is ($pattern)" >&2
+                key_failed=1
+            fi
+        done
+    fi
+    if [ -n "$key_failed" ]; then
+        about_failed=1
+    else
+        echo "  ok   $key is offered on the About screen too" >&2
+    fi
+done
+
+if [ -n "$about_failed" ]; then
+    echo "       The About screen is the copy that reaches someone holding only" >&2
+    echo "       the APK, and that is who GPL-2.0 §3 owes the source to. The" >&2
+    echo "       READMEs are on GitHub; this is not. Offer there whatever the" >&2
+    echo "       table offers — $about (issue #226)." >&2
+    exit 1
+fi
+
+echo "both licence tables and the About screen offer the same components" >&2
