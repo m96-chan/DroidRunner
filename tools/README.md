@@ -67,6 +67,20 @@ with nothing failing anywhere.
 
 Runs on every build. See [#128](https://github.com/m96-chan/DroidRunner/issues/128).
 
+## `check-action-pin.sh`
+
+The tutorial is a copy-paste page, so the ref it names for `actions/run-model`
+is the one that ends up in someone else's workflow. It sat on `@v0.7.0` for
+seven releases: a tag pins the action, not the document, and that one has
+neither the `stable` nor the `p90-us` output the next section tells the reader
+to branch on. Nothing failed — the workflow simply could not do what the page
+said.
+
+This takes the pin from the READMEs, which is the one the project stands behind,
+and fails when any page on the site names a different one.
+
+Runs on every push. See [#215](https://github.com/m96-chan/DroidRunner/issues/215).
+
 ## `ulp/`
 
 Does an accelerator compute what it was asked to, or only run it? Nothing in
