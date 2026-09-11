@@ -359,7 +359,14 @@ throttle developing is visible at all. It is off by default — 500 iterations i
 ### Optional pieces
 
 - `outputFiles` — present when `outputDir` was given. Paths are **as the job
-  sees them**, under `/home/runner`.
+  sees them**, under `/home/runner`. **Every byte in them came out of an
+  invocation of this graph.** A request that asks for outputs and times nothing
+  (`iterations: 0`) runs the model once anyway, untimed and not counted in
+  `iterations`; the field is never written from a buffer no run touched. Builds
+  up to and including **v0.14.0** wrote it from one: that combination
+  returned `ok: true` naming files of the correct length holding nothing but
+  zeros, which a comparison against a golden cannot tell from a wrong answer
+  ([#191](https://github.com/m96-chan/DroidRunner/issues/191)).
 - `quantizationParams` — on quantized tensors only, so a caller holding int8
   bytes is not inferring a scale from the numbers.
 - `precisionLossAllowed` — GPU only: whether the delegate was allowed to drop
@@ -410,7 +417,12 @@ the manifest is a JSON array:
 - `iterations: 0` means load, delegate and allocate but do not time. Half of a
   sweep only asks whether a graph was accepted, and that answer is complete
   once tensors are allocated. The result then carries `executed` and
-  `delegation` and no timings.
+  `delegation` and no timings. A row that *also* names an `outputDir` is asking
+  for this graph's tensors as well, so it is run once, untimed — `iterations`
+  stays `0` because it counts measurements, and `outputFiles` still holds only
+  what a run produced. The combination is accepted rather than rejected: a
+  sweep's rejections are its data, and one of ours in that array would be noise
+  the caller has to sort from the driver's.
 - `budgetMs` caps the **whole** sweep. If it runs out, everything collected so
   far comes back with `budgetExhausted: true` and `stoppedAt` naming the row
   that was running — which is the only thing a caller can act on when one
