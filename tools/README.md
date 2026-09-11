@@ -14,14 +14,16 @@ different machines:
 | `reduce.py` | a hosted runner | turns the device's sweep into `matrix.md` and `matrix.json` |
 | `compare.py` | a hosted runner | compares a matrix against the one committed for that phone, and fails on a regression |
 | `baseline-path.py` | either | says where a given phone's committed matrix lives |
+| `index.py` | either | writes `docs/matrices/README.md`'s table of committed matrices, and with `--check` fails when it has drifted |
 
 The phone itself only runs the sweep, in bash and curl: **the guest has neither
 python3 nor jq**, checked against the published bundle's dpkg status rather than
 assumed.
 
-`test_reduce.py` and `test_compare.py` have no dependencies and run in CI on
-every push. Every mistake in that reduction reads as a statement about somebody's
-silicon, which is why they are not left to the machine with TensorFlow on it.
+`test_reduce.py`, `test_compare.py` and `test_index.py` have no dependencies and
+run in CI on every push, alongside `index.py --check`. Every mistake in that
+reduction reads as a statement about somebody's silicon, which is why they are
+not left to the machine with TensorFlow on it.
 
 Run the tests with:
 
