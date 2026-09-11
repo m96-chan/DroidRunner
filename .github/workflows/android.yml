@@ -82,3 +82,7 @@ jobs:
       # readers a workflow without the outputs the next section tells them to
       # branch on (#215). Nothing else ties the HTML to the action.
       - run: tools/check-action-pin.sh
+
+      # Whether every phone came back from a roll is decided by one grep, and
+      # when it was wrong it was wrong silently (#207).
+      - run: tools/tests/test-roll-fleet.sh
