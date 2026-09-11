@@ -470,8 +470,14 @@ secrets: `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_
    (Start/Stopはダッシュボードのrunnerパネルにあります)
 
 runtimeの取得元は`droidrunner.runtimeRepo`ビルドプロパティで指定したリポジトリです。
+そのリポジトリはアプリとruntimeのリリースを同じ一覧へ公開するため、リリース一覧は
+`runtime-*`が見つかるまでページ単位で辿ります。あとから何本のアプリリリースが
+出ようとbundleは見つかります。
 manifest URLの手動上書きは`advanced`にあります(GitHub Enterprise Serverや自前ホスト用)。
 新しいbundleの公開は**Runtime bundle**ワークフローで行います(`runtime/README.md`参照)。
+
+リポジトリピッカーはアプリがインストールされた全installationを列挙し(先頭100件
+だけではありません)、1つのinstallationにつき最大500リポジトリまで取得します。
 
 サインインはGitHub AppのDevice Flowを使うため、APKにclient secretは含まれず、
 PATを手動で発行する必要もありません。userトークンはAndroid Keystoreで暗号化され、

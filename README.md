@@ -495,9 +495,15 @@ their devices to move to a new one.
    (Start/Stop controls live in the dashboard's runner panel)
 
 The app resolves the runtime from the repository named by the
-`droidrunner.runtimeRepo` build property. A manual manifest URL override lives
-under `advanced` for GitHub Enterprise Server or self-hosted bundles. Maintainers
+`droidrunner.runtimeRepo` build property. That repository publishes app and
+runtime releases to one list, so the list is read page by page until a
+`runtime-*` release turns up: the bundle stays findable however many app
+releases were published after it. A manual manifest URL override lives under
+`advanced` for GitHub Enterprise Server or self-hosted bundles. Maintainers
 publish new bundles with the **Runtime bundle** workflow (see `runtime/README.md`).
+
+The repository picker lists every installation the app is on — all of them, not
+just the first hundred — and up to 500 repositories per installation.
 
 Sign-in uses the GitHub App device flow, so no client secret is embedded in the APK
 and no PAT has to be created by hand. The user token is encrypted with the Android
