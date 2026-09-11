@@ -473,6 +473,10 @@ runtimeの取得元は`droidrunner.runtimeRepo`ビルドプロパティで指定
 manifest URLの手動上書きは`advanced`にあります(GitHub Enterprise Serverや自前ホスト用)。
 新しいbundleの公開は**Runtime bundle**ワークフローで行います(`runtime/README.md`参照)。
 
+runtimeパネルは、この問い合わせの結果を3つに区別して表示します — releaseが見つかった、
+このリポジトリはruntime releaseを公開していない、GitHubに到達できなかった。最後のものだけは
+設定の問題ではなく一時的な不調なので、**Retry**を出します。残る2つは`advanced`へ案内します。
+
 サインインはGitHub AppのDevice Flowを使うため、APKにclient secretは含まれず、
 PATを手動で発行する必要もありません。userトークンはAndroid Keystoreで暗号化され、
 Linux環境へは渡りません。Controllerが短時間有効な登録トークンへ交換します。
@@ -482,7 +486,11 @@ refresh tokenも同じ方式で保存し、期限切れ前に(そして401が返
 
 手動フォールバック(`advanced: manual PAT setup`)では、対象Repositoryの
 Administration read/write権限を持つfine-grained PATを使えます(GitHub Enterprise
-ServerやGitHub Appなしビルド向け)。
+ServerやGitHub Appなしビルド向け)。ここに入力したPATは、GitHubサインインが有効でも
+そのまま登録に使われます — GitHub Appが未インストールのRepositoryへ登録する場合も、
+先にサインインを解除する必要はありません。上の**Re-register**と同じく、Runnerが停止
+するまで押せません。登録は、動作中のlistenerが掴んでいるidentityファイルを書き換える
+操作だからです。
 
 ### GitHub Appの登録(セルフビルド向け)
 
