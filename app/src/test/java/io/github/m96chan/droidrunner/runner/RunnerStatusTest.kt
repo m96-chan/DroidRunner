@@ -109,6 +109,55 @@ class RunnerStatusTest {
         assertEquals(listOf("admission: not charging"), RunnerStatus.snapshot.value.recentLog)
     }
 
+    @Test fun aStopInProgressIsVisibleWhileTheListenerIsStillComingDown() {
+        // The halt takes about twenty seconds and now runs on a thread of its
+        // own (#209), so for the first time there is a state between "running"
+        // and "stopped" that somebody is looking at.
+        RunnerStatus.onServiceStarted()
+        RunnerStatus.onRunnerLine("Listening for Jobs")
+
+        RunnerStatus.onStopping()
+
+        val stopping = RunnerStatus.snapshot.value
+        assertEquals(true, stopping.stopping)
+        // Still listening, because the listener is still there: saying
+        // "stopped" before the proot tree is gone is the same lie in the
+        // other direction.
+        assertEquals(RunnerState.LISTENING, stopping.state)
+
+        RunnerStatus.onServiceStopped()
+
+        assertEquals(false, RunnerStatus.snapshot.value.stopping)
+        assertEquals(RunnerState.STOPPED, RunnerStatus.snapshot.value.state)
+    }
+
+    @Test fun aSupervisorThatFellOverDoesNotLookLikeTheStopButton() {
+        // Issue #211: a single exception from a condition sample used to end
+        // the supervisor and leave the dashboard reading exactly what a stop
+        // somebody asked for reads.
+        RunnerStatus.onServiceStarted()
+
+        RunnerStatus.onSupervisorFailed("StatFs failed")
+        RunnerStatus.onServiceStopped()
+
+        val failed = RunnerStatus.snapshot.value
+        assertEquals(RunnerState.STOPPED, failed.state)
+        assertEquals("StatFs failed", failed.failureReason)
+        assertEquals(listOf("runner: the supervisor stopped after an error — StatFs failed"), failed.recentLog)
+
+        // And the next start is not still wearing it.
+        RunnerStatus.onServiceStarted()
+        assertNull(RunnerStatus.snapshot.value.failureReason)
+    }
+
+    @Test fun anOrdinaryStopCarriesNoFailure() {
+        RunnerStatus.onServiceStarted()
+        RunnerStatus.onStopping()
+        RunnerStatus.onServiceStopped()
+
+        assertNull(RunnerStatus.snapshot.value.failureReason)
+    }
+
     @Test fun stopResetsStateButKeepsLog() {
         RunnerStatus.onServiceStarted()
         RunnerStatus.onRunnerLine("Listening for Jobs")

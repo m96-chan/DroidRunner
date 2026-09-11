@@ -20,6 +20,29 @@ data class RunnerSnapshot(
      * long the wait has been rather than only that there is one.
      */
     val sessionHeldSince: Long? = null,
+    /**
+     * The runner is on its way down and is not there yet (issue #209).
+     *
+     * A stop takes about twenty seconds, nearly all of it waiting for the
+     * listener to release its GitHub session, and it now runs on a thread of
+     * its own instead of freezing the app for the duration. That is only an
+     * improvement if the screen says so: a stop that appears to do nothing is
+     * what gets tapped twice and then force-stopped.
+     *
+     * Separate from [state] rather than another value of it, because the
+     * listener really is still running while this is true.
+     */
+    val stopping: Boolean = false,
+    /**
+     * Why the supervisor is no longer supervising, when nobody asked it to stop
+     * (issue #211).
+     *
+     * `STOPPED` with this set is a different thing from `STOPPED` without it,
+     * and the difference matters to whoever is looking at the phone: one of
+     * them is the button they pressed and the other is a runner that fell over
+     * quietly. Kept until the next start.
+     */
+    val failureReason: String? = null,
     val jobsSucceeded: Int = 0,
     val jobsFailed: Int = 0,
     /** How many times the supervisor restarted the listener this session. */
@@ -200,6 +223,9 @@ object RunnerStatus {
                 startedAtMillis = System.currentTimeMillis(),
                 currentJob = null,
                 pausedReason = null,
+                // Both belong to the run that ended, and this is a new one.
+                stopping = false,
+                failureReason = null,
                 // Restarts are per-run by decision, not by omission: they count
                 // the supervisor rescuing a listener that died, and carrying
                 // them into a start the user asked for would read as a runner
@@ -237,6 +263,30 @@ object RunnerStatus {
         _snapshot.update { it.copy(state = RunnerState.STARTING, pausedReason = null) }
     }
 
+    /**
+     * The stop has begun and the listener is still being taken down (#209).
+     *
+     * [state] is deliberately left alone: until the proot tree is gone the
+     * runner is still whatever it was, and a screen that says `stopped` while a
+     * job is still being signalled would be the same lie in the other
+     * direction.
+     */
+    fun onStopping() {
+        _snapshot.update { it.copy(stopping = true) }
+        onAppLine("stop: stopping the listener — this takes up to half a minute")
+    }
+
+    /**
+     * The supervisor gave up on an error nobody asked for (#211).
+     *
+     * Said out loud as well as published, because this is the line that
+     * explains a device which went quiet without anyone touching it.
+     */
+    fun onSupervisorFailed(reason: String) {
+        _snapshot.update { it.copy(failureReason = reason) }
+        onAppLine("runner: the supervisor stopped after an error — $reason")
+    }
+
     fun onServiceStopped() {
         _snapshot.update {
             it.copy(
@@ -245,6 +295,9 @@ object RunnerStatus {
                 startedAtMillis = null,
                 pausedReason = null,
                 sessionHeldSince = null,
+                // Arrived: it is not stopping any more. A failure reason
+                // survives, since this is where the runner it describes ends up.
+                stopping = false,
             )
         }
     }

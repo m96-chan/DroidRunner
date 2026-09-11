@@ -208,4 +208,50 @@ class RunnerLogTest {
         assertFalse(tail.any { it.contains("first line") })
         assertTrue(tail.contains("[app] whole line"))
     }
+
+    // --- the watchdog's own lines (issue #214) ------------------------------
+
+    /** What `WatchdogJobService` does with the outcome of one tick. */
+    private fun watchdogTick() {
+        RunnerWatchdog.startedLine(RunnerStatus.snapshot.value.state)?.let { RunnerStatus.onAppLine(it) }
+    }
+
+    @Test fun aWatchdogTickOnARunningServiceWritesNothingAtAll() {
+        // Ninety of these a day went into the file that readTail pastes into a
+        // bug report, each one saying the runner had not been running. On an
+        // idle phone they were most of the hundred-line tail, so the log
+        // manufactured the very symptom the watchdog exists to diagnose.
+        RunnerStatus.reset()
+        RunnerStatus.attachLog(log())
+        try {
+            RunnerStatus.onServiceStarted()
+            RunnerStatus.onRunnerLine("2026-09-12T00:00:00Z: Listening for Jobs")
+            val before = currentLog().readLines().size
+
+            repeat(6) { watchdogTick() }
+
+            assertEquals(before, currentLog().readLines().size)
+            assertFalse(currentLog().readLines().any { it.contains("was not running") })
+        } finally {
+            RunnerStatus.reset()
+        }
+    }
+
+    @Test fun aWatchdogTickThatRestartedADeadRunnerIsKept() {
+        RunnerStatus.reset()
+        RunnerStatus.attachLog(log())
+        try {
+            RunnerStatus.onServiceStopped()
+
+            watchdogTick()
+
+            assertTrue(
+                currentLog().readLines().any {
+                    it == "[app] watchdog (job): the runner was not running, started it"
+                },
+            )
+        } finally {
+            RunnerStatus.reset()
+        }
+    }
 }

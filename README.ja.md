@@ -50,7 +50,9 @@ CPUでは 141ms — 仮想マシンのARM64ランナーには出せない数字�
 - **自己防衛** — 残量低下・高温・容量不足のあいだはジョブを保留し、
   異常終了しても自動でリスナーを再起動。停電で給電が消えただけでは止まりません
   (充電済みの端末はバッテリーで走り続け、残量が実際に閾値を割ってから保留)。保留中は実際にGitHubからofflineに見える
-  (「保留したつもり」で終わらない)
+  (「保留したつもり」で終わらない)。保留は異常終了として数えないので、条件が戻れば
+  身に覚えのないバックオフを待たされずすぐ再開します
+  ([#210](https://github.com/m96-chan/DroidRunner/issues/210))
 - **状態を隠さない** — 通知にRunnerの状態と、保留中はその理由を表示。
   Picture-in-Pictureで他アプリを使いながら見ておける
 - **自分のログを渡せる** — 端末レポートとrunnerログの末尾をクリップボードへ。
@@ -111,8 +113,11 @@ Snapdragon 2台です。
   (Android 10+ はアプリ領域からの `exec()` を拒否するため)
 - 残量低下・高温・容量不足のあいだはジョブを保留し、回復したら再開。
   給電が消えただけでは保留せず、バッテリー動作かつ残量が閾値未満のときに保留。
-  **保留中はGitHubから見て実際にofflineになります**
-- 落ちたリスナーを再起動し、落ち続けるならバックオフ。警告は試行ごとではなく1回だけ
+  **保留中はGitHubから見て実際にofflineになります**。保留は設計どおりの動作であって
+  Runnerの失敗ではないので、条件が戻った瞬間に復帰します
+- 落ちたリスナーを再起動し、落ち続けるならバックオフ。警告は試行ごとではなく1回だけ。
+  監視ループの1周が例外を投げても(空き容量の取得失敗、メモリ不足でのfork失敗など)、
+  待って次の周回へ進みます。監視ジョブが気づくまでRunnerを止めてしまうことはありません
 - ephemeralモードはジョブごとに再登録し work directory を消去
 
 **シリコンでモデルを動かす**
@@ -469,6 +474,12 @@ secrets: `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_
 5. 完了 — 以後はアプリを起動するだけでRunnerが自動スタートします
    (Start/Stopはダッシュボードのrunnerパネルにあります)
 
+   **Stop**はすぐ戻り、停止しきるまでRunnerは*stopping*と表示されます。完了までは
+   最大で30秒ほどかかります。その大半はリスナーがGitHubにセッションを返すのを待つ
+   時間で、これを待つからこそ次回の起動が「A session for this runner already exists」
+   のリトライに何分も費やさずに済みます。待つこと自体は必要で、アプリが道連れに
+   固まらなくなったということです。
+
 runtimeの取得元は`droidrunner.runtimeRepo`ビルドプロパティで指定したリポジトリです。
 manifest URLの手動上書きは`advanced`にあります(GitHub Enterprise Serverや自前ホスト用)。
 新しいbundleの公開は**Runtime bundle**ワークフローで行います(`runtime/README.md`参照)。
@@ -606,7 +617,10 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
   bucket は EXEMPTED、バックグラウンド制限なし、Doze でもない状態で。メーカーのアプリ別
   電源設定画面は署名権限で保護されているためアプリから開くこともできず、**端末の設定
   から手動で許可する必要がある**
-  ([#184](https://github.com/m96-chan/DroidRunner/issues/184))
+  ([#184](https://github.com/m96-chan/DroidRunner/issues/184))。
+  監視ジョブがログに行を残すのは実際にRunnerが落ちていたときだけなので、ログ中の
+  `watchdog (job): the runner was not running` は本当の復帰を意味します
+  ([#214](https://github.com/m96-chan/DroidRunner/issues/214))
 - 起動時自動スタートが効くのは、端末が**アンロックされてから**であり、起動した瞬間では
   ない。Androidはユーザーがcredential-lock状態のあいだ`BOOT_COMPLETED`を保留し、
   runtime bundleも保存済みの認証情報も、初回アンロックまで読めない
@@ -624,7 +638,13 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
 - [x] バッテリー・温度・空き容量によるジョブ受付制御。保留はバッテリー動作かつ残量が
       閾値未満のときだけ ([#185](https://github.com/m96-chan/DroidRunner/issues/185))
       — 停電しても充電済みの端末は止まらない
-- [x] リスナー異常終了時の復旧(バックオフ付き再起動)
+- [x] リスナー異常終了時の復旧(バックオフ付き再起動)。監視側が意図して止めた場合と
+      本当の異常終了を区別する ([#210](https://github.com/m96-chan/DroidRunner/issues/210))
+      — 保留が「起動を維持できていません」警告を出したり、復帰を数分遅らせたりしない
+- [x] 20秒かかる停止でアプリを固めない ([#209](https://github.com/m96-chan/DroidRunner/issues/209))
+- [x] 一時的な例外で監視ループを終わらせない
+      ([#211](https://github.com/m96-chan/DroidRunner/issues/211))
+      — 停止ボタンを押したときと見分けのつかない`Stopped`にならないようにする
 - [x] システムにサービスごと落とされた後の復帰
       ([#184](https://github.com/m96-chan/DroidRunner/issues/184)) — `START_STICKY` と
       期限つき監視ジョブの二段構え(実測でどちらも単独では取りこぼした)。両方が通じない
