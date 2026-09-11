@@ -79,8 +79,18 @@ reading English.
 | `unknown-device` | no such accelerator on this phone | `3` |
 | `not-installed` | the vendor runtime this device would need is not installed | `3` |
 | `invalid-request` | malformed, a path outside the job's home, **or inputs that do not fit the model** | `1` |
+| `busy` | every worker and every queued slot is taken; **nothing was attempted** | `5` |
 | `failed` | anything else that stopped a run | `1` |
 | — | the agent did not answer | `4` |
+
+`5` is the one worth *waiting* on, and the only one where sending the identical
+request again is the right thing to do. A sweep may hold a worker for up to an
+hour, so a busy phone is a state a healthy fleet reaches; the agent answers
+`503` with a `Retry-After` header and repeats the wait in `error`, because the
+agent knows how long its queue is and the caller does not. Introduced in
+v0.15.0 — before it, a refused connection carried `failed` and the wrapper
+exited `1`, which this document defines as the caller's own fault and therefore
+the one status never to retry.
 
 `4` is the one worth stopping a sweep for. So, differently, is `invalid-model`:
 a refusal is a row of data and the sweep carries on, while a file nothing can

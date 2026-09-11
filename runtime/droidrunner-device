@@ -50,6 +50,11 @@ die() { note "droidrunner-device: $*"; exit 1; }
 EXIT_REFUSED=2
 EXIT_UNKNOWN_DEVICE=3
 EXIT_UNREACHABLE=4
+# The phone answered, and is busy. Its own status because the answer is the
+# opposite of every other failure here: nothing was attempted and the same
+# request will work later. It used to arrive as 1 — the one status a caller
+# must never retry on, since it means the request itself was wrong (#233).
+EXIT_BUSY=5
 
 [ -n "${DROIDRUNNER_DEVICE_URL:-}" ] || {
     note "droidrunner-device: DROIDRUNNER_DEVICE_URL is not set (is this job running on a DroidRunner device?)"
@@ -107,7 +112,9 @@ api_with_status() {  # api_with_status <method> <path> [data]
 # them as a phone with no accelerators (#205).
 answers_the_request() {  # answers_the_request <method> <http status>
     case "$1" in GET) return 1 ;; esac
-    case "$2" in 401|403|404) return 1 ;; esac
+    # 503 joins them: the agent refused the connection before reading the
+    # request, so the body describes the phone and not the model (#233).
+    case "$2" in 401|403|404|503) return 1 ;; esac
     return 0
 }
 
@@ -201,6 +208,7 @@ status_for() {  # status_for <json>
     case "$(json_field "$1" code)" in
         refused) return $EXIT_REFUSED ;;
         unknown-device|not-installed) return $EXIT_UNKNOWN_DEVICE ;;
+        busy) return $EXIT_BUSY ;;
         "") return 0 ;;
         *) return 1 ;;
     esac

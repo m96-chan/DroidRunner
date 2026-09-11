@@ -43,6 +43,14 @@ class PipScreenTest {
         assertEquals("cpu 0% · bat 40% · ok:0 fail:0", pipStats(system, succeeded = 0, failed = 0))
     }
 
+    @Test fun aCpuNobodyCouldMeasureIsNotReportedAsIdle() {
+        // `/proc/stat` is unreadable to the app on every phone in this fleet
+        // running Android 16, so no core is ever measured and this line said
+        // "cpu 0%" forever — on a device that had just finished a job (#239).
+        val system = SystemSnapshot(cpuAverage = null, batteryPercent = 40, charging = false)
+        assertEquals("cpu -- · bat 40% · ok:0 fail:0", pipStats(system, succeeded = 0, failed = 0))
+    }
+
     @Test fun aHeldRunnerSaysWhyItIsHeld() {
         // Held and broken look identical from outside; this line is the only
         // place the window can tell them apart.

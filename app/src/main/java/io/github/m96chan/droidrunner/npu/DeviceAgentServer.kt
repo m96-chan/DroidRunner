@@ -90,7 +90,9 @@ internal class DeviceAgentServer(
         // failed and the agent stopped listening for the life of the process.
         RejectedExecutionHandler { task, _ ->
             (task as? Connection)?.refuse(
-                "the device agent is busy: every worker and every queued slot is taken",
+                "the device agent is busy: every worker and every queued slot is " +
+                    "taken. Nothing was attempted; try the same request again in " +
+                    "$RETRY_AFTER_SECONDS seconds",
             )
         },
     )
@@ -113,7 +115,15 @@ internal class DeviceAgentServer(
         fun refuse(why: String) {
             runCatching {
                 client.use {
-                    writeResponse(it, 503, ResultContract.error(ResultContract.Code.FAILED, why))
+                    writeResponse(
+                        it,
+                        503,
+                        ResultContract.error(ResultContract.Code.BUSY, why),
+                        // The agent knows how long its queue is and the caller
+                        // does not, so it says when to come back rather than
+                        // leaving every consumer to invent a backoff (#233).
+                        extraHeaders = listOf("Retry-After: $RETRY_AFTER_SECONDS"),
+                    )
                     drainArrived(it)
                 }
             }.onFailure { logError("device agent could not refuse a connection", it) }
@@ -648,7 +658,12 @@ internal class DeviceAgentServer(
         return modelTest(request.toString()).second
     }
 
-    private fun writeResponse(client: Socket, status: Int, json: String) {
+    private fun writeResponse(
+        client: Socket,
+        status: Int,
+        json: String,
+        extraHeaders: List<String> = emptyList(),
+    ) {
         val reason = when (status) {
             200 -> "OK"
             400 -> "Bad Request"
@@ -667,6 +682,7 @@ internal class DeviceAgentServer(
                     ("HTTP/1.1 $status $reason\r\n" +
                         "Content-Type: application/json\r\n" +
                         "Content-Length: ${payload.size}\r\n" +
+                        extraHeaders.joinToString("") { "$it\r\n" } +
                         "Connection: close\r\n\r\n").toByteArray(),
                 )
                 write(payload)
@@ -680,6 +696,14 @@ internal class DeviceAgentServer(
         private const val PORT = 41999
         private const val BACKLOG = 8
         private const val MAX_WORKERS = 2
+
+        /**
+         * What a refused caller is told to wait. Not tuned: a sweep can hold a
+         * worker for an hour, so no number here is right for every case — this
+         * is short enough that a queue draining normally is retried promptly,
+         * and the caller still decides whether waiting is worth it (#233).
+         */
+        internal const val RETRY_AFTER_SECONDS = 30
         private const val MAX_QUEUED = 8
         private const val MAX_HEADERS = 40
         private const val MAX_BODY_BYTES = 16 * 1024

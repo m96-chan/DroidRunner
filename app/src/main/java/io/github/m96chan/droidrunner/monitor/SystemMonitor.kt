@@ -50,7 +50,17 @@ data class CoreStat(
 
 data class SystemSnapshot(
     val cores: List<CoreStat> = emptyList(),
-    val cpuAverage: Float = 0f,
+    /**
+     * Mean load over the cores that were actually measured, or null when none
+     * were (issue #239).
+     *
+     * Nullable for the same reason [CoreStat.usage] is. `0f` is a load, and on
+     * a phone where `/proc/stat` cannot be read — every phone in this fleet
+     * running Android 16 — *no* core is ever measured, so the meter sat at a
+     * solid `0%` and read as an idle CPU on a device that had just finished a
+     * job. Unmeasured has to be sayable.
+     */
+    val cpuAverage: Float? = null,
     val cpuHistory: List<Float> = emptyList(),
     val memUsedBytes: Long = 0,
     val memTotalBytes: Long = 1,
@@ -111,7 +121,7 @@ class SystemMonitor(private val context: Context) {
         val measured = cores.mapNotNull { core ->
             core.usage.takeIf { core.source == CoreUsageSource.PROC_STAT }
         }
-        val cpuAverage = if (measured.isEmpty()) 0f else measured.average().toFloat()
+        val cpuAverage = if (measured.isEmpty()) null else measured.average().toFloat()
 
         val memory = ActivityManager.MemoryInfo().also {
             context.getSystemService(ActivityManager::class.java).getMemoryInfo(it)
@@ -121,7 +131,7 @@ class SystemMonitor(private val context: Context) {
         // Nothing measured is not a measurement of nothing: the first poll
         // after start has no previous /proc/stat to subtract from, and a 0%
         // notch drawn there is a load the phone never had.
-        if (measured.isNotEmpty()) push(cpuHistory, cpuAverage)
+        cpuAverage?.let { push(cpuHistory, it) }
         push(memHistory, memUsed.toFloat() / memory.totalMem)
 
         val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))

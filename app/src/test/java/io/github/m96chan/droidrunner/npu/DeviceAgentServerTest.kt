@@ -727,6 +727,50 @@ class AgentUnderLoadTest {
         }
     }
 
+    @Test fun aRefusedCallerIsToldToRetryRatherThanToFixItsRequest() {
+        // #199 gave an overloaded agent a `503` instead of silence. It carried
+        // `code: failed`, which the wrapper's exit table maps to 1 — the one
+        // status a caller must never retry on, because it means the request
+        // was wrong. Nothing was wrong with it, and the phone would have
+        // answered a minute later (#233).
+        val busy = fillEveryWorkerAndSlot()
+        try {
+            java.net.Socket("127.0.0.1", server.port).use { over ->
+                over.soTimeout = 10_000
+                over.getOutputStream().apply {
+                    write(
+                        ("GET /v1/capabilities HTTP/1.1\r\n" +
+                            "Authorization: Bearer $token\r\n\r\n").toByteArray(),
+                    )
+                    flush()
+                }
+                val lines = over.getInputStream().bufferedReader()
+                    .let { r -> generateSequence { r.readLine() }.toList() }
+                val whole = lines.joinToString("\n")
+
+                assertTrue("expected 503, got: ${lines.firstOrNull()}", whole.contains("503"))
+                assertTrue(
+                    "a busy phone must not be reported as a bad request: $whole",
+                    whole.contains("\"code\":\"busy\""),
+                )
+                // The agent knows how long its queue is; the caller does not.
+                assertTrue(
+                    "the refusal should say when to come back: $whole",
+                    whole.contains("Retry-After: ${DeviceAgentServer.RETRY_AFTER_SECONDS}"),
+                )
+                // And in the body too, because the wrapper reads the body and
+                // not the headers.
+                assertTrue(
+                    "the body should carry the wait as well: $whole",
+                    whole.contains("${DeviceAgentServer.RETRY_AFTER_SECONDS} seconds"),
+                )
+            }
+        } finally {
+            held.countDown()
+            busy.forEach { runCatching { it.close() } }
+        }
+    }
+
     @Test fun stoppingAnswersWhatWasStillQueuedRatherThanDroppingIt() {
         val busy = fillEveryWorkerAndSlot()
         try {
