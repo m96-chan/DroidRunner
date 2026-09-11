@@ -709,4 +709,8 @@ Ubuntu rootfs(各パッケージのライセンス)が含まれます。bundle�
 ソース、パッチ、ビルド手順、著作権表示を一緒に提供してください
 (`runtime/build-bundle.sh`が中身を固定しています)。
 
-同じ情報はアプリのAbout画面でも確認できます。
+同じ内容はアプリのAbout画面でも提供しています。ビルド元リリースの
+`droidrunner-<tag>-source.tar.gz`を名前で示してリンクし、rootfsについては
+`PACKAGES.txt`と`SOURCE-OFFER.txt`を案内します。リリースではない開発ビルドでは
+その旨を明示します。この表のコンポーネントがAbout画面から抜けていれば
+`tools/check-licence-tables-match.sh`がビルドを失敗させます。
