@@ -28,6 +28,7 @@ jobs:
       # built that way installs as a development build and can never be
       # upgraded from.
       - name: Check the tag is the shape a release can carry
+        id: release_tag
         shell: bash
         env:
           TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
@@ -41,8 +42,27 @@ jobs:
             exit 1
           fi
           echo "releasing $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
+        with:
+          # A manual dispatch has a branch of its own. The tag input chooses
+          # both the source and the version, even when that branch is main.
+          ref: refs/tags/${{ steps.release_tag.outputs.tag }}
+
+      - name: Verify the checkout matches the release tag
+        shell: bash
+        env:
+          TAG: ${{ steps.release_tag.outputs.tag }}
+        run: |
+          tag_commit="$(git rev-parse --verify "refs/tags/$TAG^{commit}")"
+          head_commit="$(git rev-parse --verify HEAD)"
+          if [ "$head_commit" != "$tag_commit" ]; then
+            echo "::error::The checkout does not match the release tag."
+            exit 1
+          fi
+          echo "building $TAG from $head_commit"
+
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -77,7 +97,7 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           # versionName/versionCode are derived from this, so an update always
           # outranks what it replaces.
-          DROIDRUNNER_RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          DROIDRUNNER_RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
         run: ./gradlew testDebugUnitTest assembleRelease
 
       # GPL-2.0 §3 is satisfied by offering the source from the same place as
@@ -86,16 +106,17 @@ jobs:
       # source beside it (issue #116).
       - name: Build the corresponding source archive
         env:
-          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          TAG: ${{ steps.release_tag.outputs.tag }}
         run: runtime/build-source-archive.sh "$TAG"
 
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          TAG: ${{ steps.release_tag.outputs.tag }}
         run: |
           cp app/build/outputs/apk/release/app-release.apk "droidrunner-$TAG.apk"
-          gh release create "$TAG" --title "DroidRunner $TAG" --generate-notes || true
-          gh release upload "$TAG" --clobber \
+          # A published version is immutable. Refuse an existing release and
+          # a missing remote tag; neither may be replaced by a dispatch (#252).
+          gh release create "$TAG" --verify-tag --title "DroidRunner $TAG" --generate-notes \
             "droidrunner-$TAG.apk" \
             "runtime/out/droidrunner-$TAG-source.tar.gz"

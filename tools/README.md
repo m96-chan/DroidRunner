@@ -111,6 +111,18 @@ composite action either way.
 Runs on every push. See [#203](https://github.com/m96-chan/DroidRunner/issues/203)
 and [#204](https://github.com/m96-chan/DroidRunner/issues/204).
 
+## `tests/test_app_release.py`
+
+Exercises the app release workflow's run blocks against temporary Git
+repositories and a mock publisher. It checks a manual dispatch from a branch
+ahead of its requested tag, annotated tags, missing tags, and failed publication.
+Run it with `python3 -m unittest discover -s tools/tests -p 'test_app_release.py'`.
+
+App releases require an existing `v<major>.<minor>.<patch>` tag and build that
+tag's commit. Publication refuses an existing release instead of overwriting
+its APK: publish changed code under a new version. See
+[#252](https://github.com/m96-chan/DroidRunner/issues/252).
+
 ## `ulp/`
 
 Does an accelerator compute what it was asked to, or only run it? Nothing in
