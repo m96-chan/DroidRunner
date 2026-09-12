@@ -15,6 +15,10 @@ class RuntimeActivationTest {
     private fun runtimeAt(dir: File, version: String) = dir.apply {
         mkdirs()
         File(this, ".installed").writeText(version)
+        File(this, "rootfs/usr/bin").mkdirs()
+        File(this, "rootfs/usr/bin/env").writeText("env")
+        File(this, "home/runner").mkdirs()
+        File(this, "home/runner/run.sh").writeText("runner")
     }
 
     @Test fun theNewRuntimeReplacesTheOldOne() {
@@ -73,8 +77,7 @@ class RuntimeActivationTest {
     }
 
     @Test fun aLeftoverSetAsideCopyDoesNotBlockTheNextInstall() {
-        // An install killed part-way can leave one behind; it is stale by
-        // definition and must not be mistaken for a backup worth keeping.
+        // A completed swap can leave its backup behind before cleanup.
         val staging = runtimeAt(temp.newFolder("staging"), "new")
         val target = runtimeAt(temp.newFolder("runtime"), "old")
         val previous = runtimeAt(File(temp.root, "runtime.old"), "ancient")
@@ -89,5 +92,120 @@ class RuntimeActivationTest {
         // A rootfs expands to roughly three times its compressed size, and the
         // archive is still on disk while it does.
         assertTrue(RuntimeActivation.requiredBytes(200_000_000) >= 800_000_000)
+    }
+
+    @Test fun restartAfterSettingAsideTheOldRuntimeRestoresIdentityAndIsIdempotent() {
+        val target = runtimeAt(File(temp.root, "runtime"), "old")
+        File(target, "runner-config.json").writeText("registration")
+        File(target, "home/runner/.runner").writeText("identity")
+        val previous = File(temp.root, "runtime.old")
+        val staging = runtimeAt(File(temp.root, "runtime.new"), "new")
+        val failure = runCatching {
+            RuntimeActivation.activate(staging, target, previous, rename = { from, to ->
+                if (from == staging) error("simulated process death")
+                from.renameTo(to)
+            }, valid = RuntimeActivation::isRuntime)
+        }
+        assertTrue(failure.isFailure)
+        assertFalse(target.exists())
+        repeat(2) { RuntimeActivation.recover(target, previous, RuntimeActivation::isRuntime) }
+        assertEquals("old", File(target, ".installed").readText())
+        assertEquals("registration", File(target, "runner-config.json").readText())
+        assertEquals("identity", File(target, "home/runner/.runner").readText())
+    }
+
+    @Test fun restartAfterPublishingTheNewRuntimeDefersBackupCleanupUntilInstallation() {
+        val target = runtimeAt(File(temp.root, "runtime"), "new")
+        val previous = runtimeAt(File(temp.root, "runtime.old"), "old")
+        File(previous, "workspace").mkdirs()
+        val oldArtifact = File(previous, "workspace/artifact").apply { writeText("build output") }
+        repeat(2) { RuntimeActivation.recover(target, previous, RuntimeActivation::isRuntime) }
+        assertEquals("new", File(target, ".installed").readText())
+        assertTrue("startup does not recursively delete the old tree", previous.isDirectory)
+        assertEquals("build output", oldArtifact.readText())
+        RuntimeActivation.recover(
+            target, previous, RuntimeActivation::isRuntime, cleanupPrevious = true,
+        )
+        assertFalse(previous.exists())
+    }
+
+    @Test fun nextInstallRecoversRegistrationBeforePreparingTheNewTree() {
+        val target = File(temp.root, "runtime")
+        val previous = runtimeAt(File(temp.root, "runtime.old"), "old")
+        File(previous, "runner-config.json").writeText("registration")
+        val staging = runtimeAt(File(temp.root, "runtime.new"), "new")
+        RuntimeActivation.activate(staging, target, previous,
+            valid = RuntimeActivation::isRuntime,
+            prepare = { File(target, "runner-config.json").copyTo(File(staging, "runner-config.json")) },
+        )
+        assertEquals("new", File(target, ".installed").readText())
+        assertEquals("registration", File(target, "runner-config.json").readText())
+    }
+
+    @Test fun installationCollectsInterruptedCleanupWithoutTouchingOtherTrees() {
+        val target = runtimeAt(File(temp.root, "runtime"), "new")
+        val previous = File(temp.root, "runtime.old")
+        val abandoned = runtimeAt(File(temp.root, "runtime.old.cleanup-abandoned"), "old")
+        val unrelated = runtimeAt(File(temp.root, "qnn.old.cleanup-abandoned"), "qnn")
+        RuntimeActivation.recover(target, previous, RuntimeActivation::isRuntime)
+        assertTrue("startup leaves deletion to installation", abandoned.isDirectory)
+        RuntimeActivation.recover(
+            target, previous, RuntimeActivation::isRuntime, cleanupPrevious = true,
+        )
+        assertFalse(abandoned.exists())
+        assertTrue(unrelated.isDirectory)
+        assertEquals("new", File(target, ".installed").readText())
+    }
+
+    @Test fun failedRollbackRetainsBackupForNextStartup() {
+        val target = runtimeAt(File(temp.root, "runtime"), "old")
+        val previous = File(temp.root, "runtime.old")
+        val staging = runtimeAt(File(temp.root, "runtime.new"), "new")
+        val failure = runCatching {
+            RuntimeActivation.activate(staging, target, previous, rename = { from, to ->
+                if (from == target) from.renameTo(to) else false
+            }, valid = RuntimeActivation::isRuntime)
+        }
+        assertTrue(failure.isFailure)
+        assertTrue(previous.isDirectory)
+        RuntimeActivation.recover(target, previous, RuntimeActivation::isRuntime)
+        assertEquals("old", File(target, ".installed").readText())
+    }
+
+    @Test fun incompleteTargetIsPreservedWhileAValidatedBackupIsRestored() {
+        val target = File(temp.root, "runtime").apply { mkdirs() }
+        File(target, "runner-config.json").writeText("partial target registration")
+        val previous = runtimeAt(File(temp.root, "runtime.old"), "old")
+        RuntimeActivation.recover(target, previous, RuntimeActivation::isRuntime)
+        assertEquals("old", File(target, ".installed").readText())
+        assertEquals("partial target registration", File(temp.root, "runtime.failed/runner-config.json").readText())
+    }
+
+    @Test fun incompleteBackupIsNeverDeletedOrPromoted() {
+        val previous = File(temp.root, "runtime.old").apply { mkdirs() }
+        File(previous, "runner-config.json").writeText("registration")
+        val target = File(temp.root, "runtime")
+        val failure = runCatching {
+            RuntimeActivation.recover(target, previous, RuntimeActivation::isRuntime)
+        }
+        assertTrue(failure.isFailure)
+        assertFalse(target.exists())
+        assertEquals("registration", File(previous, "runner-config.json").readText())
+    }
+
+    @Test fun failedRecoveryPreventsAnInstallFromDeletingTheOnlyGoodBackup() {
+        val previous = runtimeAt(File(temp.root, "runtime.old"), "old")
+        File(previous, "runner-config.json").writeText("registration")
+        val target = File(temp.root, "runtime")
+        val staging = runtimeAt(File(temp.root, "runtime.new"), "new")
+        val failure = runCatching {
+            RuntimeActivation.activate(staging, target, previous,
+                rename = { _, _ -> false }, valid = RuntimeActivation::isRuntime,
+            )
+        }
+        assertTrue(failure.isFailure)
+        assertFalse(target.exists())
+        assertEquals("registration", File(previous, "runner-config.json").readText())
+        assertEquals("new", File(staging, ".installed").readText())
     }
 }

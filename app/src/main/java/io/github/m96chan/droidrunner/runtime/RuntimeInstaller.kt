@@ -1,6 +1,7 @@
 package io.github.m96chan.droidrunner.runtime
 
 import android.content.Context
+import android.util.Log
 import io.github.m96chan.droidrunner.BuildConfig
 import io.github.m96chan.droidrunner.runner.RunnerRegistration
 import org.json.JSONObject
@@ -11,15 +12,34 @@ data class RuntimeManifest(val version: String, val url: String, val sha256: Str
 
 class RuntimeInstaller(private val context: Context) {
     val runtimeDir = File(context.filesDir, "runner-runtime")
-    val installed: Boolean get() = File(runtimeDir, ".installed").isFile
+    private val previousDir = File(context.filesDir, "runner-runtime.old")
+    private var recoveryFailed = false
+
+    init {
+        // Keep setup accessible if storage prevents a rename. An explicit
+        // install retries recovery and surfaces its error before changing files.
+        runCatching { recover() }.onFailure { Log.w("RuntimeInstaller", "Runtime recovery failed", it) }
+    }
+
+    private fun recover(cleanupPrevious: Boolean = false) {
+        recoveryFailed = true
+        RuntimeActivation.recover(
+            runtimeDir, previousDir, RuntimeActivation::isRuntime,
+            cleanupPrevious = cleanupPrevious,
+        )
+        recoveryFailed = false
+    }
+
+    val installed: Boolean get() = !recoveryFailed && File(runtimeDir, ".installed").isFile
     val installedVersion: String?
-        get() = File(runtimeDir, ".installed").takeIf { it.isFile }?.readText()?.trim()
+        get() = File(runtimeDir, ".installed").takeIf { installed }?.readText()?.trim()
 
     /**
      * [progress] reports the current phase and, while downloading, how far
      * along it is (0..1); null means the phase has no measurable length.
      */
     fun install(manifestUrl: String, progress: (String, Float?) -> Unit = { _, _ -> }) {
+        recover(cleanupPrevious = true)
         require(manifestUrl.startsWith("https://")) { "Manifest must use HTTPS" }
         progress("reading manifest", null)
         // Verify the bytes as served: re-serialising would change what the
@@ -54,11 +74,12 @@ class RuntimeInstaller(private val context: Context) {
         // registered as is stored inside it. Carrying it over is what lets a
         // registered device reinstall a missing runtime and still be the same
         // runner afterwards (issue #46).
-        RunnerRegistration.copyDetails(runtimeDir, staging)
         RuntimeActivation.activate(
             staging = staging,
             target = runtimeDir,
-            previous = File(context.filesDir, "runner-runtime.old"),
+            previous = previousDir,
+            valid = RuntimeActivation::isRuntime,
+            prepare = { RunnerRegistration.copyDetails(runtimeDir, staging) },
         )
         archive.delete()
         File(archive.path + ".identity").delete()
