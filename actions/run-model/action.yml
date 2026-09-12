@@ -122,6 +122,11 @@ runs:
           2) echo "::warning::the driver refused the graph; see $RESULTS" ;;
           3) echo "::error::no such device on this phone: $DEVICE" ;;
           4) echo "::error::the device agent did not answer" ;;
+          # The phone was busy and attempted nothing, so this is neither the
+          # caller's fault nor a result to read — and the wrapper wrote no
+          # results file. A warning rather than an error: the same request
+          # works later, and a job that wants to insist can retry on 5 (#233).
+          5) echo "::warning::the device is busy and attempted nothing; the same request works later" ;;
           # `iterations` and `device` arrive from a caller's workflow_dispatch
           # and go to the wrapper verbatim, which now refuses a value it cannot
           # put in a request rather than letting it write fields of its own

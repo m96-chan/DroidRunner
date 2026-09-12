@@ -108,9 +108,11 @@ internal fun pipDetail(runner: RunnerSnapshot): PipDetail? = when {
  * itself, and what it has done for GitHub.
  */
 internal fun pipStats(system: SystemSnapshot, succeeded: Int, failed: Int): String {
-    val cpu = (system.cpuAverage * 100).roundToInt()
+    // `--` where the dashboard shows `--`: the window is smaller, not less
+    // careful about the difference between idle and unmeasured (#239).
+    val cpu = system.cpuAverage?.let { "${(it * 100).roundToInt()}%" } ?: "--"
     val battery = "${system.batteryPercent}%" + if (system.charging) "⚡" else ""
-    return "cpu $cpu% · bat $battery · ok:$succeeded fail:$failed"
+    return "cpu $cpu · bat $battery · ok:$succeeded fail:$failed"
 }
 
 /**

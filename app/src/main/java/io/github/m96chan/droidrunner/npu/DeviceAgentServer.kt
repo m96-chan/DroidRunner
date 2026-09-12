@@ -90,7 +90,10 @@ internal class DeviceAgentServer(
         // failed and the agent stopped listening for the life of the process.
         RejectedExecutionHandler { task, _ ->
             (task as? Connection)?.refuse(
-                "the device agent is busy: every worker and every queued slot is taken",
+                "the device agent is busy: every worker and every queued slot is " +
+                    "taken. Nothing was attempted; try the same request again in " +
+                    "$RETRY_AFTER_SECONDS seconds",
+                retryAfterSeconds = RETRY_AFTER_SECONDS,
             )
         },
     )
@@ -109,11 +112,27 @@ internal class DeviceAgentServer(
                 .onFailure { logError("device agent request failed", it) }
         }
 
-        /** Says that nobody is going to run this, and closes. */
-        fun refuse(why: String) {
+        /**
+         * Says that nobody is going to run this, and closes.
+         *
+         * [retryAfterSeconds] only where coming back actually helps. An
+         * overloaded agent expects to answer again and knows roughly when, so
+         * it says so — the caller would otherwise invent a backoff. A
+         * *stopping* agent will not answer again at all: the next request
+         * reaches a closed port and exits 4, which is where a sweep should
+         * stop. Naming a wait there would be a promise nothing keeps (#233).
+         */
+        fun refuse(why: String, retryAfterSeconds: Int? = null) {
             runCatching {
                 client.use {
-                    writeResponse(it, 503, ResultContract.error(ResultContract.Code.FAILED, why))
+                    writeResponse(
+                        it,
+                        503,
+                        ResultContract.error(ResultContract.Code.BUSY, why),
+                        extraHeaders = retryAfterSeconds
+                            ?.let { seconds -> listOf("Retry-After: $seconds") }
+                            .orEmpty(),
+                    )
                     drainArrived(it)
                 }
             }.onFailure { logError("device agent could not refuse a connection", it) }
@@ -159,7 +178,10 @@ internal class DeviceAgentServer(
         // shutdownNow hands back the tasks it dropped, and each one still owns
         // a socket with a client waiting on the other end of it (#199).
         workers.shutdownNow().forEach {
-            (it as? Connection)?.refuse("the device agent is stopping")
+            (it as? Connection)?.refuse(
+                "the device agent is stopping; this request was not attempted, " +
+                    "and it will not answer another",
+            )
         }
     }
 
@@ -648,7 +670,12 @@ internal class DeviceAgentServer(
         return modelTest(request.toString()).second
     }
 
-    private fun writeResponse(client: Socket, status: Int, json: String) {
+    private fun writeResponse(
+        client: Socket,
+        status: Int,
+        json: String,
+        extraHeaders: List<String> = emptyList(),
+    ) {
         val reason = when (status) {
             200 -> "OK"
             400 -> "Bad Request"
@@ -667,6 +694,7 @@ internal class DeviceAgentServer(
                     ("HTTP/1.1 $status $reason\r\n" +
                         "Content-Type: application/json\r\n" +
                         "Content-Length: ${payload.size}\r\n" +
+                        extraHeaders.joinToString("") { "$it\r\n" } +
                         "Connection: close\r\n\r\n").toByteArray(),
                 )
                 write(payload)
@@ -680,6 +708,14 @@ internal class DeviceAgentServer(
         private const val PORT = 41999
         private const val BACKLOG = 8
         private const val MAX_WORKERS = 2
+
+        /**
+         * What a refused caller is told to wait. Not tuned: a sweep can hold a
+         * worker for an hour, so no number here is right for every case — this
+         * is short enough that a queue draining normally is retried promptly,
+         * and the caller still decides whether waiting is worth it (#233).
+         */
+        internal const val RETRY_AFTER_SECONDS = 30
         private const val MAX_QUEUED = 8
         private const val MAX_HEADERS = 40
         private const val MAX_BODY_BYTES = 16 * 1024
