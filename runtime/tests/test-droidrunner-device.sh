@@ -191,6 +191,39 @@ for code in 401 403; do
 done
 rm -f "$WORK/get-status"
 
+# A busy phone is not a bad request, and until #233 it came back as one. #199
+# gave an overloaded agent a `503` instead of silence, which was right; the
+# wrapper had nowhere to put it and `status_for` fell through to the
+# unclassified bucket, so a caller following the exit table read exit 1 —
+# "fix your request" — when the request was fine and the phone would have
+# answered it a minute later.
+for method in GET POST; do
+    case $method in
+        GET) printf '503' > "$WORK/get-status"; forms="capabilities devices" ;;
+        POST) printf '503' > "$WORK/status"
+              forms="model" ;;
+    esac
+    for form in $forms; do
+        case $form in
+            model) run test model "$WORK/model.tflite" >/dev/null ;;
+            *) run $form >/dev/null ;;
+        esac
+        check "$form exits 5 when the agent is busy, not 1" 5 "$(status_of)"
+        contains "$form says the phone is busy rather than blaming the request" \
+            "busy" "$(cat "$WORK/stderr")"
+        contains "$form says when to come back" "seconds" "$(cat "$WORK/stderr")"
+    done
+    rm -f "$WORK/get-status" "$WORK/status"
+done
+# And a busy answer is not a result: nothing reaches stdout or --output.
+printf '503' > "$WORK/status"
+rm -f "$WORK/busy.json"
+run test model "$WORK/model.tflite" --output "$WORK/busy.json" >/dev/null
+check "a busy agent writes no --output file" "no" \
+    "$([ -f "$WORK/busy.json" ] && echo yes || echo no)"
+check "and prints no result" "" "$(run test model "$WORK/model.tflite" 2>/dev/null)"
+rm -f "$WORK/status"
+
 # A POST is not the same story, and the fix must not make it one: the agent
 # answers 400 with the contract's own code and message about the request that
 # was sent, and that body is the result a consumer keeps with --output.

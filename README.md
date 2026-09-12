@@ -339,6 +339,7 @@ separate the cases a sweep must treat differently:
 | `2` | the driver refused the graph — record it and carry on |
 | `3` | no such device on this phone |
 | `4` | the agent is unreachable — stop |
+| `5` | the phone is busy and attempted nothing — wait and send the same request again |
 
 The prose in `error` is for a person and gets reworded; the code is for a program
 and does not.
@@ -683,6 +684,19 @@ PRoot is a compatibility layer, not a strong security boundary like Docker or a 
   secure lock screen — otherwise a power cut takes CI down until someone picks the
   phone up. The dashboard reports how long a boot went unserved
   ([#41](https://github.com/m96-chan/DroidRunner/issues/41))
+- **An organisation with more than 100 registered runners** is more than this app
+  looks at. Reconciling this device's labels means finding its own runner by name,
+  and that search reads a single page of 100 — so on a larger org the phone is not
+  on the page, its labels reconcile against nothing, and it neither errors nor says
+  so. Repository-scoped runners are unaffected, and so is every org below the
+  threshold. Known and not fixed
+  ([#230](https://github.com/m96-chan/DroidRunner/issues/230))
+- **Per-core CPU usage is unavailable on many phones.** Android restricts
+  `/proc/stat`, and where the app cannot read it no core can be measured: the
+  dashboard marks each core with the clock it is running at (`~902MHz`) instead,
+  and the average reads `--` rather than a load nobody measured
+  ([#239](https://github.com/m96-chan/DroidRunner/issues/239)). Confirmed
+  unreadable on a nubia NX769J running Android 16
 - Android 12+ restricts how foreground services may be started
 - Some actions do not support ARM64 or a Linux environment on Android
 - The rootfs and build caches can consume significant storage

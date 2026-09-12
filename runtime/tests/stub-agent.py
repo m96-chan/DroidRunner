@@ -52,7 +52,17 @@ REFUSALS = {
     401: "missing or invalid capability token",
     403: "device agent is only available while a job is running",
     404: "unknown endpoint",
+    # Refused before the request was read, so nothing was attempted and the
+    # same request works later. Its own code for that reason (#233).
+    503: (
+        "the device agent is busy: every worker and every queued slot is taken. "
+        "Nothing was attempted; try the same request again in 30 seconds"
+    ),
 }
+
+# The code that goes with each refusal. `invalid-request` for the three that
+# are about the token or the URL; `busy` is about the phone.
+REFUSAL_CODES = {503: "busy"}
 
 
 def asked_status(name):
@@ -66,7 +76,7 @@ def refusal(status):
         {
             "schema": 1,
             "ok": False,
-            "code": "invalid-request",
+            "code": REFUSAL_CODES.get(status, "invalid-request"),
             "error": REFUSALS.get(status, "refused"),
         },
         separators=(",", ":"),
@@ -92,10 +102,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
         (DIR / "last-request.json").write_bytes(self.rfile.read(length))
-        self._send(
-            compact(DIR / "response.json", '{"schema":1,"ok":true}'),
-            asked_status("status"),
-        )
+        status = asked_status("status")
+        # A 503 is refused before the body is looked at, so it carries the
+        # agent's own envelope rather than whatever response.json holds.
+        if status == 503:
+            self._send(refusal(status), status)
+            return
+        self._send(compact(DIR / "response.json", '{"schema":1,"ok":true}'), status)
 
     def log_message(self, *args):
         pass

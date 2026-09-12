@@ -56,6 +56,19 @@ internal object ResultContract {
          */
         const val INVALID_MODEL = "invalid-model"
 
+        /**
+         * Every worker and every queued slot is taken; nothing was attempted.
+         *
+         * Its own code because the answer is the opposite of every other one
+         * here: wait and send the same request again. #199 gave an overloaded
+         * agent a `503` instead of silence, which was right, but the wrapper
+         * had nowhere to put it and classified it as `failed` — exit 1, the
+         * one status a caller must never retry on, since it means the request
+         * itself was wrong (#233). A sweep may hold a worker for an hour, so
+         * this is a state a healthy phone reaches.
+         */
+        const val BUSY = "busy"
+
         /** Anything else that stopped a run. */
         const val FAILED = "failed"
     }

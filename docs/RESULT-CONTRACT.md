@@ -79,8 +79,18 @@ reading English.
 | `unknown-device` | no such accelerator on this phone | `3` |
 | `not-installed` | the vendor runtime this device would need is not installed | `3` |
 | `invalid-request` | malformed, a path outside the job's home, **or inputs that do not fit the model** | `1` |
+| `busy` | every worker and every queued slot is taken; **nothing was attempted** | `5` |
 | `failed` | anything else that stopped a run | `1` |
 | — | the agent did not answer | `4` |
+
+`5` is the one worth *waiting* on, and the only one where sending the identical
+request again is the right thing to do. A sweep may hold a worker for up to an
+hour, so a busy phone is a state a healthy fleet reaches; the agent answers
+`503` with a `Retry-After` header and repeats the wait in `error`, because the
+agent knows how long its queue is and the caller does not. Introduced in
+v0.15.0 — before it, a refused connection carried `failed` and the wrapper
+exited `1`, which this document defines as the caller's own fault and therefore
+the one status never to retry.
 
 `4` is the one worth stopping a sweep for. So, differently, is `invalid-model`:
 a refusal is a row of data and the sweep carries on, while a file nothing can
@@ -520,11 +530,19 @@ the caller waited out its own timeout and reported a network problem
 ([#199](https://github.com/m96-chan/DroidRunner/issues/199)). A client may
 retry a `503`; there is nothing to retry against silence.
 
-The body carries `code: failed`, so the **wrapper** still reports it as exit
-`1` along with everything else unclassified. The status is the part to branch
-on for now, and a client speaking to the agent directly is the one that can.
-A busy phone deserves its own exit status, and that is a change to the exit
-table rather than to this section.
+The body carries `code: busy` and the response a `Retry-After` header, and the
+**wrapper** exits `5`. The wait is repeated in `error` as well, because
+`droidrunner-device` reads the body and not the headers. Until v0.15.0 the body
+said `failed` and the wrapper exited `1` — the status this document defines as
+the caller's own fault, and therefore the one never to retry
+([#233](https://github.com/m96-chan/DroidRunner/issues/233)).
+
+**A `503` sent while the agent is shutting down carries no `Retry-After`.** It
+is the same status and the same code — the request was not attempted, and that
+is not the caller's fault — but there is no wait that helps: the next request
+reaches a closed port and exits `4`, which is the right place for a sweep to
+stop. Only an overloaded agent names a wait, because only an overloaded agent
+expects to answer again.
 
 The head of a request is bounded too, and a request that runs past those bounds
 is answered rather than dropped: `431` for a header line or a header block over

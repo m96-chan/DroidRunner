@@ -35,6 +35,8 @@
 #   2  the driver refused the graph — a sweep records this and carries on
 #   3  no such device on this phone
 #   4  the agent is unreachable — a sweep stops
+#   5  the phone is busy and attempted nothing — wait and send the same
+#      request again; the refusal says how long
 #
 # An HTTP error from the agent — a capability token that rotated, a URL it does
 # not route — is reported with its status and exits non-zero. It is never
@@ -50,6 +52,11 @@ die() { note "droidrunner-device: $*"; exit 1; }
 EXIT_REFUSED=2
 EXIT_UNKNOWN_DEVICE=3
 EXIT_UNREACHABLE=4
+# The phone answered, and is busy. Its own status because the answer is the
+# opposite of every other failure here: nothing was attempted and the same
+# request will work later. It used to arrive as 1 — the one status a caller
+# must never retry on, since it means the request itself was wrong (#233).
+EXIT_BUSY=5
 
 [ -n "${DROIDRUNNER_DEVICE_URL:-}" ] || {
     note "droidrunner-device: DROIDRUNNER_DEVICE_URL is not set (is this job running on a DroidRunner device?)"
@@ -107,7 +114,9 @@ api_with_status() {  # api_with_status <method> <path> [data]
 # them as a phone with no accelerators (#205).
 answers_the_request() {  # answers_the_request <method> <http status>
     case "$1" in GET) return 1 ;; esac
-    case "$2" in 401|403|404) return 1 ;; esac
+    # 503 joins them: the agent refused the connection before reading the
+    # request, so the body describes the phone and not the model (#233).
+    case "$2" in 401|403|404|503) return 1 ;; esac
     return 0
 }
 
@@ -201,6 +210,7 @@ status_for() {  # status_for <json>
     case "$(json_field "$1" code)" in
         refused) return $EXIT_REFUSED ;;
         unknown-device|not-installed) return $EXIT_UNKNOWN_DEVICE ;;
+        busy) return $EXIT_BUSY ;;
         "") return 0 ;;
         *) return 1 ;;
     esac
@@ -230,7 +240,7 @@ name_option() {  # name_option <option> <value>
 }
 
 cmd="${1:-}"
-[ -n "$cmd" ] || { sed -n '3,42p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1; }
+[ -n "$cmd" ] || { sed -n '3,44p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1; }
 shift || true
 
 case "$cmd" in

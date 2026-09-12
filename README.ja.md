@@ -360,6 +360,7 @@ droidrunner-device test batch manifest.json --output sweep.json
 | `2` | ドライバが断った — 記録して続行 |
 | `3` | この端末にそのデバイスは無い |
 | `4` | エージェントに到達できない — 中断 |
+| `5` | 端末が手一杯で、何も実行していない — 待って同じリクエストを送り直す |
 
 `error` の文章は人間向けで書き換わります。`code` はプログラム向けで、変わりません。
 
@@ -651,6 +652,17 @@ PRootは実行互換レイヤーであり、DockerやVMのような強いセキ�
   セキュアなロック画面を設定しないこと — さもなければ停電のあと、誰かが端末を手に取る
   までCIは止まったままになる。無人だった時間はダッシュボードに表示される
   ([#41](https://github.com/m96-chan/DroidRunner/issues/41))
+- **登録Runnerが100台を超えるOrganizationは、このアプリが見る範囲を超える**。
+  この端末のラベル同期は自分のRunnerを名前で探すところから始まるが、その検索は
+  100件のページを1枚しか読まない。それより大きいOrganizationでは端末がページに
+  載らず、ラベルは何もない相手と突き合わされ、エラーも警告も出ない。リポジトリ
+  スコープのRunnerと、100台未満のOrganizationは影響を受けない。既知の制約として
+  修正していない ([#230](https://github.com/m96-chan/DroidRunner/issues/230))
+- **コアごとのCPU使用率が取れない端末が多い**。Androidが`/proc/stat`を制限しており、
+  読めない端末では1コアも計測できない。その場合ダッシュボードは各コアを動作クロック
+  (`~902MHz`)で表示し、平均は計測していない値の代わりに`--`と出す
+  ([#239](https://github.com/m96-chan/DroidRunner/issues/239))。
+  nubia NX769J (Android 16) で読めないことを実機確認済み
 - Android 12以降ではForeground Serviceの起動方法に制約がある
 - 一部のActionsはARM64やAndroid上のLinux環境に対応していない
 - rootfsとビルドキャッシュに大きなストレージを使用する可能性がある

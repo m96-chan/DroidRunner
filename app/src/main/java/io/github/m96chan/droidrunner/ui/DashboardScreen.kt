@@ -102,7 +102,16 @@ private fun CpuPanel(system: SystemSnapshot) {
     Panel("cpu") {
         HistoryGraph(system.cpuHistory, color = BtopColors.Cyan)
         Spacer(Modifier.padding(top = 8.dp))
-        Meter("avg", system.cpuAverage)
+        // `--`, not `0%`, when no core could be measured. The cores below
+        // already say so individually; the average said the CPU was idle,
+        // which on a phone that cannot read /proc/stat it says forever (#239).
+        val average = system.cpuAverage
+        Meter(
+            "avg",
+            average ?: 0f,
+            detail = if (average == null) "--" else "${(average * 100).toInt()}%",
+            color = if (average == null) BtopColors.Dim else BtopColors.forLoad(average),
+        )
         Spacer(Modifier.padding(top = 4.dp))
         val cores = system.cores
         val rows = (cores.size + 1) / 2
