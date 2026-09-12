@@ -1,6 +1,11 @@
 package io.github.m96chan.droidrunner.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import io.github.m96chan.droidrunner.model.RegistrationCredentialSource
+import io.github.m96chan.droidrunner.model.RunnerConfig
+import io.github.m96chan.droidrunner.model.RunnerTarget
 import org.junit.Test
 
 /**
@@ -12,6 +17,39 @@ import org.junit.Test
  * someone looking straight at the control and not at the note beneath it.
  */
 class RegisterButtonLabelTest {
+
+    @Test fun aStoppedPatRunnerCanSwitchToSignInOnTheSameTarget() {
+        val target = RunnerTarget.Repository("owner", "repo")
+        val stored = RunnerConfig(target, "android", emptySet(), RegistrationCredentialSource.PAT)
+        assertTrue(canRegisterWithSignIn(stored, target, false, true, true))
+        assertEquals(
+            "Re-register owner/repo with GitHub sign-in",
+            registerButtonLabel(target.displayName, registeredWithSignIn(stored, target), false, true, true),
+        )
+    }
+
+    @Test fun switchingCredentialsRequiresTheRunnerToBeStopped() {
+        val target = RunnerTarget.Repository("owner", "repo")
+        val stored = RunnerConfig(target, "android", emptySet(), RegistrationCredentialSource.PAT)
+        assertFalse(canRegisterWithSignIn(stored, target, false, true, false))
+        assertEquals(
+            "Stop the runner to re-register",
+            registerButtonLabel(target.displayName, registeredWithSignIn(stored, target), false, false, true),
+        )
+    }
+
+    @Test fun theSameSignInRegistrationNeedsNoChange() {
+        val target = RunnerTarget.Repository("owner", "repo")
+        val stored = RunnerConfig(target, "android", emptySet(), RegistrationCredentialSource.SIGN_IN)
+        assertTrue(registeredWithSignIn(stored, target))
+        assertFalse(canRegisterWithSignIn(stored, target, false, true, true))
+    }
+
+    @Test fun aLegacyRegistrationCanExplicitlySelectSignIn() {
+        val target = RunnerTarget.Repository("owner", "repo")
+        val stored = RunnerConfig(target, "android", emptySet())
+        assertTrue(canRegisterWithSignIn(stored, target, false, true, true))
+    }
 
     @Test fun aRunningRunnerIsToldToStopBeforeSwitching() {
         assertEquals(

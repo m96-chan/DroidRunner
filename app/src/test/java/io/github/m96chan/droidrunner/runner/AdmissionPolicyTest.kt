@@ -153,6 +153,73 @@ class AdmissionPolicyTest {
         assertEquals(1, lowDisk.state.consecutiveSamples)
     }
 
+    @Test fun changingLowStorageReadingsStillHoldOnThirdSample() {
+        var state = AdmissionPolicy.State()
+        listOf(1000L, 999L, 998L, 997L).forEachIndexed { index, freeStorageMb ->
+            val result = evaluate(healthy.copy(freeStorageMb = freeStorageMb), previous = state)
+            val reason = "free storage ${freeStorageMb}MB below 2048MB"
+            assertEquals(
+                if (index < 2) Admission.Pending(reason) else Admission.Blocked(reason),
+                result.admission,
+            )
+            assertEquals(reason, result.state.reason)
+            state = result.state
+        }
+    }
+
+    @Test fun changingLowBatteryReadingsStillHoldOnThirdSample() {
+        var state = AdmissionPolicy.State()
+        listOf(29, 28, 27).forEachIndexed { index, batteryPercent ->
+            val result = evaluate(
+                healthy.copy(charging = false, batteryPercent = batteryPercent),
+                previous = state,
+            )
+            val reason = "on battery, ${batteryPercent}% below 30%"
+            assertEquals(
+                if (index < 2) Admission.Pending(reason) else Admission.Blocked(reason),
+                result.admission,
+            )
+            assertEquals(reason, result.state.reason)
+            state = result.state
+        }
+    }
+
+    @Test fun changingNonCriticalThermalLevelsStillConfirmTheSameCondition() {
+        val thresholds = defaults.copy(maximumThermalStatus = ThermalStatus.NONE)
+        var state = AdmissionPolicy.State()
+        listOf(ThermalStatus.LIGHT, ThermalStatus.MODERATE, ThermalStatus.SEVERE)
+            .forEachIndexed { index, thermalStatus ->
+                val result = evaluate(healthy.copy(thermalStatus = thermalStatus), thresholds, state)
+                val reason = "cooling down (thermal ${ThermalStatus.label(thermalStatus)})"
+                assertEquals(
+                    if (index < 2) Admission.Pending(reason) else Admission.Blocked(reason),
+                    result.admission,
+                )
+                state = result.state
+            }
+    }
+
+    @Test fun storageRecoveryResetsConfirmationBeforeTheNextLowReading() {
+        val first = evaluate(healthy.copy(freeStorageMb = 1000))
+        val second = evaluate(healthy.copy(freeStorageMb = 999), previous = first.state)
+        val recovered = evaluate(healthy.copy(freeStorageMb = 2048), previous = second.state)
+        assertEquals(Admission.Allowed, recovered.admission)
+        assertEquals(AdmissionPolicy.State(), recovered.state)
+
+        val next = evaluate(healthy.copy(freeStorageMb = 998), previous = recovered.state)
+        assertEquals(Admission.Pending("free storage 998MB below 2048MB"), next.admission)
+        assertEquals(1, next.state.consecutiveSamples)
+    }
+
+    @Test fun criticalHeatImmediatelyOverridesAPendingStorageCondition() {
+        val pending = evaluate(healthy.copy(freeStorageMb = 1000))
+        val result = evaluate(
+            healthy.copy(thermalStatus = ThermalStatus.CRITICAL, freeStorageMb = 999),
+            previous = pending.state,
+        )
+        assertEquals(Admission.Blocked("thermal critical", urgent = true), result.admission)
+    }
+
     private companion object {
         /** What the policy calls a phone on battery and under the floor. */
         const val FLAT = "on battery, 12% below 30%"

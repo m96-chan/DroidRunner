@@ -100,3 +100,7 @@ jobs:
       # each step wrote (#243). Its passing fixtures matter as much as its
       # failing ones, so both are here.
       - run: tools/tests/test-check-workflow-run-blocks.sh
+
+      # Exercise the release workflow's actual guards against temporary git
+      # repositories, including a dispatch branch ahead of its requested tag.
+      - run: python -m unittest discover -s tools/tests -p 'test_app_release.py' -v

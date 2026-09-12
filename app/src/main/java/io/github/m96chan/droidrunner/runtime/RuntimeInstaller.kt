@@ -1,26 +1,45 @@
 package io.github.m96chan.droidrunner.runtime
 
 import android.content.Context
+import android.util.Log
 import io.github.m96chan.droidrunner.BuildConfig
 import io.github.m96chan.droidrunner.runner.RunnerRegistration
 import org.json.JSONObject
 import java.io.File
 import java.net.URL
-import java.security.MessageDigest
 
 data class RuntimeManifest(val version: String, val url: String, val sha256: String)
 
 class RuntimeInstaller(private val context: Context) {
     val runtimeDir = File(context.filesDir, "runner-runtime")
-    val installed: Boolean get() = File(runtimeDir, ".installed").isFile
+    private val previousDir = File(context.filesDir, "runner-runtime.old")
+    private var recoveryFailed = false
+
+    init {
+        // Keep setup accessible if storage prevents a rename. An explicit
+        // install retries recovery and surfaces its error before changing files.
+        runCatching { recover() }.onFailure { Log.w("RuntimeInstaller", "Runtime recovery failed", it) }
+    }
+
+    private fun recover(cleanupPrevious: Boolean = false) {
+        recoveryFailed = true
+        RuntimeActivation.recover(
+            runtimeDir, previousDir, RuntimeActivation::isRuntime,
+            cleanupPrevious = cleanupPrevious,
+        )
+        recoveryFailed = false
+    }
+
+    val installed: Boolean get() = !recoveryFailed && File(runtimeDir, ".installed").isFile
     val installedVersion: String?
-        get() = File(runtimeDir, ".installed").takeIf { it.isFile }?.readText()?.trim()
+        get() = File(runtimeDir, ".installed").takeIf { installed }?.readText()?.trim()
 
     /**
      * [progress] reports the current phase and, while downloading, how far
      * along it is (0..1); null means the phase has no measurable length.
      */
     fun install(manifestUrl: String, progress: (String, Float?) -> Unit = { _, _ -> }) {
+        recover(cleanupPrevious = true)
         require(manifestUrl.startsWith("https://")) { "Manifest must use HTTPS" }
         progress("reading manifest", null)
         // Verify the bytes as served: re-serialising would change what the
@@ -34,7 +53,6 @@ class RuntimeInstaller(private val context: Context) {
         // creates.
         val archive = File(context.filesDir, "runtime-download.tar.gz")
         download(manifest, archive, progress)
-        check(sha256(archive).equals(manifest.sha256, ignoreCase = true)) { "Runtime SHA-256 mismatch" }
 
         progress("extracting runtime", null)
         val staging = File(context.filesDir, "runner-runtime.new").apply { deleteRecursively(); mkdirs() }
@@ -56,13 +74,15 @@ class RuntimeInstaller(private val context: Context) {
         // registered as is stored inside it. Carrying it over is what lets a
         // registered device reinstall a missing runtime and still be the same
         // runner afterwards (issue #46).
-        RunnerRegistration.copyDetails(runtimeDir, staging)
         RuntimeActivation.activate(
             staging = staging,
             target = runtimeDir,
-            previous = File(context.filesDir, "runner-runtime.old"),
+            previous = previousDir,
+            valid = RuntimeActivation::isRuntime,
+            prepare = { RunnerRegistration.copyDetails(runtimeDir, staging) },
         )
         archive.delete()
+        File(archive.path + ".identity").delete()
     }
 
     /**
@@ -75,19 +95,30 @@ class RuntimeInstaller(private val context: Context) {
         progress: (String, Float?) -> Unit,
     ) {
         progress("downloading runtime", 0f)
-        RuntimeDownload.fetch(
+        RuntimeDownload.fetchVerified(
             target = archive,
+            identity = manifest.version + "\n" + manifest.url,
+            expectedSha256 = manifest.sha256,
             source = { offset ->
-                val connection = URL(manifest.url).openConnection()
+                val connection = URL(manifest.url).openConnection() as java.net.HttpURLConnection
                 if (offset > 0) connection.setRequestProperty("Range", "bytes=$offset-")
-                val resumed = offset > 0 &&
-                    (connection as? java.net.HttpURLConnection)?.responseCode == 206
-                val length = connection.contentLengthLong
-                RuntimeDownload.Chunk(
-                    stream = connection.getInputStream(),
-                    resumed = resumed,
-                    totalBytes = if (length > 0) length + (if (resumed) offset else 0L) else -1L,
-                )
+                try {
+                    if (connection.responseCode == 416) throw RuntimeDownload.RangeRejected()
+                    val resumed = offset > 0 && connection.responseCode == 206
+                    val length = connection.contentLengthLong
+                    RuntimeDownload.Chunk(
+                        stream = object : java.io.FilterInputStream(connection.inputStream) {
+                            override fun close() {
+                                try { super.close() } finally { connection.disconnect() }
+                            }
+                        },
+                        resumed = resumed,
+                        totalBytes = if (length > 0) length + (if (resumed) offset else 0L) else -1L,
+                    )
+                } catch (failed: Throwable) {
+                    connection.disconnect()
+                    throw failed
+                }
             },
             beforeFirstByte = { checkSpaceFor(it) },
             progress = { progress("downloading runtime", it) },
@@ -143,20 +174,7 @@ class RuntimeInstaller(private val context: Context) {
     }
 
     private companion object {
-        const val DOWNLOAD_ATTEMPTS = 3
         const val MB = 1024L * 1024
     }
 
-    private fun sha256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buffer = ByteArray(128 * 1024)
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                digest.update(buffer, 0, count)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
 }

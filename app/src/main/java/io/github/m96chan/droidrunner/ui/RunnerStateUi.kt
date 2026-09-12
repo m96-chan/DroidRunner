@@ -1,6 +1,9 @@
 package io.github.m96chan.droidrunner.ui
 
 import androidx.compose.ui.graphics.Color
+import io.github.m96chan.droidrunner.model.RegistrationCredentialSource
+import io.github.m96chan.droidrunner.model.RunnerConfig
+import io.github.m96chan.droidrunner.model.RunnerTarget
 import io.github.m96chan.droidrunner.runner.RunnerSnapshot
 import io.github.m96chan.droidrunner.runner.RunnerState
 import io.github.m96chan.droidrunner.runner.SessionConflict
@@ -67,12 +70,27 @@ internal fun registerButtonLabel(
     alreadyRegistered: Boolean,
     firstRegistration: Boolean,
     runnerStopped: Boolean,
+    changingCredential: Boolean = false,
 ): String = when {
     alreadyRegistered -> "Registered: $target"
     firstRegistration -> "Register $target"
     !runnerStopped -> "Stop the runner to re-register"
+    changingCredential -> "Re-register $target with GitHub sign-in"
     else -> "Re-register as $target"
 }
+
+/** The same target can still need registration when its credential changes. */
+internal fun registeredWithSignIn(stored: RunnerConfig?, target: RunnerTarget): Boolean =
+    stored?.target == target && stored.credentialSource == RegistrationCredentialSource.SIGN_IN
+
+internal fun canRegisterWithSignIn(
+    stored: RunnerConfig?,
+    target: RunnerTarget,
+    busy: Boolean,
+    runtimeAvailable: Boolean,
+    runnerStopped: Boolean,
+): Boolean = !busy && runtimeAvailable && !registeredWithSignIn(stored, target) &&
+    (stored == null || runnerStopped)
 
 internal fun blockedUntilStopped(
     state: RunnerState,

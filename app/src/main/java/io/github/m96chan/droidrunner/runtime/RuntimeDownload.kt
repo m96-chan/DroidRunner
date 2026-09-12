@@ -4,6 +4,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
+import java.security.MessageDigest
 
 /**
  * Fetching the runtime archive, resiliently (issue #43).
@@ -15,6 +16,51 @@ import java.io.InputStream
  * the one nobody reproduces on demand.
  */
 internal object RuntimeDownload {
+    /** A rejected Range request must retry from zero, not repeat the same offset. */
+    class RangeRejected : IOException("Server rejected the download range")
+
+    /** Bind partial bytes to the exact signed manifest before allowing a resume. */
+    fun fetchVerified(
+        target: File,
+        identity: String,
+        expectedSha256: String,
+        source: Source,
+        attempts: Int = 3,
+        beforeFirstByte: (Long) -> Unit = {},
+        progress: (Float) -> Unit = {},
+    ) {
+        require(expectedSha256.matches(Regex("[0-9a-fA-F]{64}"))) { "Invalid runtime SHA-256" }
+        val metadata = File(target.path + ".identity")
+        val binding = identity + "\n" + expectedSha256.lowercase()
+        if (!metadata.isFile || metadata.readText() != binding) {
+            discard(target)
+            metadata.writeText(binding)
+        }
+        if (target.isFile && sha256(target).equals(expectedSha256, ignoreCase = true)) {
+            progress(1f)
+            return
+        }
+        fetch(target, source, attempts, beforeFirstByte, progress) {
+            sha256(it).equals(expectedSha256, ignoreCase = true)
+        }
+    }
+
+    private fun discard(target: File) {
+        check(!target.exists() || target.delete()) { "Cannot discard invalid download" }
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(BUFFER_BYTES)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
 
     /** One attempt at reading the archive, possibly from part-way in. */
     data class Chunk(
@@ -32,9 +78,9 @@ internal object RuntimeDownload {
 
     /**
      * Writes the archive to [target], resuming after a failure rather than
-     * starting over. Callers verify the SHA-256 afterwards, which is what
-     * makes resuming safe: a resumed file that does not match is thrown away
-     * like any other corrupt download.
+     * starting over. [verify], when supplied, rejects corrupt bytes and
+     * retries from zero within the same attempt budget. Other consumers
+     * verify the downloaded entry themselves.
      *
      * [beforeFirstByte] runs once the total size is known and nothing has been
      * written yet — the moment to refuse for lack of space.
@@ -45,7 +91,9 @@ internal object RuntimeDownload {
         attempts: Int = 3,
         beforeFirstByte: (Long) -> Unit = {},
         progress: (Float) -> Unit = {},
+        verify: ((File) -> Boolean)? = null,
     ) {
+        require(attempts > 0)
         var attempt = 0
         while (true) {
             attempt++
@@ -53,9 +101,8 @@ internal object RuntimeDownload {
             try {
                 val chunk = source.open(alreadyHave)
                 val startAt = if (chunk.resumed) alreadyHave else 0L
-                if (startAt == 0L) beforeFirstByte(chunk.totalBytes)
-
                 chunk.stream.use { input ->
+                    if (startAt == 0L) beforeFirstByte(chunk.totalBytes)
                     FileOutputStream(target, startAt > 0).use { out ->
                         val buffer = ByteArray(BUFFER_BYTES)
                         var written = startAt
@@ -75,8 +122,13 @@ internal object RuntimeDownload {
                         }
                     }
                 }
+                if (verify != null && !verify(target)) {
+                    discard(target)
+                    throw IOException("Runtime SHA-256 mismatch")
+                }
                 return
             } catch (failed: IOException) {
+                if (failed is RangeRejected) discard(target)
                 if (attempt >= attempts) throw failed
             }
         }

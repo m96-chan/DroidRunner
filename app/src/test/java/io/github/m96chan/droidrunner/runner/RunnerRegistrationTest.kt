@@ -2,6 +2,7 @@ package io.github.m96chan.droidrunner.runner
 
 import io.github.m96chan.droidrunner.github.GitHubApiException
 import io.github.m96chan.droidrunner.model.RunnerConfig
+import io.github.m96chan.droidrunner.model.RegistrationCredentialSource
 import io.github.m96chan.droidrunner.model.RunnerTarget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -140,9 +141,9 @@ class RunnerRegistrationTest {
         assertFalse(chosen.renewable)
     }
 
-    @Test fun theSignInPassedByTheOtherButtonIsStillRenewable() {
-        // The OAuth register button hands in the token it is holding, and that
-        // token is the sign-in — so the 401 renewal still applies to it.
+    @Test fun anExplicitCredentialIsNotInferredToBeASignInFromItsValue() {
+        // The sign-in button passes no token. An explicit token belongs to the
+        // PAT flow even if it happens to equal the stored sign-in.
         val chosen = RunnerRegistration.credentialFor(
             supplied = "gho_signed_in",
             userToken = "gho_signed_in",
@@ -150,7 +151,94 @@ class RunnerRegistrationTest {
         )!!
 
         assertEquals("gho_signed_in", chosen.token)
+        assertFalse(chosen.renewable)
+        assertEquals(RegistrationCredentialSource.PAT, chosen.source)
+    }
+
+    @Test fun patSourceSurvivesRuntimeReplacementAndSelectsPatForTheNextJob() {
+        val old = temp.newFolder("old-pat")
+        val fresh = temp.newFolder("new-pat")
+        val config = config("owner", "private").copy(credentialSource = RegistrationCredentialSource.PAT)
+        RunnerRegistration.save(old, config)
+        RunnerRegistration.copyDetails(old, fresh)
+        val restored = RunnerRegistration.load(fresh)!!
+        assertEquals(config, restored)
+        val chosen = RunnerRegistration.resolveCredential(
+            null, restored.credentialSource,
+            userToken = { error("An unrelated expired App sign-in must not be read") },
+            pat = "ghp_stored",
+        )!!
+        assertEquals("ghp_stored", chosen.token)
+        assertFalse(chosen.renewable)
+        assertFalse(File(fresh, "runner-config.json").readText().contains("ghp_stored"))
+    }
+
+    @Test fun anExplicitPatDoesNotRenewAnUnrelatedExpiredSignIn() {
+        val chosen = RunnerRegistration.resolveCredential(
+            "ghp_new", RegistrationCredentialSource.AUTO,
+            userToken = { error("Must not renew the App sign-in") }, pat = "ghp_old",
+        )!!
+        assertEquals("ghp_new", chosen.token)
+        assertEquals(RegistrationCredentialSource.PAT, chosen.source)
+    }
+
+    @Test fun missingSelectedPatDoesNotSilentlySwitchToSignIn() {
+        assertNull(RunnerRegistration.resolveCredential(
+            null, RegistrationCredentialSource.PAT,
+            userToken = { error("Must not switch to sign-in") }, pat = null,
+        ))
+    }
+
+    @Test fun signInSourceSurvivesReloadAndUsesTheRenewedToken() {
+        val runtime = temp.newFolder("sign-in")
+        RunnerRegistration.save(runtime, config("owner", "repo").copy(
+            credentialSource = RegistrationCredentialSource.SIGN_IN,
+        ))
+        val chosen = RunnerRegistration.resolveCredential(
+            null, RunnerRegistration.load(runtime)!!.credentialSource,
+            userToken = { "gho_renewed" }, pat = "ghp_unrelated",
+        )!!
+        assertEquals("gho_renewed", chosen.token)
         assertTrue(chosen.renewable)
+        assertEquals(RegistrationCredentialSource.SIGN_IN, chosen.source)
+    }
+
+    @Test fun missingSelectedSignInDoesNotSilentlySwitchToPat() {
+        assertNull(RunnerRegistration.resolveCredential(
+            null, RegistrationCredentialSource.SIGN_IN, userToken = { null }, pat = "ghp_unrelated",
+        ))
+    }
+
+    @Test fun legacyDetailsKeepHistoricalFallbackAndLoadAllFields() {
+        val runtime = temp.newFolder("legacy")
+        File(runtime, "runner-config.json").writeText(
+            """{"owner":"owner","repository":"repo","runnerName":"android-test-abc123","labels":["android"]}""",
+        )
+        val restored = RunnerRegistration.load(runtime)!!
+        assertEquals(config("owner", "repo"), restored)
+        assertEquals(RegistrationCredentialSource.AUTO, restored.credentialSource)
+        assertEquals("gho_live", RunnerRegistration.resolveCredential(
+            null, restored.credentialSource, userToken = { "gho_live" }, pat = "ghp_pat",
+        )!!.token)
+        assertEquals("ghp_pat", RunnerRegistration.resolveCredential(
+            null, restored.credentialSource, userToken = { null }, pat = "ghp_pat",
+        )!!.token)
+    }
+
+    @Test fun successfulRemovalDoesNotReadOrRenewTheFallback() {
+        assertEquals("remove-token", RunnerRegistration.removalToken(
+            "ghp_pat", signIn = { error("Must not read the fallback") }, request = { "remove-token" },
+        ))
+    }
+
+    @Test fun refusedRemovalReadsTheLiveFallbackOnce() {
+        var reads = 0
+        val request = Removal("ghp_pat" to GitHubApiException(403, "forbidden"), "gho_renewed" to "remove-token")
+        assertEquals("remove-token", RunnerRegistration.removalToken(
+            "ghp_pat", signIn = { reads++; "gho_renewed" }, request = request,
+        ))
+        assertEquals(1, reads)
+        assertEquals(listOf("ghp_pat", "gho_renewed"), request.tried)
     }
 
     @Test fun aCallerWithNothingInHandStillFallsBackToTheSignIn() {

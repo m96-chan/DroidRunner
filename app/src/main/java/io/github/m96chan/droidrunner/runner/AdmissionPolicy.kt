@@ -102,54 +102,79 @@ object AdmissionPolicy {
 
     const val SAMPLES_BEFORE_HOLD = 3
 
-    data class State(val reason: String? = null, val consecutiveSamples: Int = 0)
+    enum class ConditionKey { CRITICAL_HEAT, EXCESS_HEAT, MAINS_REQUIRED, LOW_BATTERY, LOW_STORAGE }
+
+    data class State(
+        val reason: String? = null,
+        val consecutiveSamples: Int = 0,
+        val condition: ConditionKey? = null,
+    )
 
     data class Result(val admission: Admission, val state: State)
+
+    private data class Observation(val condition: ConditionKey, val admission: Admission.Blocked)
 
     fun evaluate(
         conditions: DeviceConditions,
         thresholds: AdmissionThresholds,
         previous: State = State(),
     ): Result {
-        val observed = observe(conditions, thresholds)
-        if (observed == Admission.Allowed) return Result(Admission.Allowed, State())
-        observed as Admission.Blocked
-        if (observed.urgent) return Result(observed, State(observed.reason, SAMPLES_BEFORE_HOLD))
+        val (condition, observed) = observe(conditions, thresholds)
+            ?: return Result(Admission.Allowed, State())
+        if (observed.urgent) {
+            return Result(observed, State(observed.reason, SAMPLES_BEFORE_HOLD, condition))
+        }
 
-        val count = if (previous.reason == observed.reason) previous.consecutiveSamples + 1 else 1
-        val state = State(observed.reason, count)
+        // Measurements may change on every poll while the same problem persists.
+        // Confirm the condition independently of its up-to-date display text.
+        val count = if (previous.condition == condition) {
+            (previous.consecutiveSamples + 1).coerceAtMost(SAMPLES_BEFORE_HOLD)
+        } else 1
+        val state = State(observed.reason, count, condition)
         return Result(
             if (count >= SAMPLES_BEFORE_HOLD) observed else Admission.Pending(observed.reason),
             state,
         )
     }
 
-    private fun observe(conditions: DeviceConditions, thresholds: AdmissionThresholds): Admission {
+    private fun observe(conditions: DeviceConditions, thresholds: AdmissionThresholds): Observation? {
         val thermal = conditions.thermalStatus
         if (thermal != null && thermal >= ThermalStatus.CRITICAL) {
-            return Admission.Blocked("thermal ${ThermalStatus.label(thermal)}", urgent = true)
+            return Observation(
+                ConditionKey.CRITICAL_HEAT,
+                Admission.Blocked("thermal ${ThermalStatus.label(thermal)}", urgent = true),
+            )
         }
         if (thermal != null && thermal > thresholds.maximumThermalStatus) {
-            return Admission.Blocked("cooling down (thermal ${ThermalStatus.label(thermal)})")
+            return Observation(
+                ConditionKey.EXCESS_HEAT,
+                Admission.Blocked("cooling down (thermal ${ThermalStatus.label(thermal)})"),
+            )
         }
         val onBattery = !conditions.charging
         if (thresholds.requireMains && onBattery) {
-            return Admission.Blocked("running on battery")
+            return Observation(ConditionKey.MAINS_REQUIRED, Admission.Blocked("running on battery"))
         }
         // Both halves, not either. Losing mains is not a reason to stop while
         // the battery still holds hours of work, and a low reading while
         // plugged in is a battery on its way up (#185).
         if (onBattery && conditions.batteryPercent < thresholds.minimumBatteryPercent) {
-            return Admission.Blocked(
-                "on battery, ${conditions.batteryPercent}% below " +
-                    "${thresholds.minimumBatteryPercent}%",
+            return Observation(
+                ConditionKey.LOW_BATTERY,
+                Admission.Blocked(
+                    "on battery, ${conditions.batteryPercent}% below " +
+                        "${thresholds.minimumBatteryPercent}%",
+                ),
             )
         }
         if (conditions.freeStorageMb < thresholds.minimumFreeStorageMb) {
-            return Admission.Blocked(
-                "free storage ${conditions.freeStorageMb}MB below ${thresholds.minimumFreeStorageMb}MB",
+            return Observation(
+                ConditionKey.LOW_STORAGE,
+                Admission.Blocked(
+                    "free storage ${conditions.freeStorageMb}MB below ${thresholds.minimumFreeStorageMb}MB",
+                ),
             )
         }
-        return Admission.Allowed
+        return null
     }
 }

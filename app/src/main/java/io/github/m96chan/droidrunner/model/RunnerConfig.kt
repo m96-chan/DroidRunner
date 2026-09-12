@@ -28,10 +28,19 @@ sealed interface RunnerTarget {
     }
 }
 
+/** Only the credential source is persisted here; tokens remain in SecretStore. */
+enum class RegistrationCredentialSource {
+    /** Registrations saved before a source was recorded use the historical fallback. */
+    AUTO,
+    SIGN_IN,
+    PAT,
+}
+
 data class RunnerConfig(
     val target: RunnerTarget,
     val runnerName: String,
     val labels: Set<String>,
+    val credentialSource: RegistrationCredentialSource = RegistrationCredentialSource.AUTO,
 ) {
     val repositoryUrl: String get() = target.url
 
