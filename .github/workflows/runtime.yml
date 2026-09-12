@@ -56,6 +56,53 @@ jobs:
           # owned by root; later steps sign and upload as the runner user.
           sudo chown -R "$(id -u):$(id -g)" runtime/out
 
+      # An update reaches a phone only if this string changed. The app writes
+      # the manifest's version to .installed and offers an update when the two
+      # differ, so a release whose version equals the published one is
+      # installed by nobody — and the way that happens is not exotic: change
+      # only what is inside the bundle on a day when actions/runner and
+      # ubuntu-base are the versions they already were, and the manifest comes
+      # out byte-identical.
+      #
+      # build-bundle.sh now folds the release tag in, which makes that
+      # impossible by construction. This asks the published artifact anyway,
+      # because the guarantee lives in a shell variable one edit away from
+      # being the ingredients again, and the failure is silent on every device
+      # rather than here.
+      - name: Check the version is one no published runtime already claims
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' \
+              runtime/out/runtime-manifest.json)"
+          [ -n "$version" ] || {
+            echo "::error::The built manifest has no version field."
+            exit 1
+          }
+          echo "built version: $version"
+
+          # Every runtime release, not just the newest: a device sits on
+          # whichever one it installed, and matching any of them means that
+          # device is offered nothing.
+          for tag in $(gh release list --limit 100 \
+              --json tagName -q '.[].tagName' | grep '^runtime-' || true); do
+            published="$(gh release view "$tag" \
+                --json assets -q '.assets[]|select(.name=="runtime-manifest.json").url' \
+                | head -n1)"
+            [ -n "$published" ] || continue
+            other="$(curl -fsSL "$published" \
+                | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p')"
+            if [ "$other" = "$version" ]; then
+              echo "::error::$tag already publishes version $version. A device" \
+                "holding it compares equal and is never offered this release."
+              exit 1
+            fi
+            echo "  $tag: $other"
+          done
+          echo "no published runtime claims this version"
+
       # A manifest is what points a device at a rootfs, so it needs an origin
       # of its own: the SHA-256 inside it only proves the archive matches the
       # manifest, not who wrote the manifest.

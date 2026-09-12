@@ -594,7 +594,7 @@ together with a matching manifest:
 
 ```json
 {
-  "version": "runner-2.337.0-ubuntu-24.04.3",
+  "version": "runner-2.337.0-ubuntu-24.04.3+runtime-0.1.0",
   "url": "https://github.com/OWNER/DroidRunner/releases/download/runtime-0.1.0/droidrunner-runtime-arm64.tar.gz",
   "sha256": "..."
 }

@@ -32,6 +32,26 @@ class RuntimeVersionTest {
         assertNotEquals(installed, latest)
     }
 
+    /**
+     * The case the ingredients alone cannot express: a release that changed
+     * only what is inside the bundle — `droidrunner-device` — on a day when
+     * actions/runner and ubuntu-base are the versions they already were. The
+     * release tag is what makes the two strings differ, and differing is the
+     * whole of the update check.
+     */
+    @Test fun aBundleRebuiltFromTheSameIngredientsIsStillAnUpdate() {
+        val installed = "runner-2.337.0-ubuntu-24.04.3+runtime-0.2.0"
+        val latest = versionOf("""{"version":"runner-2.337.0-ubuntu-24.04.3+runtime-0.3.0"}""")
+        assertNotEquals(installed, latest)
+    }
+
+    /** A device that installed before the tag joined the version still updates. */
+    @Test fun aVersionFromBeforeTheTagIsCarriedIsAnUpdate() {
+        val installed = "runner-2.337.0-ubuntu-24.04.3"
+        val latest = versionOf("""{"version":"runner-2.337.0-ubuntu-24.04.3+runtime-0.3.0"}""")
+        assertNotEquals(installed, latest)
+    }
+
     @Test fun aManifestWithoutAVersionYieldsNull() {
         assertEquals(null, versionOf("""{"url":"https://example.com/bundle.tar.gz"}"""))
     }

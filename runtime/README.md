@@ -69,11 +69,22 @@ runtime-manifest.json.sig
 
 ```json
 {
-  "version": "runner-2.337.0-ubuntu-24.04.3",
+  "version": "runner-2.337.0-ubuntu-24.04.3+runtime-0.1.0",
   "url": "https://github.com/OWNER/DroidRunner/releases/download/runtime-0.1.0/droidrunner-runtime-arm64.tar.gz",
   "sha256": "..."
 }
 ```
+
+`version` carries the release tag because the app compares it — as an opaque
+string — against the one it wrote to `.installed`, and offers an update only
+when the two differ. The ingredients alone cannot express a release that
+changed what is *inside* the bundle: `droidrunner-device` ships in it, and a
+fix to that script on a day when `actions/runner` and `ubuntu-base` are the
+versions they already were produces a manifest identical to the published one,
+which every device compares equal and nobody is offered. An artifact-only build
+has no tag and keeps the bare `runner-<x>-ubuntu-<y>` form. The **Runtime
+bundle** workflow refuses to publish a version any existing runtime release
+already claims.
 
 The `.sig` is base64 of an ECDSA P-256 signature (`SHA256withECDSA`) over the
 manifest bytes exactly as served. The app fetches it from `$manifestUrl.sig`,
