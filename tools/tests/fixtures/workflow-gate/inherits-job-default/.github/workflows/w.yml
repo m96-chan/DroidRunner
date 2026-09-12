@@ -1,0 +1,10 @@
+name: w
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: echo hi | wc -l

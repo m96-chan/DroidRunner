@@ -1,0 +1,6 @@
+name: thing
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: echo "${{ inputs.whatever }}"

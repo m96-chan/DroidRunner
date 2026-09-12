@@ -1,0 +1,9 @@
+name: w
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          n="$(echo hi | wc -l)"
+          echo "$n"

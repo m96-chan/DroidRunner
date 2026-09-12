@@ -93,3 +93,10 @@ jobs:
       # pipeline without `shell: bash` reports the last command's exit code, so
       # `compare.py | tee` was a gate that could not fail (#204).
       - run: tools/check-workflow-run-blocks.sh
+
+      # The gate above is a required check, so a false positive blocks a
+      # correct pull request — and it did: a job-level `defaults: run: shell:`
+      # is inherited by every step under it, and the scanner only asked what
+      # each step wrote (#243). Its passing fixtures matter as much as its
+      # failing ones, so both are here.
+      - run: tools/tests/test-check-workflow-run-blocks.sh
