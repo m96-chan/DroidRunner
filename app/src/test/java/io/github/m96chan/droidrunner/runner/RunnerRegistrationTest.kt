@@ -1,10 +1,12 @@
 package io.github.m96chan.droidrunner.runner
 
+import io.github.m96chan.droidrunner.github.GitHubApiException
 import io.github.m96chan.droidrunner.model.RunnerConfig
 import io.github.m96chan.droidrunner.model.RunnerTarget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -203,6 +205,120 @@ class RunnerRegistrationTest {
 
         assertEquals("gho_renewed", chosen.token)
         assertTrue(chosen.renewable)
+    }
+
+    // --- which credential leaves the old repository (issue #242) -------------
+
+    // `detachFromPrevious` asks this for the removal token, and reports the
+    // entry it could not remove when it throws.
+
+    /** Records what was asked, and answers each credential as told. */
+    private class Removal(vararg answers: Pair<String, Any>) : (String) -> String {
+        private val answers = answers.toMap()
+        val tried = mutableListOf<String>()
+
+        override fun invoke(credential: String): String {
+            tried += credential
+            return when (val answer = answers[credential]) {
+                is String -> answer
+                is Throwable -> throw answer
+                else -> throw IllegalStateException("nothing said about $credential")
+            }
+        }
+    }
+
+    @Test fun aPatForTheNewRepositoryLeavesTheOldOneWithTheSignIn() {
+        // The advanced panel's PAT is scoped to the repository being joined, so
+        // the repository being left refuses it. Before #194 this path used the
+        // sign-in and worked; #242 is getting that back without giving up the
+        // PAT for the registration itself.
+        val request = Removal(
+            "ghp_scoped_to_new" to GitHubApiException(403, "Resource not accessible"),
+            "gho_signed_in" to "AAAA-REMOVAL",
+        )
+
+        val token = RunnerRegistration.removalToken("ghp_scoped_to_new", "gho_signed_in", request)
+
+        assertEquals("AAAA-REMOVAL", token)
+        assertEquals(listOf("ghp_scoped_to_new", "gho_signed_in"), request.tried)
+    }
+
+    @Test fun aPrivateRepositoryHiddenFromThePatIsStillWorthTheSignIn() {
+        // GitHub answers 404 rather than 403 for a repository a token cannot
+        // see, so the old target being private looks like it does not exist.
+        val request = Removal(
+            "ghp_scoped_to_new" to GitHubApiException(404, "Not Found"),
+            "gho_signed_in" to "AAAA-REMOVAL",
+        )
+
+        assertEquals(
+            "AAAA-REMOVAL",
+            RunnerRegistration.removalToken("ghp_scoped_to_new", "gho_signed_in", request),
+        )
+    }
+
+    @Test fun aDeviceWithNoSignInStillSaysWhatItLeftBehind() {
+        // No second credential exists, so the refusal is the answer and the
+        // caller reports which repository still holds an entry (#154).
+        val request = Removal("ghp_scoped_to_new" to GitHubApiException(403, "Resource not accessible"))
+
+        val refused = assertThrows(GitHubApiException::class.java) {
+            RunnerRegistration.removalToken("ghp_scoped_to_new", signIn = null, request = request)
+        }
+
+        assertEquals(403, refused.status)
+        assertEquals(listOf("ghp_scoped_to_new"), request.tried)
+    }
+
+    @Test fun aFaultThatIsNotAboutAuthorisationIsNotAskedTwice() {
+        // GitHub being unwell answers the same for any credential. Asking
+        // again delays the move and dresses an outage up as a permission
+        // problem.
+        val request = Removal("gho_signed_in" to GitHubApiException(500, "Server Error"))
+
+        val failed = assertThrows(GitHubApiException::class.java) {
+            RunnerRegistration.removalToken("gho_signed_in", "gho_other", request)
+        }
+
+        assertEquals(500, failed.status)
+        assertEquals(listOf("gho_signed_in"), request.tried)
+    }
+
+    @Test fun theSignInThatIsAlreadyInHandIsNotAskedTwice() {
+        // The OAuth path registers with the sign-in, so the fallback is the
+        // same token. Sending it again is one more request for the same
+        // refusal.
+        val request = Removal("gho_signed_in" to GitHubApiException(403, "Resource not accessible"))
+
+        assertThrows(GitHubApiException::class.java) {
+            RunnerRegistration.removalToken("gho_signed_in", "gho_signed_in", request)
+        }
+
+        assertEquals(listOf("gho_signed_in"), request.tried)
+    }
+
+    @Test fun theSecondRefusalIsTheEndOfIt() {
+        // Neither credential reaches the old target: two attempts, then the
+        // message #154 wrote. Not a loop.
+        val request = Removal(
+            "ghp_scoped_to_new" to GitHubApiException(403, "Resource not accessible"),
+            "gho_signed_in" to GitHubApiException(404, "Not Found"),
+        )
+
+        assertThrows(GitHubApiException::class.java) {
+            RunnerRegistration.removalToken("ghp_scoped_to_new", "gho_signed_in", request)
+        }
+
+        assertEquals(listOf("ghp_scoped_to_new", "gho_signed_in"), request.tried)
+    }
+
+    @Test fun aRefusalIsAboutAuthorisationOnlyWhenGitHubSaidSo() {
+        assertTrue(RunnerRegistration.refusedForAuthorisation(401))
+        assertTrue(RunnerRegistration.refusedForAuthorisation(403))
+        assertTrue(RunnerRegistration.refusedForAuthorisation(404))
+        assertFalse(RunnerRegistration.refusedForAuthorisation(422))
+        assertFalse(RunnerRegistration.refusedForAuthorisation(500))
+        assertFalse(RunnerRegistration.refusedForAuthorisation(503))
     }
 
     @Test fun aTokenThatIsNotTheLiveSignInIsNotRenewable() {

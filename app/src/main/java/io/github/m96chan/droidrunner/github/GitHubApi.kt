@@ -266,6 +266,28 @@ class GitHubApi internal constructor(private val send: HttpSend = ::httpRequest)
         }
     }
 
+    /**
+     * GETs [url] and hands back the body, with this class's timeouts and
+     * headers on it.
+     *
+     * For the runtime manifest, which [latestRuntimeRelease] finds but does not
+     * read: it is a plain file on a release, not an API endpoint, and the setup
+     * screen was opening its own connection to it. That put it outside the
+     * sender this class takes, so the version it reads could not be tested
+     * without a network, and the timeouts every other request gets could not be
+     * asserted at all (issue #244).
+     *
+     * [request] stays private. It carries a verb and a body this caller has no
+     * use for, and widening it would offer the whole request surface to the
+     * next caller that wants one more endpoint; this says what it is for.
+     *
+     * [token] defaults to none, which is what the manifest fetch has always
+     * sent: a release asset URL redirects to signed storage, and signed storage
+     * refuses a request that turns up carrying a second credential.
+     */
+    internal fun fetchText(url: String, token: String? = null): String =
+        request("GET", url, token)
+
     /** Where a target's runners live; the two scopes use different endpoints. */
     private fun runnersPath(target: RunnerTarget): String = when (target) {
         is RunnerTarget.Repository -> "repos/${target.owner}/${target.name}/actions/runners"
@@ -330,25 +352,43 @@ class GitHubApi internal constructor(private val send: HttpSend = ::httpRequest)
 }
 
 /**
+ * The connection a request goes out on, configured and not yet opened.
+ *
+ * Split from [httpRequest] so a test can read back what was set on it. The
+ * fifteen seconds are the fix for the captive portal that accepts a connection
+ * and never answers, which left the setup screen on "checking runtime
+ * releases…" for as long as anyone was willing to wait (issue #202) — and
+ * nothing asserted them, because the only way to reach them was to make a
+ * request (issue #244). `openConnection` touches no network; the socket is
+ * opened on the first read.
+ */
+internal fun gitHubConnection(
+    method: String,
+    url: String,
+    token: String?,
+    payloadSize: Int?,
+): HttpURLConnection = (URL(url).openConnection() as HttpURLConnection).apply {
+    requestMethod = method
+    connectTimeout = 15_000
+    readTimeout = 15_000
+    setRequestProperty("Accept", "application/vnd.github+json")
+    token?.let { setRequestProperty("Authorization", "Bearer $it") }
+    setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
+    setRequestProperty("User-Agent", "DroidRunner/0.1")
+    if (payloadSize != null) setRequestProperty("Content-Type", "application/json")
+    if (method == "POST" || method == "PUT") {
+        doOutput = true
+        setFixedLengthStreamingMode(payloadSize ?: 0)
+    }
+}
+
+/**
  * The real request. Split out from [GitHubApi] so tests can hand the class
  * something else to send with.
  */
 private fun httpRequest(method: String, url: String, token: String?, body: String?): String {
     val payload = body?.toByteArray()
-    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-        requestMethod = method
-        connectTimeout = 15_000
-        readTimeout = 15_000
-        setRequestProperty("Accept", "application/vnd.github+json")
-        token?.let { setRequestProperty("Authorization", "Bearer $it") }
-        setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
-        setRequestProperty("User-Agent", "DroidRunner/0.1")
-        if (payload != null) setRequestProperty("Content-Type", "application/json")
-        if (method == "POST" || method == "PUT") {
-            doOutput = true
-            setFixedLengthStreamingMode(payload?.size ?: 0)
-        }
-    }
+    val connection = gitHubConnection(method, url, token, payload?.size)
     if (method == "POST" || method == "PUT") {
         connection.outputStream.use { out -> payload?.let(out::write) }
     }

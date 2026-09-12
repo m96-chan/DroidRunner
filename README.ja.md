@@ -509,9 +509,14 @@ refresh tokenも同じ方式で保存し、期限切れ前に(そして401が返
 Administration read/write権限を持つfine-grained PATを使えます(GitHub Enterprise
 ServerやGitHub Appなしビルド向け)。ここに入力したPATは、GitHubサインインが有効でも
 そのまま登録に使われます — GitHub Appが未インストールのRepositoryへ登録する場合も、
-先にサインインを解除する必要はありません。上の**Re-register**と同じく、Runnerが停止
-するまで押せません。登録は、動作中のlistenerが掴んでいるidentityファイルを書き換える
-操作だからです。
+先にサインインを解除する必要はありません。
+
+いま所属しているRepositoryから抜ける方は別の問題として別に判断します。入力したPATは
+*登録先*のRepositoryに紐づくため、抜ける側に拒否された場合は保存済みのサインインで
+もう一度試します。どちらでも旧Repositoryに届かないときも登録はそのまま進み、
+エントリが残っているRepository名をステータス行に表示します(手動で削除してください)。
+上の**Re-register**と同じく、Runnerが停止するまで押せません。登録は、動作中の
+listenerが掴んでいるidentityファイルを書き換える操作だからです。
 
 ### GitHub Appの登録(セルフビルド向け)
 

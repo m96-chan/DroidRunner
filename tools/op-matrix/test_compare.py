@@ -13,6 +13,9 @@ import tempfile
 import unittest
 
 HERE = pathlib.Path(__file__).parent
+# The one caller of compare.py, and the one that decides whether anybody reads
+# what it printed (#241).
+WORKFLOW = HERE.parents[1] / ".github" / "workflows" / "op-matrix.yml"
 
 
 def matrix(cells, build="a39ddce", model="2511FPC34G", soc="Mediatek MT6899"):
@@ -139,6 +142,96 @@ class Comparison(unittest.TestCase):
 
         self.assertEqual(0, status)
         self.assertEqual(1, len(report["driversGone"]))
+
+
+class WhatTheStepSummaryShows(unittest.TestCase):
+    """A failing run has to say why, on the stream the workflow keeps (#241).
+
+    The gate holds compare.py's status and prints the capture into the step
+    summary, because failing the job and printing nothing is a worse gate than
+    the one that never failed. So the refusals — which go to stderr, where a
+    tool run at a terminal wants them — are only useful here if the workflow
+    captures stderr too. These run compare.py the way op-matrix.yml does,
+    `-u` and stderr merged in, and read what `tee` would have written.
+    """
+
+    def capture(self, before, after):
+        """Exit status, and what the code fence in the summary would hold."""
+        with tempfile.TemporaryDirectory() as scratch:
+            scratch = pathlib.Path(scratch)
+            (scratch / "before.json").write_text(before)
+            (scratch / "after.json").write_text(after)
+            done = subprocess.run(
+                [sys.executable, "-u", str(HERE / "compare.py"),
+                 str(scratch / "before.json"), str(scratch / "after.json"),
+                 "--json", str(scratch / "report.json")],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            return done.returncode, done.stdout
+
+    def test_two_different_phones_say_so_where_the_summary_will_show_it(self):
+        status, summary = self.capture(
+            json.dumps(matrix({("CONV_2D", "int8"): {"mtk-mdla_shim": took()}},
+                              model="2511FPC34G")),
+            json.dumps(matrix({("CONV_2D", "int8"): {"mtk-mdla_shim": refused()}},
+                              model="NX769J")))
+
+        # Still its own status: "could not compare" is not "found a
+        # regression", whatever it prints on the way out.
+        self.assertEqual(2, status)
+        self.assertNotEqual("", summary.strip())
+        self.assertIn("different devices", summary)
+        # Both file names, because the phone this happens to is one whose
+        # committed matrix is filed under another phone's name, and the reader
+        # has to know which file to go and open.
+        self.assertIn("before.json", summary)
+        self.assertIn("after.json", summary)
+        # And both models. These two share an SoC, which is what the report
+        # names everywhere else — saying "MT6899 and MT6899" tells a reader
+        # nothing about what it refused to compare.
+        self.assertIn("2511FPC34G", summary)
+        self.assertIn("NX769J", summary)
+
+    def test_a_matrix_that_cannot_be_read_is_not_a_regression_and_says_why(self):
+        status, summary = self.capture("{ this is not json",
+                                       json.dumps(matrix(
+                                           {("CONV_2D", "int8"):
+                                            {"mtk-mdla_shim": took()}})))
+
+        # 2 rather than the 1 `sys.exit(str)` used to give: a baseline nobody
+        # can parse must not read as a driver that stopped taking an operator.
+        self.assertEqual(2, status)
+        self.assertIn("cannot read", summary)
+        self.assertIn("before.json", summary)
+
+    def test_the_workflow_captures_the_stream_a_refusal_is_written_to(self):
+        # Keeping refusals on stderr is only half a fix: it helps nobody if the
+        # step that builds the summary keeps stdout alone, which is how the
+        # empty code fence happened. Read as lines rather than parsed — what
+        # matters is the one command line an operator would go and look at, and
+        # PyYAML is not installed on the runner that runs these tests.
+        lines = [line.strip() for line in WORKFLOW.read_text().splitlines()]
+        starts = [i for i, line in enumerate(lines)
+                  if line.startswith("python") and "compare.py" in line]
+        self.assertEqual(1, len(starts), "expected one compare.py invocation")
+        # The invocation is wrapped, and the redirection is on the last line of
+        # it, so the whole command has to be put back together first.
+        command = ""
+        for line in lines[starts[0]:]:
+            command += " " + line.rstrip("\\")
+            if not line.endswith("\\"):
+                break
+        self.assertIn("2>&1", command)
+        self.assertIn("tee comparison.txt", command)
+
+    def test_the_regression_it_does_fail_on_still_reaches_the_same_capture(self):
+        # Merging stderr must not cost the report itself, which is the line the
+        # gate has always existed to put in front of somebody.
+        status, summary = self.capture(
+            json.dumps(matrix({("CONV_2D", "int8"): {"mtk-mdla_shim": took()}})),
+            json.dumps(matrix({("CONV_2D", "int8"): {"mtk-mdla_shim": refused()}})))
+
+        self.assertEqual(1, status)
+        self.assertIn("REGRESSION", summary)
 
 
 if __name__ == "__main__":

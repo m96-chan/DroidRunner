@@ -11,7 +11,14 @@ for.
 Exit status:
   0  nothing got worse
   1  an operator that was accelerated no longer is
-  2  the two matrices cannot be compared at all
+  2  the two matrices cannot be compared at all — two different phones, or a
+     matrix that could not be read
+
+A refusal goes to stderr and the report goes to stdout, which is what makes
+this usable at a terminal: `compare.py a b > report.txt` should leave a report
+in that file or leave it empty, never an error message dressed as one. A caller
+that wants both — the workflow does, because the step summary it builds is the
+whole reason it runs this — redirects stderr into the same capture (#241).
 
 Usage: compare.py BEFORE.json AFTER.json [--json OUT]
 """
@@ -34,7 +41,12 @@ def load(path):
     try:
         return json.loads(pathlib.Path(path).read_text())
     except (OSError, json.JSONDecodeError) as failure:
-        sys.exit(f"cannot read {path}: {failure}")
+        # 2, not the 1 `sys.exit(str)` gives: a matrix that cannot be read is a
+        # comparison that could not happen, and 1 is the status that means a
+        # driver stopped taking an operator. A truncated baseline reading as a
+        # regression is the report nobody would believe twice (#241).
+        print(f"cannot compare: cannot read {path}: {failure}", file=sys.stderr)
+        sys.exit(2)
 
 
 def key(matrix):
@@ -73,7 +85,16 @@ def main():
     # Two different phones produce two different answers for reasons that have
     # nothing to do with anything changing.
     if key(before) != key(after):
-        print(f"these are different devices: {describe(before)} and {describe(after)}",
+        # Manufacturer and model, and the two file names. `describe()` reports
+        # the SoC, and the pair this actually happens to — a matrix committed
+        # under another phone's name — is two handsets carrying the same
+        # silicon, so it printed "different devices: MT6899 and MT6899" and
+        # sent the reader nowhere (#241).
+        print(f"cannot compare: {args.before} and {args.after} are different "
+              f"devices — {' '.join(key(before))} and {' '.join(key(after))}",
+              file=sys.stderr)
+        print("  the baseline is chosen by manufacturer and model, so a matrix "
+              "committed under another phone's name arrives here",
               file=sys.stderr)
         # Its own status: a comparison that could not happen is a different
         # thing from one that found a regression, and a caller branching on the

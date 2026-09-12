@@ -1173,7 +1173,7 @@ internal fun resolveRuntimeManifest(
                 // runtime that has fallen behind can be reported. Only the
                 // "update available" line depends on it, so a failure to read
                 // it costs that line and not the install button.
-                version = runCatching { manifestVersion(result.release.url) }.getOrNull(),
+                version = runCatching { manifestVersion(api, result.release.url) }.getOrNull(),
             )
             // The lookup reached GitHub and the feed genuinely holds no runtime
             // release. `truncated` means the scan stopped at its page cap, so
@@ -1197,28 +1197,19 @@ internal fun resolveRuntimeManifest(
 )
 
 /**
- * Reads the `version` out of a runtime manifest.
+ * Reads the `version` out of a runtime manifest, through [GitHubApi.fetchText].
  *
- * The timeouts are the point. This was `URL(url).readText()`, which inherits
- * `HttpURLConnection`'s defaults — no timeout at all — so a captive portal
- * that accepts the connection and never answers left the runtime panel on
- * "checking runtime releases…" forever, and the Install runtime button never
- * appeared on a device that had no runtime (issue #202). Fifteen seconds is
- * what every other request in this app waits.
+ * Through it, which is the point. This opened its own `HttpURLConnection` —
+ * first as `URL(url).readText()` with no timeout at all, which is what left the
+ * runtime panel on "checking runtime releases…" forever behind a captive
+ * portal (issue #202), then with fifteen seconds copied out of [GitHubApi]. A
+ * copy is not the thing: the request still went around the sender that class
+ * takes, so this branch was never exercised by a test and the timeouts were
+ * never asserted (issue #244). One request path, one place the timeouts live,
+ * and a fake can answer it.
  */
-private fun manifestVersion(url: String): String? {
-    val connection = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
-        connectTimeout = 15_000
-        readTimeout = 15_000
-        setRequestProperty("User-Agent", "DroidRunner/0.1")
-    }
-    val body = try {
-        connection.inputStream.bufferedReader().use { it.readText() }
-    } finally {
-        connection.disconnect()
-    }
-    return org.json.JSONObject(body).optString("version").takeIf { it.isNotBlank() }
-}
+private fun manifestVersion(api: GitHubApi, url: String): String? =
+    org.json.JSONObject(api.fetchText(url)).optString("version").takeIf { it.isNotBlank() }
 
 /**
  * Why there is no runtime to install, in words that name the actual cause.

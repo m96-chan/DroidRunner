@@ -535,7 +535,13 @@ A manual fallback (`advanced: manual PAT setup`) accepts a fine-grained PAT with
 repository Administration read/write permission, for GitHub Enterprise Server or
 builds without a GitHub App. The PAT typed there is the credential that registers,
 whether or not a GitHub sign-in is also active — so it is also the way to reach a
-repository the App is not installed on, with no need to disconnect first. Like
+repository the App is not installed on, with no need to disconnect first.
+
+Leaving the repository the device is already in is a separate question, and is
+answered separately: that PAT is scoped to the repository being *joined*, so
+when the old one refuses it the stored sign-in is tried instead. If neither can
+reach the old target the registration still goes ahead, and the status line
+names the repository that still holds an entry for you to remove by hand. Like
 **Re-register** above it, it waits for the runner to be stopped: registering
 rewrites the identity files a running listener is holding open.
 
