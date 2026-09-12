@@ -6,7 +6,6 @@ import io.github.m96chan.droidrunner.runner.RunnerRegistration
 import org.json.JSONObject
 import java.io.File
 import java.net.URL
-import java.security.MessageDigest
 
 data class RuntimeManifest(val version: String, val url: String, val sha256: String)
 
@@ -34,7 +33,6 @@ class RuntimeInstaller(private val context: Context) {
         // creates.
         val archive = File(context.filesDir, "runtime-download.tar.gz")
         download(manifest, archive, progress)
-        check(sha256(archive).equals(manifest.sha256, ignoreCase = true)) { "Runtime SHA-256 mismatch" }
 
         progress("extracting runtime", null)
         val staging = File(context.filesDir, "runner-runtime.new").apply { deleteRecursively(); mkdirs() }
@@ -63,6 +61,7 @@ class RuntimeInstaller(private val context: Context) {
             previous = File(context.filesDir, "runner-runtime.old"),
         )
         archive.delete()
+        File(archive.path + ".identity").delete()
     }
 
     /**
@@ -75,19 +74,30 @@ class RuntimeInstaller(private val context: Context) {
         progress: (String, Float?) -> Unit,
     ) {
         progress("downloading runtime", 0f)
-        RuntimeDownload.fetch(
+        RuntimeDownload.fetchVerified(
             target = archive,
+            identity = manifest.version + "\n" + manifest.url,
+            expectedSha256 = manifest.sha256,
             source = { offset ->
-                val connection = URL(manifest.url).openConnection()
+                val connection = URL(manifest.url).openConnection() as java.net.HttpURLConnection
                 if (offset > 0) connection.setRequestProperty("Range", "bytes=$offset-")
-                val resumed = offset > 0 &&
-                    (connection as? java.net.HttpURLConnection)?.responseCode == 206
-                val length = connection.contentLengthLong
-                RuntimeDownload.Chunk(
-                    stream = connection.getInputStream(),
-                    resumed = resumed,
-                    totalBytes = if (length > 0) length + (if (resumed) offset else 0L) else -1L,
-                )
+                try {
+                    if (connection.responseCode == 416) throw RuntimeDownload.RangeRejected()
+                    val resumed = offset > 0 && connection.responseCode == 206
+                    val length = connection.contentLengthLong
+                    RuntimeDownload.Chunk(
+                        stream = object : java.io.FilterInputStream(connection.inputStream) {
+                            override fun close() {
+                                try { super.close() } finally { connection.disconnect() }
+                            }
+                        },
+                        resumed = resumed,
+                        totalBytes = if (length > 0) length + (if (resumed) offset else 0L) else -1L,
+                    )
+                } catch (failed: Throwable) {
+                    connection.disconnect()
+                    throw failed
+                }
             },
             beforeFirstByte = { checkSpaceFor(it) },
             progress = { progress("downloading runtime", it) },
@@ -143,20 +153,7 @@ class RuntimeInstaller(private val context: Context) {
     }
 
     private companion object {
-        const val DOWNLOAD_ATTEMPTS = 3
         const val MB = 1024L * 1024
     }
 
-    private fun sha256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buffer = ByteArray(128 * 1024)
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                digest.update(buffer, 0, count)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
 }

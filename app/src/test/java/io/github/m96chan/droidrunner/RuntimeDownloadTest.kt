@@ -4,6 +4,7 @@ import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
+import java.security.MessageDigest
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -16,6 +17,117 @@ class RuntimeDownloadTest {
     @get:Rule val temp = TemporaryFolder()
 
     private val archive = ByteArray(50_000) { (it % 251).toByte() }
+    private val digest get() = MessageDigest.getInstance("SHA-256").digest(archive)
+        .joinToString("") { "%02x".format(it) }
+
+    private fun wholeArchive() = RuntimeDownload.Chunk(
+        ByteArrayInputStream(archive), false, archive.size.toLong(),
+    )
+
+    @Test fun partialBytesFromAnotherManifestAreDiscarded() {
+        val target = File(temp.root, "archive")
+        target.writeText("old partial bytes")
+        File(target.path + ".identity").writeText("old version\nold URL\n$digest")
+        val offsets = mutableListOf<Long>()
+        RuntimeDownload.fetchVerified(target, "new version\nnew URL", digest, { offset ->
+            offsets += offset
+            wholeArchive()
+        })
+        assertEquals(listOf(0L), offsets)
+        assertArrayEquals(archive, target.readBytes())
+    }
+
+    @Test fun unboundLegacyPartialBytesAreDiscarded() {
+        val target = File(temp.root, "archive").apply { writeText("legacy partial") }
+        RuntimeDownload.fetchVerified(target, "version\nURL", digest, { offset ->
+            assertEquals(0L, offset)
+            wholeArchive()
+        })
+        assertArrayEquals(archive, target.readBytes())
+    }
+
+    @Test fun verifiedCompleteArchiveIsReusedWithoutOpeningHttp() {
+        val target = File(temp.root, "archive")
+        RuntimeDownload.fetchVerified(target, "version\nURL", digest, { wholeArchive() })
+        RuntimeDownload.fetchVerified(target, "version\nURL", digest, { error("must not download") })
+        assertArrayEquals(archive, target.readBytes())
+    }
+
+    @Test fun aRejectedRangeFallsBackToZero() {
+        val target = File(temp.root, "archive").apply { writeText("broken") }
+        File(target.path + ".identity").writeText("version\nURL\n$digest")
+        val offsets = mutableListOf<Long>()
+        RuntimeDownload.fetchVerified(target, "version\nURL", digest, { offset ->
+            offsets += offset
+            if (offset > 0) throw RuntimeDownload.RangeRejected()
+            wholeArchive()
+        })
+        assertEquals(listOf(6L, 0L), offsets)
+        assertArrayEquals(archive, target.readBytes())
+    }
+
+    @Test fun aDigestMismatchRetriesFromZeroAndDoesNotPoisonTheNextInstall() {
+        val target = File(temp.root, "archive")
+        val offsets = mutableListOf<Long>()
+        val failure = runCatching {
+            RuntimeDownload.fetchVerified(target, "version\nURL", digest, { offset ->
+                offsets += offset
+                RuntimeDownload.Chunk(ByteArrayInputStream(byteArrayOf(1, 2, 3)), false, 3)
+            })
+        }
+        assertTrue(failure.exceptionOrNull() is IOException)
+        assertEquals(listOf(0L, 0L, 0L), offsets)
+        assertTrue(!target.exists())
+        RuntimeDownload.fetchVerified(target, "version\nURL", digest, { wholeArchive() })
+        assertArrayEquals(archive, target.readBytes())
+    }
+
+    @Test fun corruptResumedBytesAreReplacedWithinTheSameInstall() {
+        val target = File(temp.root, "archive").apply { writeBytes(ByteArray(20_000)) }
+        File(target.path + ".identity").writeText("version\nURL\n$digest")
+        val offsets = mutableListOf<Long>()
+        RuntimeDownload.fetchVerified(target, "version\nURL", digest, { offset ->
+            offsets += offset
+            RuntimeDownload.Chunk(
+                ByteArrayInputStream(archive, offset.toInt(), archive.size - offset.toInt()),
+                offset > 0, archive.size.toLong(),
+            )
+        })
+        assertEquals(listOf(20_000L, 0L), offsets)
+        assertArrayEquals(archive, target.readBytes())
+    }
+
+    @Test fun rangeRejectionsHaveABoundedRetryBudget() {
+        val target = File(temp.root, "archive")
+        var attempts = 0
+        val failure = runCatching {
+            RuntimeDownload.fetchVerified(target, "version\nURL", digest, {
+                attempts++
+                throw RuntimeDownload.RangeRejected()
+            })
+        }
+        assertTrue(failure.exceptionOrNull() is RuntimeDownload.RangeRejected)
+        assertEquals(3, attempts)
+        assertTrue(!target.exists())
+    }
+
+    @Test fun boundPartialArchiveSurvivesRetriesAndResumesAcrossCalls() {
+        val target = File(temp.root, "archive")
+        val failure = runCatching {
+            RuntimeDownload.fetchVerified(target, "version\nURL", digest, {
+                RuntimeDownload.Chunk(FailingStream(archive, 20_000), false, archive.size.toLong())
+            }, attempts = 1)
+        }
+        assertTrue(failure.isFailure)
+        RuntimeDownload.fetchVerified(target, "version\nURL", digest, { offset ->
+            assertEquals(20_000L, offset)
+            RuntimeDownload.Chunk(
+                ByteArrayInputStream(archive, offset.toInt(), archive.size - offset.toInt()),
+                true, archive.size.toLong(),
+            )
+        })
+        assertArrayEquals(archive, target.readBytes())
+    }
 
     /** A stream that dies part-way, the way a phone changing networks does. */
     private class FailingStream(private val bytes: ByteArray, private val failAfter: Int) :
