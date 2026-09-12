@@ -115,6 +115,36 @@ class SupervisorStepTest {
         assertEquals(false, result.held)
     }
 
+    @Test fun fallingStorageStopsTheIdleListenerOnTheThirdSample() {
+        var policyState = AdmissionPolicy.State()
+        var reportedFor: String? = null
+        listOf(1000L, 999L, 998L).forEachIndexed { index, freeStorageMb ->
+            val evaluation = AdmissionPolicy.evaluate(
+                DeviceConditions(
+                    charging = true,
+                    batteryPercent = 90,
+                    thermalStatus = ThermalStatus.NONE,
+                    freeStorageMb = freeStorageMb,
+                ),
+                AdmissionThresholds(),
+                policyState,
+            )
+            val result = decide(evaluation.admission, hasProcess = true, reportedFor = reportedFor)
+            val reason = "free storage ${freeStorageMb}MB below 2048MB"
+            assertEquals(
+                if (index < 2) listOf(Action.ReportCondition(reason)) else listOf(
+                    Action.ReportCondition(reason),
+                    Action.Stop(reason, stopsActiveJob = false),
+                    Action.AnnounceHold(reason),
+                ),
+                result.actions,
+            )
+            assertEquals(index == 2, result.held)
+            policyState = evaluation.state
+            reportedFor = result.reportedFor
+        }
+    }
+
     @Test fun recoveryFromPendingClearsTheWarningWithoutRestarting() {
         val result = decide(
             Admission.Allowed,
