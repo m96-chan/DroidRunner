@@ -771,6 +771,34 @@ class AgentUnderLoadTest {
         }
     }
 
+    @Test fun aStoppingAgentDoesNotPromiseAWaitThatWillNotHelp() {
+        // `stop()` shares the refusal with the overload path, so adding
+        // `Retry-After` for #233 told a caller of a *shutting down* agent to
+        // come back in thirty seconds — to a closed port. The request really
+        // was not attempted and that is not the caller's fault, so the code
+        // stays `busy`; what goes is the wait nothing keeps.
+        val busy = fillEveryWorkerAndSlot()
+        try {
+            server.stop()
+            val answers = busy.map { socket ->
+                runCatching {
+                    socket.getInputStream().bufferedReader()
+                        .let { r -> generateSequence { r.readLine() }.toList() }
+                        .joinToString("\n")
+                }.getOrDefault("")
+            }.filter { it.contains("503") }
+
+            assertTrue("expected the queue to be answered, got ${answers.size}", answers.isNotEmpty())
+            answers.forEach {
+                assertTrue("a stopping agent must not name a wait: $it", !it.contains("Retry-After"))
+                assertTrue("and should say it is stopping: $it", it.contains("stopping"))
+            }
+        } finally {
+            held.countDown()
+            busy.forEach { runCatching { it.close() } }
+        }
+    }
+
     @Test fun stoppingAnswersWhatWasStillQueuedRatherThanDroppingIt() {
         val busy = fillEveryWorkerAndSlot()
         try {

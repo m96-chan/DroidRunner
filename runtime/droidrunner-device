@@ -35,6 +35,8 @@
 #   2  the driver refused the graph — a sweep records this and carries on
 #   3  no such device on this phone
 #   4  the agent is unreachable — a sweep stops
+#   5  the phone is busy and attempted nothing — wait and send the same
+#      request again; the refusal says how long
 #
 # An HTTP error from the agent — a capability token that rotated, a URL it does
 # not route — is reported with its status and exits non-zero. It is never
@@ -238,7 +240,7 @@ name_option() {  # name_option <option> <value>
 }
 
 cmd="${1:-}"
-[ -n "$cmd" ] || { sed -n '3,42p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1; }
+[ -n "$cmd" ] || { sed -n '3,44p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1; }
 shift || true
 
 case "$cmd" in

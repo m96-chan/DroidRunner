@@ -93,6 +93,7 @@ internal class DeviceAgentServer(
                 "the device agent is busy: every worker and every queued slot is " +
                     "taken. Nothing was attempted; try the same request again in " +
                     "$RETRY_AFTER_SECONDS seconds",
+                retryAfterSeconds = RETRY_AFTER_SECONDS,
             )
         },
     )
@@ -111,18 +112,26 @@ internal class DeviceAgentServer(
                 .onFailure { logError("device agent request failed", it) }
         }
 
-        /** Says that nobody is going to run this, and closes. */
-        fun refuse(why: String) {
+        /**
+         * Says that nobody is going to run this, and closes.
+         *
+         * [retryAfterSeconds] only where coming back actually helps. An
+         * overloaded agent expects to answer again and knows roughly when, so
+         * it says so — the caller would otherwise invent a backoff. A
+         * *stopping* agent will not answer again at all: the next request
+         * reaches a closed port and exits 4, which is where a sweep should
+         * stop. Naming a wait there would be a promise nothing keeps (#233).
+         */
+        fun refuse(why: String, retryAfterSeconds: Int? = null) {
             runCatching {
                 client.use {
                     writeResponse(
                         it,
                         503,
                         ResultContract.error(ResultContract.Code.BUSY, why),
-                        // The agent knows how long its queue is and the caller
-                        // does not, so it says when to come back rather than
-                        // leaving every consumer to invent a backoff (#233).
-                        extraHeaders = listOf("Retry-After: $RETRY_AFTER_SECONDS"),
+                        extraHeaders = retryAfterSeconds
+                            ?.let { seconds -> listOf("Retry-After: $seconds") }
+                            .orEmpty(),
                     )
                     drainArrived(it)
                 }
@@ -169,7 +178,10 @@ internal class DeviceAgentServer(
         // shutdownNow hands back the tasks it dropped, and each one still owns
         // a socket with a client waiting on the other end of it (#199).
         workers.shutdownNow().forEach {
-            (it as? Connection)?.refuse("the device agent is stopping")
+            (it as? Connection)?.refuse(
+                "the device agent is stopping; this request was not attempted, " +
+                    "and it will not answer another",
+            )
         }
     }
 
