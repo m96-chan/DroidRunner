@@ -57,6 +57,7 @@ import io.github.m96chan.droidrunner.github.UserSession
 import io.github.m96chan.droidrunner.github.storedDeviceAuthorization
 import io.github.m96chan.droidrunner.github.toStoredJson
 import io.github.m96chan.droidrunner.model.RunnerConfig
+import io.github.m96chan.droidrunner.model.RegistrationCredentialSource
 import io.github.m96chan.droidrunner.model.RunnerTarget
 import io.github.m96chan.droidrunner.runner.AdmissionThresholds
 import io.github.m96chan.droidrunner.runner.RunnerRegistration
@@ -416,7 +417,10 @@ fun SetupScreen(
      * losing #42's recovery). `register()` reads the live session instead.
      */
     fun registerRunner(target: RunnerTarget, credential: String? = null) {
-        if (RunnerRegistration.load(runtime.runtimeDir)?.target == target) {
+        val source = if (credential.isNullOrBlank()) RegistrationCredentialSource.SIGN_IN
+            else RegistrationCredentialSource.PAT
+        val stored = RunnerRegistration.load(runtime.runtimeDir)
+        if (credential.isNullOrBlank() && registeredWithSignIn(stored, target)) {
             status = null
             return
         }
@@ -431,6 +435,7 @@ fun SetupScreen(
             "android-${android.os.Build.MODEL}-$deviceId",
             capabilities.labels() + NpuLabels.refresh(context) +
                 QnnVerificationStore(context).labels(),
+            credentialSource = source,
         )
         progress = SetupProgress("preparing")
         setupJob = scope.launch {
@@ -991,18 +996,20 @@ fun SetupScreen(
         }
         // Read once for both register buttons: the advanced one registers
         // through exactly the same code and needs the same guard (#194).
-        val storedTarget = remember(configured, status, busy) {
-            RunnerRegistration.load(runtime.runtimeDir)?.target
+        val storedRegistration = remember(configured, status, busy) {
+            RunnerRegistration.load(runtime.runtimeDir)
         }
+        val storedTarget = storedRegistration?.target
         // Re-registering swaps the runner's identity, so the listener has
         // to be down first — the same reason the runtime update waits.
         val runnerStopped = runner.state == RunnerState.STOPPED
         if (userToken != null && selectedTarget != null) {
-            val alreadyRegistered = storedTarget == selectedTarget
+            val alreadyRegistered = registeredWithSignIn(storedRegistration, selectedTarget)
             Button(
-                enabled = !busy && !alreadyRegistered &&
-                    (runtime.installed || manifestSource() != null) &&
-                    (storedTarget == null || runnerStopped),
+                enabled = canRegisterWithSignIn(
+                    storedRegistration, selectedTarget, busy,
+                    runtime.installed || manifestSource() != null, runnerStopped,
+                ),
                 colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Green, contentColor = BtopColors.Background),
                 onClick = {
                     // The warning is asked here, not on the screen behind: a
@@ -1019,6 +1026,7 @@ fun SetupScreen(
                         alreadyRegistered = alreadyRegistered,
                         firstRegistration = storedTarget == null,
                         runnerStopped = runnerStopped,
+                        changingCredential = storedTarget == selectedTarget && !alreadyRegistered,
                     ),
                 )
             }
@@ -1065,7 +1073,6 @@ fun SetupScreen(
                 colors = ButtonDefaults.buttonColors(containerColor = BtopColors.Green, contentColor = BtopColors.Background),
                 onClick = {
                     prefs.edit().putString("owner", owner).putString("repo", repo).apply()
-                    secretStore.putPat(pat)
                     registerRunner(RunnerTarget.Repository(owner, repo), pat)
                 },
                 modifier = Modifier.fillMaxWidth(),

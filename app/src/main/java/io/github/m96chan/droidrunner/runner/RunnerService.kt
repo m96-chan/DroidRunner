@@ -433,10 +433,9 @@ class RunnerService : Service() {
      * Deliberately conservative. It waits out [SessionConflict.PATIENCE_MS]
      * first, because the listener usually gets through on its own and a
      * needless re-registration costs a registration token and a new runner id.
-     * It does nothing at all without a user sign-in — a hand-entered PAT is
-     * not assumed to carry the scope, the same stance [reconcileLabels] takes
-     * — and nothing while a job is running, which would be a worse cure than
-     * the disease.
+     * It requires the credential source used for registration and does nothing
+     * while a job is running. A PAT-backed registration must not depend on an
+     * unrelated App sign-in being renewable (issue #249).
      */
     private fun releaseHeldSessionIfStuck(runtimeDir: File): Boolean {
         val heldSince = RunnerStatus.snapshot.value.sessionHeldSince ?: return false
@@ -444,11 +443,15 @@ class RunnerService : Service() {
         if (jobRunning.get()) return false
 
         val config = RunnerRegistration.load(runtimeDir) ?: return false
-        val token = UserSession(SecretStore(this), BuildConfig.GITHUB_APP_CLIENT_ID).accessToken()
-        if (token == null) {
+        val store = SecretStore(this)
+        val session = UserSession(store, BuildConfig.GITHUB_APP_CLIENT_ID)
+        val credential = RunnerRegistration.resolveCredential(
+            null, config.credentialSource, session::accessToken, store.getPat(),
+        )
+        if (credential == null) {
             RunnerStatus.onAppLine(
-                "session: GitHub still holds the previous session; sign in to replace the " +
-                    "runner rather than wait it out",
+                "session: GitHub still holds the previous session; reconnect the " +
+                    "registration credential on the setup screen to replace the runner",
             )
             // Said once. Clearing the marker stops this repeating every poll,
             // and the listener is still retrying underneath.

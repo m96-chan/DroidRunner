@@ -6,6 +6,7 @@ import io.github.m96chan.droidrunner.github.GitHubApi
 import io.github.m96chan.droidrunner.github.GitHubApiException
 import io.github.m96chan.droidrunner.github.UserSession
 import io.github.m96chan.droidrunner.model.RunnerConfig
+import io.github.m96chan.droidrunner.model.RegistrationCredentialSource
 import io.github.m96chan.droidrunner.model.RunnerTarget
 import io.github.m96chan.droidrunner.security.SecretStore
 import org.json.JSONArray
@@ -35,7 +36,7 @@ object RunnerRegistration {
         if (!file.isFile) return false
         return runCatching {
             // The file is written with a BOM by the .NET runner.
-            val json = JSONObject(file.readText().trimStart('﻿'))
+            val json = JSONObject(file.readText().trimStart('\uFEFF'))
             json.optBoolean("ephemeral", false) || json.optBoolean("isEphemeral", false)
         }.getOrDefault(false)
     }
@@ -58,6 +59,7 @@ object RunnerRegistration {
                 }
                 .put("runnerName", config.runnerName)
                 .put("labels", JSONArray(config.labels.sorted()))
+                .put("credentialSource", config.credentialSource.name)
                 .toString(),
         )
         // Kept for the dashboard, and for devices configured before this file existed.
@@ -96,6 +98,9 @@ object RunnerRegistration {
                 },
                 runnerName = json.getString("runnerName"),
                 labels = (0 until labels.length()).map { labels.getString(it) }.toSet(),
+                credentialSource = RegistrationCredentialSource.valueOf(
+                    json.optString("credentialSource", RegistrationCredentialSource.AUTO.name),
+                ),
             )
         }.getOrNull()
     }
@@ -112,6 +117,7 @@ object RunnerRegistration {
          * means nothing, so a 401 from one is the answer.
          */
         val renewable: Boolean,
+        val source: RegistrationCredentialSource,
     )
 
     /**
@@ -121,18 +127,44 @@ object RunnerRegistration {
      * [supplied] wins outright. The advanced panel exists precisely to reach a
      * repository the signed-in user's token cannot, and this used to be
      * re-derived here as `userToken ?: pat` — so the PAT somebody typed was
-     * only ever sent when no sign-in existed, which is the one case that panel
-     * was not built for. Callers that pass nothing — the service registering
-     * again after an ephemeral job — still fall back in the old order.
+     * only ever sent when no sign-in existed. Automatic registrations use the
+     * persisted source; only legacy details retain the sign-in-then-PAT order.
      */
     fun credentialFor(
         supplied: String?,
         userToken: String?,
         pat: String?,
+        source: RegistrationCredentialSource = RegistrationCredentialSource.AUTO,
     ): RegistrationCredential? {
-        val token = supplied?.takeIf { it.isNotBlank() } ?: userToken ?: pat ?: return null
-        return RegistrationCredential(token, renewable = userToken != null && token == userToken)
+        supplied?.takeIf { it.isNotBlank() }?.let {
+            return RegistrationCredential(it, renewable = false, source = RegistrationCredentialSource.PAT)
+        }
+        val signIn = userToken?.takeIf { it.isNotBlank() }
+        val storedPat = pat?.takeIf { it.isNotBlank() }
+        val selected = when (source) {
+            RegistrationCredentialSource.AUTO -> if (signIn != null) RegistrationCredentialSource.SIGN_IN
+                else RegistrationCredentialSource.PAT
+            else -> source
+        }
+        val token = when (selected) {
+            RegistrationCredentialSource.SIGN_IN -> signIn
+            else -> storedPat
+        } ?: return null
+        return RegistrationCredential(token, selected == RegistrationCredentialSource.SIGN_IN, selected)
     }
+
+    /** A PAT must work even when an unrelated App sign-in cannot be renewed. */
+    fun resolveCredential(
+        supplied: String?,
+        source: RegistrationCredentialSource,
+        userToken: () -> String?,
+        pat: String?,
+    ): RegistrationCredential? = credentialFor(
+        supplied,
+        if (supplied.isNullOrBlank() && source != RegistrationCredentialSource.PAT) userToken() else null,
+        pat,
+        source,
+    )
 
     /**
      * Whether a refusal of the removal token is worth asking again with the
@@ -177,12 +209,19 @@ object RunnerRegistration {
         credential: String,
         signIn: String?,
         request: (String) -> String,
+    ): String = removalToken(credential, { signIn }, request)
+
+    /** Acquire/renew the fallback only after the primary credential is refused. */
+    fun removalToken(
+        credential: String,
+        signIn: () -> String?,
+        request: (String) -> String,
     ): String = try {
         request(credential)
     } catch (refused: GitHubApiException) {
-        val fallback = signIn
+        if (!refusedForAuthorisation(refused.status)) throw refused
+        val fallback = signIn()
             ?.takeIf { it.isNotBlank() && it != credential }
-            ?.takeIf { refusedForAuthorisation(refused.status) }
             ?: throw refused
         request(fallback)
     }
@@ -192,7 +231,7 @@ object RunnerRegistration {
      * `config.sh`. [ephemeral] makes the runner serve one job and deregister.
      *
      * [credential] is the one the caller wants used, whatever else is stored;
-     * passing nothing keeps the old sign-in-then-PAT fallback (issue #194).
+     * passing nothing uses the source stored with [config] (issue #249).
      */
     fun register(
         context: Context,
@@ -204,12 +243,9 @@ object RunnerRegistration {
     ) {
         val store = SecretStore(context)
         val session = UserSession(store, BuildConfig.GITHUB_APP_CLIENT_ID)
-        // Kept in hand for the detach below: leaving the old repository is a
-        // different question from joining the new one (issue #242).
-        var signIn = session.accessToken()
         // A user sign-in renews itself before it lapses (issue #42); a
         // hand-entered PAT cannot, so it is used as it stands.
-        val chosen = credentialFor(credential, signIn, store.getPat())
+        val chosen = resolveCredential(credential, config.credentialSource, session::accessToken, store.getPat())
             ?: error("No GitHub credential stored — reconnect on the setup screen")
         val api = GitHubApi()
         // Whatever is actually in hand after the renewal below, so the removal
@@ -223,16 +259,18 @@ object RunnerRegistration {
             // Only a sign-in has anything to renew (#194).
             if (rejected.status != 401 || !chosen.renewable) throw rejected
             inHand = session.renew()
-            // The renewal rotated the sign-in, so the stale copy read above is
-            // no longer a credential anything can be asked with.
-            signIn = inHand
             api.createRegistrationToken(config.target, inHand)
         }
         // Leave the previous repository first. `config.sh remove` reads the
         // credentials the next line deletes, so once the device is attached
         // elsewhere there is no way left to deregister properly — only an API
         // delete by name, which never tells the old runner anything (#154).
-        detachFromPrevious(context, runtimeDir, config, inHand, signIn, api, onLine)
+        val previousSource = load(runtimeDir)?.credentialSource
+        val fallback = {
+            if (previousSource == RegistrationCredentialSource.PAT) store.getPat()
+            else session.accessToken()
+        }
+        detachFromPrevious(context, runtimeDir, config, inHand, fallback, api, onLine)
         // config.sh refuses to run while a local configuration exists; --replace
         // only settles the server-side duplicate.
         clearLocalRegistration(runtimeDir)
@@ -254,7 +292,8 @@ object RunnerRegistration {
             clearLocalRegistration(runtimeDir)
             throw interrupted
         }
-        save(runtimeDir, config)
+        if (chosen.source == RegistrationCredentialSource.PAT) store.putPat(chosen.token)
+        save(runtimeDir, config.copy(credentialSource = chosen.source))
     }
 
     /**
@@ -279,23 +318,23 @@ object RunnerRegistration {
      *
      * [credential] is the one the registration itself used: the old repository
      * is being left on the authority of whoever asked for the move (issue
-     * #194). [signIn] is the stored sign-in, tried when that one is refused —
-     * a PAT scoped to the repository being joined says nothing about the one
-     * being left (issue #242).
+     * #194). [fallbackCredential] lazily retrieves the previous target's stored
+     * source when that one is refused. Legacy details fall back to sign-in
+     * (issue #242).
      */
     private fun detachFromPrevious(
         context: Context,
         runtimeDir: File,
         config: RunnerConfig,
         credential: String,
-        signIn: String?,
+        fallbackCredential: () -> String?,
         api: GitHubApi,
         onLine: (String) -> Unit,
     ) {
         val previous = targetToDetachFrom(load(runtimeDir), config) ?: return
         onLine("leaving ${previous.displayName}")
         runCatching {
-            val token = removalToken(credential, signIn) { api.createRemovalToken(previous, it) }
+            val token = removalToken(credential, fallbackCredential) { api.createRemovalToken(previous, it) }
             val process = RunnerCommand.remove(context, runtimeDir, token)
                 .redirectErrorStream(true)
                 .start()
