@@ -96,6 +96,18 @@ step writes `shell: bash` itself. Without it a pipeline reports its *last*
 command's status, which is how `compare.py … | tee` stayed green through a
 regression and `openssl dgst … | base64` published a zero-byte signature.
 
+It reads the two `defaults: run: shell:` scopes as well as each step, because
+a step inherits them — asking only what the step wrote failed a correct
+workflow, and a required check that cries wolf gets ignored rather than fixed
+([#243](https://github.com/m96-chan/DroidRunner/issues/243)). It scans
+`actions/*/action.yml` too: that is the file a consumer outside this
+repository runs, and its `run:` blocks take their values from that consumer's
+inputs.
+
+`tools/tests/test-check-workflow-run-blocks.sh` drives it over fixtures in
+both directions — four workflows it must accept, three it must reject, and a
+composite action either way.
+
 Runs on every push. See [#203](https://github.com/m96-chan/DroidRunner/issues/203)
 and [#204](https://github.com/m96-chan/DroidRunner/issues/204).
 

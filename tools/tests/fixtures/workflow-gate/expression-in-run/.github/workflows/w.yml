@@ -1,0 +1,10 @@
+name: w
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - shell: bash
+        run: |
+          tag='${{ github.ref_name }}'
+          echo "$tag"
