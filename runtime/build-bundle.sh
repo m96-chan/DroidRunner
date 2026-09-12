@@ -198,7 +198,23 @@ bundle_bytes="$(stat -c %s "$OUT_DIR/$BUNDLE_NAME")"
 echo "==> $bundle_bytes bytes, no host filesystem members"
 
 SHA256="$(sha256sum "$OUT_DIR/$BUNDLE_NAME" | cut -d' ' -f1)"
+# The app offers an update when this string differs from the one it wrote to
+# .installed, and compares it as an opaque value — nothing parses it. So what
+# goes in it decides what a device can ever be offered.
+#
+# The ingredients alone are not enough. droidrunner-device ships inside the
+# bundle, and a release that changes only it — the option validation of #206,
+# the busy exit of #233 — lands on a day when actions/runner and ubuntu-base
+# are the versions they already were. That manifest is byte-identical to the
+# published one, every phone compares equal, and the fix sits on the release
+# page reachable by nobody.
+#
+# So the release tag joins them. It is the one thing that is new by
+# construction: runtime.yml refuses a tag that is not runtime-<x>.<y>.<z>, and
+# a release cannot reuse one. An artifact-only build has no tag and keeps the
+# bare form, which is what a self-builder installing over the side wants.
 VERSION="runner-$RUNNER_VERSION-ubuntu-$UBUNTU_VERSION"
+[ -z "${RELEASE_TAG:-}" ] || VERSION="$VERSION+$RELEASE_TAG"
 
 if [ -z "${MANIFEST_URL:-}" ]; then
     MANIFEST_URL="https://github.com/${GITHUB_REPOSITORY:-OWNER/DroidRunner}/releases/download/${RELEASE_TAG:-runtime-latest}/$BUNDLE_NAME"
