@@ -182,14 +182,31 @@ jobs:
             echo "(from the op-matrix artifact of this run)"
             exit 0
           fi
-          # 1 on a regression, 2 when the two matrices came from different
-          # phones. Held rather than allowed to end the step here, because the
+          # 1 on a regression, 2 when the two matrices cannot be compared at
+          # all. Held rather than allowed to end the step here, because the
           # summary below is how a person finds out *which* operator moved —
           # failing the job and printing nothing would be a worse gate than
           # the one that never failed.
           status=0
-          python tools/op-matrix/compare.py "$baseline" matrix/matrix.json \
-            --json matrix/comparison.json | tee comparison.txt || status=$?
+          # `2>&1` because compare.py's report goes to stdout and its refusals
+          # go to stderr, and only stdout was captured: two matrices from
+          # different phones, or a matrix that could not be read, put nothing
+          # in comparison.txt and the step went red under an empty code fence
+          # (#241). That split is the right one for a tool somebody runs at a
+          # terminal, so what widens here is the capture and not the tool.
+          # `-u` so the two streams land in the order they were written rather
+          # than the order Python's buffers flush.
+          python -u tools/op-matrix/compare.py "$baseline" matrix/matrix.json \
+            --json matrix/comparison.json 2>&1 | tee comparison.txt || status=$?
+          # Every path compare.py takes itself now says something, so this is
+          # left for the ones it does not choose: killed for memory, or a
+          # Python that never started. A red step under an empty fence sends
+          # the reader back to the phone; one line naming the status sends
+          # them to the log above.
+          if [ "$status" -ne 0 ] && [ ! -s comparison.txt ]; then
+            echo "compare.py exited $status without saying why — the log above" \
+                 "is the only record" > comparison.txt
+          fi
           {
             echo
             echo '## Against the committed baseline'
@@ -200,7 +217,13 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
+      # The run worth keeping the evidence from is the one that failed, and it
+      # was the only run that lost it: this upload sits after a step that can
+      # end the job now (#204), so a regression took matrix.json and
+      # comparison.json down with it and left refreshing the baseline meaning
+      # another whole sweep on the phone (#241).
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
           name: op-matrix
           path: matrix/

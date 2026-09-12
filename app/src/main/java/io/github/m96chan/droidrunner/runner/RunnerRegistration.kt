@@ -135,6 +135,59 @@ object RunnerRegistration {
     }
 
     /**
+     * Whether a refusal of the removal token is worth asking again with the
+     * other credential in hand (issue #242).
+     *
+     * 401, 403 and 404 are the three ways GitHub says "not you": the
+     * credential was not accepted at all, it was accepted and does not hold
+     * the permission, or the target is invisible to it — a private repository
+     * a token cannot see is answered 404 rather than 403, so "no permission"
+     * and "no such repository" arrive as the same reply and cannot be told
+     * apart from here. A repository that really is gone costs one extra
+     * request and then the same message, which is cheaper than leaving an
+     * entry behind because the reply was ambiguous.
+     *
+     * Nothing else is worth a second credential. A 5xx, or a request that
+     * never reached GitHub at all, answers the same whoever asks — retrying
+     * only delays the move the user actually asked for, and hides a fault
+     * that has nothing to do with authorisation behind a message about
+     * credentials.
+     */
+    fun refusedForAuthorisation(status: Int): Boolean =
+        status == 401 || status == 403 || status == 404
+
+    /**
+     * Asks [request] for the old target's removal token, with the fallback
+     * that leaving a repository is a different question from joining one
+     * (issue #242).
+     *
+     * [credential] is what the registration went out with. A PAT typed into
+     * the advanced panel is scoped to the repository being *joined*, and the
+     * one being left is somewhere else entirely — so when GitHub refuses it
+     * for want of authorisation, the stored sign-in gets the second and last
+     * try. That is the credential this path used before #194, and the one
+     * that usually does reach the repository the device is already in.
+     *
+     * At most two attempts, and only ever with two distinct credentials: a
+     * sign-in that is already the one in hand has nothing new to say. Any
+     * refusal that survives both is thrown, so the caller can report which
+     * repository still holds an entry.
+     */
+    fun removalToken(
+        credential: String,
+        signIn: String?,
+        request: (String) -> String,
+    ): String = try {
+        request(credential)
+    } catch (refused: GitHubApiException) {
+        val fallback = signIn
+            ?.takeIf { it.isNotBlank() && it != credential }
+            ?.takeIf { refusedForAuthorisation(refused.status) }
+            ?: throw refused
+        request(fallback)
+    }
+
+    /**
      * Exchanges a GitHub credential for a registration token and runs
      * `config.sh`. [ephemeral] makes the runner serve one job and deregister.
      *
@@ -151,9 +204,12 @@ object RunnerRegistration {
     ) {
         val store = SecretStore(context)
         val session = UserSession(store, BuildConfig.GITHUB_APP_CLIENT_ID)
+        // Kept in hand for the detach below: leaving the old repository is a
+        // different question from joining the new one (issue #242).
+        var signIn = session.accessToken()
         // A user sign-in renews itself before it lapses (issue #42); a
         // hand-entered PAT cannot, so it is used as it stands.
-        val chosen = credentialFor(credential, session.accessToken(), store.getPat())
+        val chosen = credentialFor(credential, signIn, store.getPat())
             ?: error("No GitHub credential stored — reconnect on the setup screen")
         val api = GitHubApi()
         // Whatever is actually in hand after the renewal below, so the removal
@@ -167,13 +223,16 @@ object RunnerRegistration {
             // Only a sign-in has anything to renew (#194).
             if (rejected.status != 401 || !chosen.renewable) throw rejected
             inHand = session.renew()
+            // The renewal rotated the sign-in, so the stale copy read above is
+            // no longer a credential anything can be asked with.
+            signIn = inHand
             api.createRegistrationToken(config.target, inHand)
         }
         // Leave the previous repository first. `config.sh remove` reads the
         // credentials the next line deletes, so once the device is attached
         // elsewhere there is no way left to deregister properly — only an API
         // delete by name, which never tells the old runner anything (#154).
-        detachFromPrevious(context, runtimeDir, config, inHand, api, onLine)
+        detachFromPrevious(context, runtimeDir, config, inHand, signIn, api, onLine)
         // config.sh refuses to run while a local configuration exists; --replace
         // only settles the server-side duplicate.
         clearLocalRegistration(runtimeDir)
@@ -218,22 +277,25 @@ object RunnerRegistration {
      * knows about is one somebody has to find later — and an offline entry
      * carrying live labels can be handed a job that then never starts.
      *
-     * [credential] is the one the registration itself used, never a freshly
-     * re-derived one: the old repository is being left on the authority of
-     * whoever asked for the move (issue #194).
+     * [credential] is the one the registration itself used: the old repository
+     * is being left on the authority of whoever asked for the move (issue
+     * #194). [signIn] is the stored sign-in, tried when that one is refused —
+     * a PAT scoped to the repository being joined says nothing about the one
+     * being left (issue #242).
      */
     private fun detachFromPrevious(
         context: Context,
         runtimeDir: File,
         config: RunnerConfig,
         credential: String,
+        signIn: String?,
         api: GitHubApi,
         onLine: (String) -> Unit,
     ) {
         val previous = targetToDetachFrom(load(runtimeDir), config) ?: return
         onLine("leaving ${previous.displayName}")
         runCatching {
-            val token = api.createRemovalToken(previous, credential)
+            val token = removalToken(credential, signIn) { api.createRemovalToken(previous, it) }
             val process = RunnerCommand.remove(context, runtimeDir, token)
                 .redirectErrorStream(true)
                 .start()
