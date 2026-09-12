@@ -29,8 +29,22 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-DIR="${1:-.github/workflows}"
-[ -d "$DIR" ] || die "no workflow directory at $DIR"
+# Given a directory, scan that (which is how the fixtures are driven).
+# Given nothing, scan what this repository actually ships: the workflows, and
+# the composite action — which was outside the net until #243 and is the one
+# file a consumer outside this repository runs, with `run:` blocks that take
+# their values from that consumer's inputs.
+ROOTS=()
+if [ $# -gt 0 ]; then
+    [ -d "$1" ] || die "no workflow directory at $1"
+    ROOTS=("$1")
+else
+    [ -d .github/workflows ] || die "no workflow directory at .github/workflows"
+    ROOTS=(.github/workflows)
+    for d in actions/*/; do
+        [ -d "$d" ] && ROOTS+=("${d%/}")
+    done
+fi
 
 command -v awk >/dev/null || die "awk is required"
 
@@ -48,14 +62,29 @@ scan() {
     # what awk is on a GitHub runner, so the program stays inside POSIX.
     function reset() { has_shell = 0; pend = 0; piped = 0 }
 
+    # A step inherits `defaults: run: shell:` from its job and from the
+    # workflow, so the question is never only what the step itself wrote.
+    # Asking only that failed a correct workflow, which in a required check is
+    # worse than the gap it closes, because the answer to a check that
+    # cries wolf is to stop believing it (#243).
+    function shelled() { return has_shell || job_shell || wf_shell }
+
     function flush(   i) {
         for (i = 1; i <= pend; i++) {
             if (ptype[i] == "expr")
                 printf "expr\t%s\t%d\n", file, pline[i]
-            else if (!has_shell)
+            else if (!shelled())
                 printf "pipe\t%s\t%d\n", file, pline[i]
         }
         reset()
+    }
+
+    # YAML lets the value be written plain or quoted, either way, and all of
+    # them mean bash.
+    function unquoted(v) {
+        if (v ~ /^".*"$/ || v ~ /^'\''.*'\''$/)
+            return substr(v, 2, length(v) - 2)
+        return v
     }
 
     # A shell line with its comment and its quoted strings taken out, so the
@@ -120,7 +149,12 @@ scan() {
         }
     }
 
-    FNR == 1 { flush(); in_scalar = 0; file = FILENAME }
+    FNR == 1 {
+        flush(); in_scalar = 0; file = FILENAME
+        wf_shell = 0; job_shell = 0
+        def_ind = -1; in_def_run = 0; def_run_ind = -1
+        in_jobs = 0; job_ind = -1
+    }
 
     {
         blank = ($0 ~ /^[ \t]*$/)
@@ -150,7 +184,31 @@ scan() {
         val = substr(t, RLENGTH + 1)
         sub(/^[ \t]+/, "", val); sub(/[ \t]+$/, "", val)
 
-        if (key == "shell" && val == "bash") { has_shell = 1; next }
+        # Left the block a `defaults:` (or its `run:`) opened.
+        if (def_ind >= 0 && keyind <= def_ind) { def_ind = -1; in_def_run = 0 }
+        if (in_def_run && keyind <= def_run_ind) in_def_run = 0
+
+        # A key at the indent job names sit at is the next job, and a job-level
+        # default does not carry into it.
+        if (key == "jobs" && keyind == 0) { in_jobs = 1; job_ind = -1 }
+        else if (in_jobs && !item && keyind > 0) {
+            if (job_ind < 0) job_ind = keyind
+            if (keyind == job_ind) { job_shell = 0; def_ind = -1; in_def_run = 0 }
+        }
+
+        if (key == "defaults") { def_ind = keyind; in_def_run = 0; next }
+        if (def_ind >= 0 && key == "run" && keyind > def_ind) {
+            in_def_run = 1; def_run_ind = keyind; next
+        }
+
+        if (key == "shell" && unquoted(val) == "bash") {
+            if (in_def_run) {
+                # Indent 0 is the `defaults:` the whole workflow carries;
+                # anything deeper belongs to the job it is written under.
+                if (def_ind == 0) wf_shell = 1; else job_shell = 1
+            } else has_shell = 1
+            next
+        }
 
         if (val ~ /^[|>][-+]?[0-9]*$/) {
             in_scalar = 1; scalar_ind = keyind; scalar_run = (key == "run")
@@ -180,10 +238,12 @@ report() {  # report <type> <file> <line>
 }
 
 files=()
-for f in "$DIR"/*.yml "$DIR"/*.yaml; do
-    [ -f "$f" ] && files+=("$f")
+for root in "${ROOTS[@]}"; do
+    for f in "$root"/*.yml "$root"/*.yaml; do
+        [ -f "$f" ] && files+=("$f")
+    done
 done
-[ ${#files[@]} -gt 0 ] || die "no workflows found under $DIR"
+[ ${#files[@]} -gt 0 ] || die "no workflows found under ${ROOTS[*]}"
 
 while IFS=$'\t' read -r type file line; do
     [ -n "${type:-}" ] || continue
@@ -195,6 +255,6 @@ if [ "$failed" -ne 0 ]; then
 fi
 
 for f in "${files[@]}"; do
-    echo "  ok   $(basename "$f")" >&2
+    echo "  ok   $f" >&2
 done
 echo "every run: block takes its values as data and keeps its exit codes" >&2
