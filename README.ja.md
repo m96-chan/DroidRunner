@@ -300,7 +300,7 @@ EfficientNet-Lite0、中央値(int8は30回、float32は20回)。**同じモデ�
 - **量子化は速さだけでなく、到達できるかどうかを決めることがあります。**
   MediaTekのMDLAはint8を受け、float32は断ります。
 - **NNAPI任せにすると高速化のほとんどを失い**、そもそもNNAPIはHexagonに到達できません。
-  Snapdragonが列挙するのはCPUだけで、だからその行には下記のopt-inが必要です。
+  Snapdragonが列挙するのはCPUだけで、だからその行には上記のopt-inが必要です。
 
 これが実機プールの存在理由で、仮想マシンのARM64ランナーには答えられない問いです。
 
@@ -391,8 +391,9 @@ droidrunner-device test batch manifest.json --output sweep.json
 リリースに気づいてもらうのを待つ必要がなくなるため、こちらを推奨します:
 
 1. アプリを追加 → `https://github.com/m96-chan/DroidRunner` を貼り付け
-2. APKフィルタ(1リリースに複数アセットが載る場合のみ必要):
-   `droidrunner-v.*\.apk`
+2. APKフィルタ — `droidrunner-v.*\.apk`。省略はできません: 各リリースには対応ソース
+   アーカイブ `droidrunner-v<version>-source.tar.gz` も入っているため、フィルタが
+   無いとObtainiumは2つのアセットから選ぶことになります
 
 以後、新しいタグが公開されるとその場で更新されます。
 
@@ -443,6 +444,16 @@ app/build/outputs/apk/debug/app-debug.apk
 `v*`タグをpushするとAPKがビルドされ公開されます。`versionName`と`versionCode`は
 タグから導出されるため、更新版は必ず既存版より上位になります(タグなしのローカルビルドは
 `0.0.0-dev`)。
+
+タグは `v<major>.<minor>.<patch>` ちょうどである必要があります。`-rc1` のような接尾辞が
+付くとビルド側の正規表現に一致せず、`versionName` は `0.0.0-dev`、`versionCode` は 1 に
+フォールバックします — 開発ビルドとしてインストールされ、そこからは二度と更新できません。
+Workflowは署名鍵がrunnerに置かれるより前にそのタグを拒否します。タグを指定して手動実行する
+こともでき、その場合もdispatch元のブランチではなくタグのコミットをビルドします。既にリリース
+が存在するタグに対しては、APKを上書きせず公開を拒否します — 変更したコードは新しいバージョン
+で公開してください([#252](https://github.com/m96-chan/DroidRunner/issues/252))。
+各リリースにはAPKと対応ソースアーカイブ `droidrunner-v<version>-source.tar.gz` の
+2つのアセットが載ります。
 
 リリースは固定の鍵で署名する必要があり、debug鍵でタグ付きリリースをビルドしようとすると
 ビルドが失敗します。鍵は1つ作って安全に保管し、リポジトリのsecretsへ登録してください:

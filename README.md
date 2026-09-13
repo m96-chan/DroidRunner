@@ -381,7 +381,7 @@ Four things a spec sheet would not have told you:
   fast it is: MediaTek's MDLA takes int8 and refuses float32 outright.
 - **Letting NNAPI choose costs most of the speedup**, and NNAPI cannot reach a
   Hexagon at all — a Snapdragon enumerates only its CPU, which is why that row needs
-  the opt-in below.
+  the opt-in above.
 
 This is the question a device pool exists to answer, and a virtual ARM64 runner
 cannot answer it at all.
@@ -407,8 +407,9 @@ as `droidrunner-v<version>.apk` (arm64 only).
 unattended runner should not wait for someone to notice a release:
 
 1. Add app → paste `https://github.com/m96-chan/DroidRunner`
-2. APK filter (only needed if a release ever carries several assets):
-   `droidrunner-v.*\.apk`
+2. APK filter — `droidrunner-v.*\.apk`. Not optional: every release also carries
+   the corresponding-source archive `droidrunner-v<version>-source.tar.gz`, and
+   without the filter Obtainium has two assets to choose between
 
 Obtainium then updates the app in place as new tags are published.
 
@@ -462,6 +463,17 @@ This repository also contains a GitHub Actions build definition.
 Pushing a `v*` tag builds and publishes the APK. `versionName` and `versionCode` are
 derived from the tag, so an update always outranks the version it replaces; a local
 build without a tag reports `0.0.0-dev`.
+
+The tag must be exactly `v<major>.<minor>.<patch>`. Anything else — an `-rc1` suffix,
+say — does not match the regex the build reads, so `versionName` falls back to
+`0.0.0-dev` and `versionCode` to 1: a release installed as a development build, which
+can never be upgraded from. The workflow refuses such a tag before the keystore is
+anywhere near the runner. It can also be dispatched by hand with a tag, and it builds
+that tag's commit rather than whatever branch dispatched it. Publication refuses a tag
+that already has a release rather than overwriting its APK — publish changed code under
+a new version ([#252](https://github.com/m96-chan/DroidRunner/issues/252)). Each
+release carries two assets: the APK and the corresponding-source archive
+`droidrunner-v<version>-source.tar.gz`.
 
 Releases must be signed with a stable key, and the build refuses to produce a tagged
 release with the debug key. Create one keystore, keep it safe, and store it in the

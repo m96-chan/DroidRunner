@@ -67,6 +67,40 @@ with nothing failing anywhere.
 
 Runs on every build. See [#128](https://github.com/m96-chan/DroidRunner/issues/128).
 
+## `check-executed-everywhere.sh`
+
+`executed` is promised on every path from v0.8.0, and the contract tells
+consumers they may require that version and delete the shim that reconstructs
+the field from `delegation`. The Qualcomm result builder has no automated
+coverage at all — exercising it needs a Snapdragon with the vendor runtime
+installed — and the field went missing there once, which came back as an
+operator matrix reading 0 of 62 because absence was read as refusal.
+
+So this is a source-level canary in the spirit of `check-tflite-wording.sh`: it
+cannot prove the field is correct, only that nobody deleted it from either
+result builder. A new builder belongs in its list on the day it is written.
+
+Runs on every push. See [#158](https://github.com/m96-chan/DroidRunner/issues/158).
+
+## `check-licence-tables-match.sh`
+
+The licence table is not a description of the project, it is how the source
+obligation is discharged: GPL-2.0 §3 is satisfied by offering the source from
+the same place as the binary, and the table is where a recipient is told what
+we redistribute and where that source is.
+
+There are three copies of that list — `README.md`, `README.ja.md` and the
+About screen in the app — and nothing else compares them. Both files render,
+both tables look complete, and the short one is short in a language the person
+adding a component may not read. That is how the Ubuntu rootfs ended up named
+in `README.md` alone, and how the About screen went on telling the reader to
+rebuild proot from a commit and a patch directory while the tables pointed at
+the archive published beside the binary. The screen is what someone holding
+only the APK has, which is who the offer is for.
+
+Runs on every push. See [#216](https://github.com/m96-chan/DroidRunner/issues/216)
+and [#226](https://github.com/m96-chan/DroidRunner/issues/226).
+
 ## `check-action-pin.sh`
 
 The tutorial is a copy-paste page, so the ref it names for `actions/run-model`

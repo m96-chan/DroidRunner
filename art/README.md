@@ -39,3 +39,18 @@ colour, then reassembled. The trace deliberately drops the reference's
 hairline outlines: they were invisible against white and read as dirt against a
 dark background. Colours are flat — robot `#91BA26`, strap `#3F4145`, details
 white — which is why it stays crisp down to 48px.
+
+## Also in this directory
+
+`qnn-pins.sh` has nothing to do with the artwork; it lives here because it is
+the other thing kept beside the assets rather than beside the code it feeds.
+It regenerates the pinned SHA-256 digests in
+`app/src/main/java/io/github/m96chan/droidrunner/npu/QnnArtifacts.kt`, because
+Maven Central publishes only SHA-1 and MD5 beside Qualcomm's AARs and there is
+nothing worth verifying a download against until we compute a SHA-256 ourselves
+and commit it. Run it when bumping the QNN release, then paste the rows it
+prints into `QnnArtifacts.kt` and update `VERSION`:
+
+```bash
+art/qnn-pins.sh 2.49.0
+```
