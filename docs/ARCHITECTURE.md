@@ -100,10 +100,15 @@ an active build unless the status reaches a critical/emergency threshold.
 
 ## Runtime distribution
 
-The runtime bundle is large and should be a separate GitHub Release asset rather than an
-APK asset. HTTPS plus SHA-256 detects corruption, but the manifest and archive must share
-an independently trusted distribution channel to resist replacement. Production releases
-should add a signature verified by a public key embedded in the APK.
+The runtime bundle is large and is a separate GitHub Release asset rather than an APK
+asset. HTTPS plus SHA-256 detects corruption, but it says nothing about who wrote the
+manifest — and whoever can replace a manifest points devices at a rootfs of their choosing,
+which is where CI jobs execute. So the manifest carries a detached ECDSA P-256 signature,
+published beside it as `runtime-manifest.json.sig` and verified against public keys compiled
+into the APK before the manifest is parsed. A build carrying a trusted key refuses an
+unsigned or wrongly signed manifest; a build configured with no key cannot check at all and
+says so during install rather than pretending otherwise. See
+[`runtime/README.md`](../runtime/README.md#manifest-format).
 
 Installing replaces the whole runtime directory, so the stored registration details are
 carried into the new tree while the runner's own identity files are not: the details say

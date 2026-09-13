@@ -69,9 +69,10 @@
       </p>
       <pre>https://github.com/m96-chan/DroidRunner</pre>
       <p>
-        リリースに複数のアセットが含まれる場合は、APKフィルタに
-        <code>droidrunner-v.*\.apk</code> を設定します。以降、新しいタグが公開されるたびに
-        Obtainiumがアプリを上書き更新します。
+        APKフィルタに <code>droidrunner-v.*\.apk</code> を設定してください。各リリースには
+        対応ソースアーカイブ <code>droidrunner-v&lt;version&gt;-source.tar.gz</code> も入っている
+        ため、フィルタが無いとObtainiumは2つのアセットから選ぶことになります。設定後は、
+        新しいタグが公開されるたびにObtainiumがアプリを上書き更新します。
       </p>
       <p>
         <b style="display:inline">手動:</b>
@@ -348,7 +349,7 @@
   <pre>git clone https://github.com/m96-chan/DroidRunner
 cd DroidRunner
 ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/&lt;version&gt; runtime/build-proot.sh
-gradle assembleDebug</pre>
+./gradlew assembleDebug</pre>
   <p style="color:var(--dim)">
     信頼する署名鍵を設定していないビルドはruntime bundleを検証できません。
     その場合は、検証したふりをするのではなく、インストール時にその旨を表示します。

@@ -70,9 +70,11 @@
       </p>
       <pre>https://github.com/m96-chan/DroidRunner</pre>
       <p>
-        If a release ever carries several assets, set the APK filter
-        <code>droidrunner-v.*\.apk</code>. Obtainium then updates the app in place as
-        new tags are published.
+        Set the APK filter <code>droidrunner-v.*\.apk</code>. Every release also
+        carries the corresponding-source archive
+        <code>droidrunner-v&lt;version&gt;-source.tar.gz</code>, so without the filter
+        Obtainium has two assets to choose between. It then updates the app in place
+        as new tags are published.
       </p>
       <p>
         <b style="display:inline">By hand:</b> download
@@ -352,7 +354,7 @@
   <pre>git clone https://github.com/m96-chan/DroidRunner
 cd DroidRunner
 ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/&lt;version&gt; runtime/build-proot.sh
-gradle assembleDebug</pre>
+./gradlew assembleDebug</pre>
   <p style="color:var(--dim)">
     A build with no trusted manifest key configured cannot verify a runtime bundle
     and says so during install rather than pretending otherwise.
