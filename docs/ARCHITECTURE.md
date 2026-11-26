@@ -44,8 +44,13 @@ shared with every app on the phone, so the socket alone is not a boundary.
 | `POST /v1/tests/models` | the same, as a manifest — a few hundred models in one request |
 
 The last two are what a consumer actually uses; the first two predate them. Paths
-in a request are the job's own view (`/home/runner/...`) and are proven to stay
-inside the runner home before anything is opened, because job code is untrusted.
+in a request are the job's own view (`/home/runner/...`). Untrusted job code owns
+every directory there. The agent therefore follows no symlink in these paths. It
+opens each path one component at a time, from a directory the guest cannot reach.
+It copies the model and inputs to private storage before a run. After the run, it
+moves the outputs into the output directory by rename. The same rules cover the
+agent token file, the CLI install, the runner's registration files and the
+cleanup of `_work`. A path through a symlink fails with `invalid-request`.
 
 Every response follows [`RESULT-CONTRACT.md`](RESULT-CONTRACT.md): a `schema`, a
 `code` from a closed set when something fails, and — for anything timed — who

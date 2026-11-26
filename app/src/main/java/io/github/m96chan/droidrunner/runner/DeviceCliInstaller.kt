@@ -1,6 +1,7 @@
 package io.github.m96chan.droidrunner.runner
 
 import android.content.Context
+import io.github.m96chan.droidrunner.runtime.GuestFs
 import java.io.File
 
 /**
@@ -14,16 +15,13 @@ import java.io.File
  */
 object DeviceCliInstaller {
     private const val ASSET = "droidrunner-device"
-    private const val GUEST_PATH = "rootfs/usr/local/bin/droidrunner-device"
+    private val GUEST_DIRECTORY = listOf("rootfs", "usr", "local", "bin")
 
     fun install(context: Context, runtimeDir: File) {
-        val target = File(runtimeDir, GUEST_PATH)
         runCatching {
-            target.parentFile?.mkdirs()
-            context.assets.open(ASSET).use { input ->
-                target.outputStream().use(input::copyTo)
+            GuestFs.replaceFile(runtimeDir, GUEST_DIRECTORY, ASSET, "rwxr-xr-x") { staged ->
+                context.assets.open(ASSET).use { input -> staged.outputStream().use(input::copyTo) }
             }
-            target.setExecutable(true, false)
         }.onFailure {
             android.util.Log.e("DroidRunner", "cannot install device CLI", it)
         }

@@ -239,6 +239,22 @@ name_option() {  # name_option <option> <value>
         die "invalid-request: $1 takes a name of letters, digits and . _ + - , not: $2"
 }
 
+# A path as the agent needs it: absolute, with every symlink resolved (the
+# agent follows none), and escaped as the inside of a JSON string (RFC 8259
+# section 7). Escaped rather than checked: realpath hands over link targets, and
+# a file name may hold a quote or a backslash. A control character is refused
+# instead, because no path a job means to pass contains one.
+# `die` here leaves only the $(...) subshell, so call it as
+# `x="$(job_path "$x")" || exit 1`.
+job_path() {  # job_path <path>
+    local path
+    path="$(realpath -- "$1")" || die "cannot resolve $1"
+    [[ "$path" =~ [[:cntrl:]] ]] && die "invalid-request: a path contains a control character: $path"
+    # sed, not ${path//\\/...}: bash 5.2 reads backslashes in a replacement
+    # differently from the bash 3.2 some hosts still run.
+    printf '%s' "$path" | sed 's/[\\"]/\\&/g'
+}
+
 cmd="${1:-}"
 [ -n "$cmd" ] || { sed -n '3,44p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1; }
 shift || true
@@ -327,8 +343,7 @@ case "$cmd" in
             model="${1:-}"; shift || true
             [ -n "$model" ] || die "usage: droidrunner-device test model <file.tflite> [options]"
             [ -r "$model" ] || die "cannot read $model"
-            # The agent needs the path as the job sees it, absolute.
-            model="$(cd "$(dirname "$model")" && pwd)/$(basename "$model")"
+            model="$(job_path "$model")" || exit 1
         fi
         device=""; iterations=""; size=""; channels=""; filters=""; timings=""; delegate_log=""
         features=""
@@ -345,7 +360,8 @@ case "$cmd" in
                 # Repeatable, one per input tensor, in the model's own order.
                 --input)
                     [ -r "$2" ] || die "cannot read $2"
-                    inputs="$inputs\"$(cd "$(dirname "$2")" && pwd)/$(basename "$2")\","
+                    input="$(job_path "$2")" || exit 1
+                    inputs="$inputs\"$input\","
                     shift 2 ;;
                 # Runs the CPU reference in the same request, so the ratio
                 # comes from one thermal state rather than two steps apart.
@@ -358,7 +374,7 @@ case "$cmd" in
                 --delegate-log) delegate_log=1; shift ;;
                 --output-dir)
                     mkdir -p "$2" || die "cannot create $2"
-                    output_dir="$(cd "$2" && pwd)"
+                    output_dir="$(job_path "$2")" || exit 1
                     shift 2 ;;
                 --output) output_file="$2"; shift 2 ;;
                 --json) shift ;;   # already the only thing on stdout

@@ -9,6 +9,13 @@ import org.junit.Test
 
 class QnnArtifactsTest {
 
+    @Test fun everyLibraryOfEveryGenerationHasAPinToCheckBeforeLoading() {
+        listOf(68, 69, 73, 75, 79, 81).flatMap { QnnArtifacts.entriesFor(it)!! }.forEach { entry ->
+            assertEquals(entry.library, entry.sha256, QnnArtifacts.sha256Of(entry.library))
+        }
+        assertNull(QnnArtifacts.sha256Of("qnn-last-run.txt"))
+    }
+
     @Test fun theFleetsPhonesResolveFromTheirSocStringToAFetchList() {
         // The whole path stage 1 and stage 2 form: what the device reports,
         // through the Hexagon generation, to the files to fetch.

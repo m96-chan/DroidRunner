@@ -1,5 +1,6 @@
 package io.github.m96chan.droidrunner.npu
 
+import io.github.m96chan.droidrunner.runtime.GuestFs
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -64,11 +65,9 @@ internal class DeviceAgentServer(
         private set
     val url: String get() = "http://127.0.0.1:$port"
 
-    /** Token file as seen from inside the guest. */
-    private val tokenFile = File(runtimeDir, "home/runner/$TOKEN_FILE_NAME")
-
     @Volatile
     private var currentToken: String? = null
+    private val tokenLock = Any()
 
     private var serverSocket: ServerSocket? = null
 
@@ -151,6 +150,9 @@ internal class DeviceAgentServer(
         port = socket.localPort
         serverSocket = socket
         clearToken()
+        // Left behind only by a process that died mid-request; private, so no
+        // job could have planted anything in it.
+        GuestFs.stagingRoot(runtimeDir).deleteRecursively()
         thread(name = "device-agent", isDaemon = true) {
             while (!socket.isClosed) {
                 val client = runCatching { socket.accept() }
@@ -188,26 +190,34 @@ internal class DeviceAgentServer(
     /**
      * Issues a fresh capability token for a starting job and writes it to the
      * app-private runtime dir; revokes it when the job finishes.
+     *
+     * One lock for issuing and revoking: a stop arrives on its own thread, and
+     * a revoke that landed between an issue's publish and its accept would be
+     * undone by the accept.
      */
     fun onJobActive(active: Boolean) {
-        if (!active) {
-            clearToken()
-            return
+        synchronized(tokenLock) {
+            if (!active) {
+                clearToken()
+                return
+            }
+            currentToken = null
+            val token = SecureRandom().let { rng ->
+                ByteArray(24).also(rng::nextBytes).joinToString("") { "%02x".format(it) }
+            }
+            // Accepted only once the job can read it.
+            runCatching {
+                GuestFs.replaceFile(runtimeDir, GuestFs.RUNNER_HOME, TOKEN_FILE_NAME, "rw-------") {
+                    it.writeText(token)
+                }
+                currentToken = token
+            }.onFailure { logError("cannot publish agent token", it) }
         }
-        val token = SecureRandom().let { rng ->
-            ByteArray(24).also(rng::nextBytes).joinToString("") { "%02x".format(it) }
-        }
-        currentToken = token
-        runCatching {
-            tokenFile.parentFile?.mkdirs()
-            tokenFile.writeText(token)
-            tokenFile.setReadable(true, false)
-        }.onFailure { logError("cannot publish agent token", it) }
     }
 
-    private fun clearToken() {
+    private fun clearToken() = synchronized(tokenLock) {
         currentToken = null
-        runCatching { if (tokenFile.exists()) tokenFile.delete() }
+        runCatching { GuestFs.removeTree(runtimeDir, GuestFs.RUNNER_HOME + TOKEN_FILE_NAME) }
     }
 
     /**
@@ -479,11 +489,23 @@ internal class DeviceAgentServer(
     }
 
     /**
-     * Runs a model the job already has on disk. The path is the job's own view
-     * of it; [GuestPath] proves it stays inside the runner home before the file
-     * is opened, since the path comes from untrusted workflow code.
+     * Runs a model the job already has on disk. The paths are the job's own
+     * view, chosen by untrusted workflow code, so only [GuestFs] touches them:
+     * the model and inputs are copied out to a private stage, the runners work
+     * on that, and outputs are moved back in when the run is over.
      */
     private fun modelTest(body: String): Pair<Int, String> {
+        val stage = runCatching { GuestFs.newStage(runtimeDir) }.getOrElse {
+            return 200 to ResultContract.failure(
+                ResultContract.Code.FAILED,
+                "the device agent could not create a private directory for this run",
+                it.message,
+            ).toString()
+        }
+        return stage.use { modelTest(body, it.directory) }
+    }
+
+    private fun modelTest(body: String, stage: File): Pair<Int, String> {
         val request = runCatching { JSONObject(body.ifBlank { "{}" }) }.getOrElse {
             return 400 to ResultContract.error(ResultContract.Code.INVALID_REQUEST, "invalid JSON body")
         }
@@ -492,11 +514,9 @@ internal class DeviceAgentServer(
                 ResultContract.Code.INVALID_REQUEST,
                 "path is required",
             )
-        val model = GuestPath.resolve(runtimeDir, path)
-            ?: return 400 to ResultContract.error(
-                ResultContract.Code.INVALID_REQUEST,
-                "model must be a file under /home/runner (the job workspace)",
-            )
+        val model = runCatching { GuestFs.stageJobFile(runtimeDir, path, File(stage, "model")) }.getOrElse {
+            return unusable("model must be a file under /home/runner (the job workspace)", "the model", it)
+        }
         val device = request.optString("device").takeIf { it.isNotBlank() }
         // Experiments a caller has to name before they happen. Absent, every
         // path below is the one it has always been (#159).
@@ -516,28 +536,15 @@ internal class DeviceAgentServer(
         // than trust our reading of them (#128).
         val keepDelegateLog = request.optBoolean("delegateLog")
 
-        // Job code chose these paths, so each one is proven to stay inside the
-        // runner's home before anything is opened or written (issue #92).
         val requested = request.optJSONArray("inputs")
         val inputs = mutableListOf<File>()
         for (index in 0 until (requested?.length() ?: 0)) {
-            val path = requested!!.optString(index)
-            inputs += GuestPath.resolve(runtimeDir, path)
-                ?: return 400 to ResultContract.error(
-                    ResultContract.Code.INVALID_REQUEST,
-                    "input $index is not a readable file under /home/runner: $path",
-                )
+            val input = requested!!.optString(index)
+            inputs += runCatching { GuestFs.stageJobFile(runtimeDir, input, File(stage, "input-$index")) }.getOrElse {
+                return unusable("input $index is not a readable file under /home/runner: $input", "input $index", it)
+            }
         }
-        val outputTarget = request.optString("outputDir").takeIf { it.isNotBlank() }?.let { path ->
-            val directory = GuestPath.resolveDirectory(runtimeDir, path)
-                ?: return 400 to ResultContract.error(
-                    ResultContract.Code.INVALID_REQUEST,
-                    "outputDir must be a directory under /home/runner: $path",
-                )
-            // Both frames: this process writes to the first, the job reads the
-            // second, and only the second belongs in a reply.
-            TensorIo.Target(directory, path)
-        }
+        val outputDir = request.optString("outputDir").takeIf { it.isNotBlank() }
 
         // "qnn-htp" and friends are not NNAPI device names; they mean the
         // Qualcomm delegate in its own process, which NNAPI cannot reach. A
@@ -549,29 +556,78 @@ internal class DeviceAgentServer(
                 unknown.message ?: "unknown QNN backend",
             )
         }
-        backend?.let {
-            val run = qnnModel
-                ?: return 400 to ResultContract.error(
-                    ResultContract.Code.NOT_INSTALLED,
-                    "this device has no Qualcomm accelerator runtime",
-                )
-            return 200 to run(model, it, iterations, inputs, outputTarget, keepTimings)
+        val qnn = qnnModel
+        if (backend != null && qnn == null) {
+            return 400 to ResultContract.error(
+                ResultContract.Code.NOT_INSTALLED,
+                "this device has no Qualcomm accelerator runtime",
+            )
         }
-        return 200 to ModelRunner.run(
-            model = model,
-            deviceName = device,
-            multiDevices = multiDevices,
-            iterations = iterations,
-            inputs = inputs,
-            outputTarget = outputTarget,
-            baseline = request.optBoolean("baseline"),
-            conditions = conditions,
-            keepTimings = keepTimings,
-            keepDelegateLog = keepDelegateLog,
-            // App-private and outside the guest's home: a diagnostic scratch
-            // file is not something a job should find, or be able to write.
-            diagnosticsDir = runtimeDir.parentFile,
-        )
+        val run: (TensorIo.Target?) -> String = if (backend != null && qnn != null) {
+            { target -> qnn(model, backend, iterations, inputs, target, keepTimings) }
+        } else {
+            { target ->
+                ModelRunner.run(
+                    model = model,
+                    deviceName = device,
+                    multiDevices = multiDevices,
+                    iterations = iterations,
+                    inputs = inputs,
+                    outputTarget = target,
+                    baseline = request.optBoolean("baseline"),
+                    conditions = conditions,
+                    keepTimings = keepTimings,
+                    keepDelegateLog = keepDelegateLog,
+                    // App-private and outside the guest's home: a diagnostic scratch
+                    // file is not something a job should find, or be able to write.
+                    diagnosticsDir = runtimeDir.parentFile,
+                )
+            }
+        }
+        if (outputDir == null) return 200 to run(null)
+
+        // Held open for the whole run, so the outputs land in the directory
+        // that was checked even if the job swaps the path meanwhile.
+        val directory = runCatching { GuestFs.openJobDirectory(runtimeDir, outputDir) }.getOrElse {
+            return unusable("outputDir must be a directory under /home/runner: $outputDir", "outputDir", it)
+        }
+        return directory.use {
+            // Both frames: the runners write to the first, the job reads the
+            // second, and only the second belongs in a reply.
+            val staged = File(stage, "outputs")
+            val answer = run(TensorIo.Target(staged, outputDir))
+            200 to (publishOutputs(staged, it) ?: answer)
+        }
+    }
+
+    /**
+     * A path the job got wrong is its own 400; anything else that stopped
+     * [subject] from being read is a failure on this side.
+     */
+    private fun unusable(requirement: String, subject: String, failure: Throwable): Pair<Int, String> =
+        if (failure is GuestFs.Refused) {
+            400 to ResultContract.error(ResultContract.Code.INVALID_REQUEST, "$requirement: ${failure.message}")
+        } else {
+            200 to ResultContract.failure(
+                ResultContract.Code.FAILED,
+                "the device agent could not open $subject",
+                failure.message,
+            ).toString()
+        }
+
+    /**
+     * Moves what a run wrote to [staged] into the job's [directory]. Returns
+     * the failure to report instead of the run's answer, or null.
+     */
+    private fun publishOutputs(staged: File, directory: GuestFs.Directory): String? {
+        val failure = staged.listFiles().orEmpty().sortedBy { it.name }.firstNotNullOfOrNull { file ->
+            runCatching { GuestFs.publish(file, directory, file.name) }.exceptionOrNull()
+        } ?: return null
+        return ResultContract.failure(
+            ResultContract.Code.FAILED,
+            "the run finished, but its outputs could not be written to ${directory.shown}",
+            failure.message,
+        ).toString()
     }
 
     /**

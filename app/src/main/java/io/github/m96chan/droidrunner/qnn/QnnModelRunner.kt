@@ -118,8 +118,11 @@ internal object QnnModelRunner {
         val runs = iterations.coerceIn(0, 500)
         step("loading libraries")
         val loading = QnnNative.load(directory, libraries)
-        if (!JSONObject(loading).optBoolean("ok")) {
-            return failure(model, backend, "QNN did not load", loading)
+        val loaded = JSONObject(loading)
+        if (!loaded.optBoolean("ok")) {
+            // A library that fails its pin asks for a reinstall, not a retry.
+            val code = loaded.optString("code").ifBlank { ResultContract.Code.FAILED }
+            return failure(model, backend, "QNN did not load", loading, code)
         }
 
         val code = QnnOptions.backendCode(backend)

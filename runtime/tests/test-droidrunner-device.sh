@@ -365,6 +365,56 @@ check "a device name carrying + and _ is still accepted" 0 "$(status_of)"
 contains "and travels with the iterations asked for" '"iterations":0' "$(sent)"
 
 echo
+echo "paths the agent receives, which must contain no symlink"
+
+# The agent refuses to follow any link, so the wrapper resolves them here,
+# inside the guest, where a link means what the job meant by it.
+says '{"schema":1,"ok":true,"avgUs":12.5,"executed":"accelerator"}'
+mkdir -p "$WORK/real/fixtures" "$WORK/real/out"
+: > "$WORK/real/model.tflite"
+: > "$WORK/real/fixtures/in.bin"
+ln -s "$WORK/real/model.tflite" "$WORK/linked.tflite"
+ln -s real/fixtures "$WORK/fixtures"
+ln -s real/out "$WORK/out"
+REAL="$(realpath "$WORK/real")"
+rm -f "$WORK/last-request.json"
+run test model "$WORK/linked.tflite" --input "$WORK/fixtures/in.bin" --output-dir "$WORK/out" >/dev/null
+check "a request through symlinks still succeeds" 0 "$(status_of)"
+contains "the model is sent as the file the link points to" "\"path\":\"$REAL/model.tflite\"" "$(sent)"
+contains "an input under a linked directory is sent by its real path" \
+    "\"inputs\":[\"$REAL/fixtures/in.bin\"]" "$(sent)"
+contains "a linked output directory is sent by its real path" "\"outputDir\":\"$REAL/out\"" "$(sent)"
+
+# realpath hands over whatever the link points at, quotes included.
+mkdir -p "$WORK/real/a\"b"
+: > "$WORK/real/a\"b/m.tflite"
+ln -s "real/a\"b/m.tflite" "$WORK/quoted.tflite"
+rm -f "$WORK/last-request.json"
+run test model "$WORK/quoted.tflite" >/dev/null
+check "a link target with a quote still makes a request" 0 "$(status_of)"
+contains "and the quote is escaped rather than ending the string" "\"path\":\"$REAL/a\\\"b/m.tflite\"" "$(sent)"
+check "so the agent receives valid JSON" ok \
+    "$(python3 -c 'import json,sys; json.load(sys.stdin); print("ok")' < "$WORK/last-request.json" 2>&1)"
+
+mkdir -p "$WORK/real/back\\slash"
+: > "$WORK/real/back\\slash/m.tflite"
+rm -f "$WORK/last-request.json"
+run test model "$WORK/real/back\\slash/m.tflite" >/dev/null
+contains "a backslash in a path is escaped" "\"path\":\"$REAL/back\\\\slash/m.tflite\"" "$(sent)"
+check "and the request is still valid JSON" ok \
+    "$(python3 -c 'import json,sys; print("ok" if json.load(sys.stdin)["path"].endswith("back\\slash/m.tflite") else "wrong")' < "$WORK/last-request.json" 2>&1)"
+
+mkdir -p "$WORK/real/line
+break"
+: > "$WORK/real/line
+break/m.tflite"
+rm -f "$WORK/last-request.json"
+run test model "$WORK/real/line
+break/m.tflite" >/dev/null
+check "a path with a control character is refused as invalid-request" 1 "$(status_of)"
+check "and nothing is sent" "" "$(sent)"
+
+echo
 echo "misuse"
 
 run >/dev/null
