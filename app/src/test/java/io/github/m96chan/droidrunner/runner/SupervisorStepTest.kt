@@ -169,6 +169,9 @@ class SupervisorStepTest {
         stoppedOnPurpose = true,
         ephemeral = false,
         exitCode = 130,
+        jobCompleted = false,
+        registrationDeleted = false,
+        identityGone = false,
     )
 
     @Test fun aListenerTheSupervisorStoppedIsNotACrash() {
@@ -184,6 +187,9 @@ class SupervisorStepTest {
             stoppedOnPurpose = false,
             ephemeral = false,
             exitCode = 130,
+            jobCompleted = false,
+            registrationDeleted = false,
+            identityGone = false,
         )
 
         assertEquals(ListenerExit.Kind.FAILURE, exit)
@@ -255,6 +261,9 @@ class SupervisorStepTest {
                 stoppedOnPurpose = false,
                 ephemeral = false,
                 exitCode = 1,
+                jobCompleted = false,
+                registrationDeleted = false,
+                identityGone = false,
             )
             if (ListenerExit.countsAsFailure(exit)) {
                 val record = AlertPolicy.recordFailure(
@@ -281,6 +290,9 @@ class SupervisorStepTest {
                 stoppedOnPurpose = true,
                 ephemeral = true,
                 exitCode = 0,
+                jobCompleted = false,
+                registrationDeleted = false,
+                identityGone = false,
             ),
         )
     }
@@ -291,6 +303,9 @@ class SupervisorStepTest {
             stoppedOnPurpose = false,
             ephemeral = true,
             exitCode = 0,
+            jobCompleted = true,
+            registrationDeleted = false,
+            identityGone = true,
         )
 
         assertEquals(ListenerExit.Kind.JOB_COMPLETED, exit)
@@ -306,6 +321,9 @@ class SupervisorStepTest {
                 stoppedOnPurpose = false,
                 ephemeral = true,
                 exitCode = 1,
+                jobCompleted = false,
+                registrationDeleted = false,
+                identityGone = false,
             ),
         )
     }
