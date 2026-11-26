@@ -94,6 +94,13 @@ class RunnerService : Service() {
     private val starting = AtomicBoolean(false)
     private val stopRequested = AtomicBoolean(false)
     private val jobRunning = AtomicBoolean(false)
+
+    /**
+     * Held while the runner's local identity is written or cleared. A late
+     * output thread clearing a spent identity must not land on the one a
+     * replacement registration has just written.
+     */
+    private val identityLock = Any()
     private lateinit var monitor: SystemMonitor
     private lateinit var notifications: RunnerNotifications
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -400,8 +407,10 @@ class RunnerService : Service() {
                 RunnerStatus.onAppLine(
                     if (ephemeral) "ephemeral: registering for the next job" else "registering runner",
                 )
-                RunnerRegistration.register(this, runtimeDir, config, ephemeral) { line ->
-                    RunnerStatus.onRunnerLine(line)
+                synchronized(identityLock) {
+                    RunnerRegistration.register(this, runtimeDir, config, ephemeral) { line ->
+                        RunnerStatus.onRunnerLine(line)
+                    }
                 }
             }
             if (outcome.isFailure) {
@@ -462,12 +471,14 @@ class RunnerService : Service() {
         RunnerStatus.onAppLine("session: still held after a minute — replacing the runner")
         stopListener()
         val replaced = runCatching {
-            RunnerRegistration.register(
-                this,
-                runtimeDir,
-                config,
-                RunnerRegistration.ephemeralEnabled(this),
-            ) { line -> RunnerStatus.onRunnerLine(line) }
+            synchronized(identityLock) {
+                RunnerRegistration.register(
+                    this,
+                    runtimeDir,
+                    config,
+                    RunnerRegistration.ephemeralEnabled(this),
+                ) { line -> RunnerStatus.onRunnerLine(line) }
+            }
         }
         RunnerStatus.onSessionWaitAcknowledged()
         if (replaced.isFailure) {
@@ -524,6 +535,11 @@ class RunnerService : Service() {
         if (stopRequested.get()) return
         // Keep the CLI in step with the agent API this build implements.
         DeviceCliInstaller.install(this, runtimeDir)
+        // The mode this listener is registered in, not the setting: the setting
+        // can change while a job runs, and the exit is judged by what GitHub
+        // was told.
+        val registeredEphemeral = RunnerRegistration.registeredAsEphemeral(runtimeDir)
+        val transcript = ListenerTranscript()
         val started = RunnerCommand.run(
             this, runtimeDir,
             agent?.let {
@@ -547,10 +563,27 @@ class RunnerService : Service() {
             runCatching {
                 started.inputStream.bufferedReader().forEachLine { line ->
                     RunnerStatus.onRunnerLine(line)
+                    transcript.onLine(line)
                 }
             }
             val exitCode = started.waitFor()
             jobRunning.set(false)
+            // Before the handle is released below: from then on the supervisor
+            // may launch again, and a launch that still finds `.runner` skips
+            // registering. Never allowed to throw past the token revocation.
+            runCatching {
+                synchronized(identityLock) {
+                    val spent = ListenerExit.identitySpent(
+                        current = process.get() === started,
+                        ephemeral = registeredEphemeral,
+                        exitCode = exitCode,
+                        jobCompleted = transcript.jobCompleted,
+                        registrationDeleted = transcript.registrationDeleted,
+                    )
+                    if (spent) RunnerRegistration.clearLocalRegistration(runtimeDir)
+                }
+            }
+            val identityGone = !RunnerRegistration.isRegistered(runtimeDir)
             // A listener that dies mid-job never prints its completion line, so
             // the log-parsing path that normally ends a job never fires and the
             // capability token stayed valid for as long as the service lived
@@ -573,8 +606,11 @@ class RunnerService : Service() {
             val exit = ListenerExit.classify(
                 stopRequested = stopRequested.get(),
                 stoppedOnPurpose = stoppedOnPurpose.compareAndSet(started, null),
-                ephemeral = RunnerRegistration.ephemeralEnabled(this),
+                ephemeral = registeredEphemeral,
                 exitCode = exitCode,
+                jobCompleted = transcript.jobCompleted,
+                registrationDeleted = transcript.registrationDeleted,
+                identityGone = identityGone,
             )
             if (exit == ListenerExit.Kind.SERVICE_STOP) return@thread
             if (ListenerExit.clearsBackoff(exit)) {
@@ -598,7 +634,11 @@ class RunnerService : Service() {
                 }
 
                 ListenerExit.Kind.FAILURE -> backOff(
-                    "listener exited with code $exitCode",
+                    if (transcript.registrationDeleted) {
+                        "GitHub no longer has this runner's registration; registering again"
+                    } else {
+                        "listener exited with code $exitCode"
+                    },
                     ranMillis,
                     failure = AlertPolicy.Failure.LISTENER,
                 )

@@ -361,7 +361,7 @@ object RunnerStatus {
                         state = RunnerState.JOB_RUNNING,
                         currentJob = line.substringAfter("Running job:").trim().ifEmpty { null },
                     )
-                line.contains("completed with result:", ignoreCase = true) -> {
+                ListenerTranscript.isJobCompletion(line) -> {
                     val succeeded = line.substringAfter("completed with result:").trim()
                         .startsWith("Succeeded", ignoreCase = true)
                     next = next.copy(

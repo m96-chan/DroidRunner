@@ -112,18 +112,52 @@ object ListenerExit {
      * [stoppedOnPurpose] is whether this exact process is the one the
      * supervisor killed — identity, not a flag, so a listener that crashed
      * while an older one was being stopped is still read as a crash.
+     *
+     * [ephemeral] is the mode this listener was registered in, read at launch:
+     * the setting can change while a job runs. [identityGone] is whether
+     * `.runner` is absent after [identitySpent] had its say. An exit 0 alone
+     * proves nothing, because `run.sh` exits 0 for "terminated error" too: a
+     * listener that leaves its identity behind would be launched again with it,
+     * every five seconds, without registering.
      */
     fun classify(
         stopRequested: Boolean,
         stoppedOnPurpose: Boolean,
         ephemeral: Boolean,
         exitCode: Int,
+        jobCompleted: Boolean,
+        registrationDeleted: Boolean,
+        identityGone: Boolean,
     ): Kind = when {
         stopRequested -> Kind.SERVICE_STOP
         stoppedOnPurpose -> Kind.POLICY_STOP
-        ephemeral && exitCode == 0 -> Kind.JOB_COMPLETED
+        // Without a finished job, a deleted registration is a refusal to back
+        // off from, not a job served.
+        ephemeral && exitCode == 0 && identityGone && (jobCompleted || !registrationDeleted) ->
+            Kind.JOB_COMPLETED
         else -> Kind.FAILURE
     }
+
+    /**
+     * Whether the runner's local identity is spent and has to go before the
+     * next launch, so that launch registers again.
+     *
+     * An ephemeral registration serves one job, and the runner normally deletes
+     * `.runner` itself afterwards. Not on every path: a runner that updated
+     * itself mid-job restarted, found GitHub had deleted its registration, and
+     * left `.runner` behind. A registration GitHub reports deleted is spent in
+     * either mode.
+     *
+     * Only while this listener is still the [current] one: once a stop has
+     * taken the handle, the identity may already belong to its replacement.
+     */
+    fun identitySpent(
+        current: Boolean,
+        ephemeral: Boolean,
+        exitCode: Int,
+        jobCompleted: Boolean,
+        registrationDeleted: Boolean,
+    ): Boolean = current && (registrationDeleted || (ephemeral && exitCode == 0 && jobCompleted))
 
     /**
      * Whether the restart backoff should be forgotten.
