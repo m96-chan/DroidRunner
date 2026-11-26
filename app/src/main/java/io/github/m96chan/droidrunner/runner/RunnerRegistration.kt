@@ -8,6 +8,7 @@ import io.github.m96chan.droidrunner.github.UserSession
 import io.github.m96chan.droidrunner.model.RunnerConfig
 import io.github.m96chan.droidrunner.model.RegistrationCredentialSource
 import io.github.m96chan.droidrunner.model.RunnerTarget
+import io.github.m96chan.droidrunner.runtime.GuestFs
 import io.github.m96chan.droidrunner.security.SecretStore
 import org.json.JSONArray
 import org.json.JSONObject
@@ -30,16 +31,18 @@ object RunnerRegistration {
      * Whether the current registration is ephemeral. Toggling the setting has
      * to re-register, since an existing persistent registration would
      * otherwise keep serving jobs forever.
+     *
+     * Read from a private copy taken through [GuestFs]: job code can replace
+     * `.runner` with a link.
      */
-    fun registeredAsEphemeral(runtimeDir: File): Boolean {
-        val file = File(runtimeDir, "home/runner/.runner")
-        if (!file.isFile) return false
-        return runCatching {
+    fun registeredAsEphemeral(runtimeDir: File): Boolean = runCatching {
+        GuestFs.newStage(runtimeDir).use { stage ->
+            val copy = GuestFs.stageJobFile(runtimeDir, "${GuestFs.GUEST_HOME}/.runner", stage.directory)
             // The file is written with a BOM by the .NET runner.
-            val json = JSONObject(file.readText().trimStart('\uFEFF'))
+            val json = JSONObject(copy.readText().trimStart(Char(0xFEFF)))
             json.optBoolean("ephemeral", false) || json.optBoolean("isEphemeral", false)
-        }.getOrDefault(false)
-    }
+        }
+    }.getOrDefault(false)
 
     /** True once this device has been set up, even if a job just consumed the registration. */
     fun isConfigured(runtimeDir: File): Boolean =
@@ -352,18 +355,29 @@ object RunnerRegistration {
      * Drops the local runner identity so `config.sh` will configure again.
      * Covers the v2 marker (`.runner_migrated`) too — leaving it behind makes
      * config.sh insist the runner is already configured.
+     *
+     * The listing only supplies names. Each delete goes through [GuestFs], so a
+     * runner home that a job replaced with a link deletes nothing outside it.
+     * Never throws: one caller runs it on the way to rethrowing an interrupt.
      */
     fun clearLocalRegistration(runtimeDir: File) {
-        File(runtimeDir, "home/runner").listFiles()
-            ?.filter { it.isFile && IDENTITY_FILES.any(it.name::startsWith) }
-            ?.forEach { it.delete() }
+        File(runtimeDir, "home/runner").list()
+            ?.filter { name -> IDENTITY_FILES.any(name::startsWith) }
+            // A file left behind surfaces as config.sh refusing to configure.
+            ?.forEach { name -> runCatching { GuestFs.removeTree(runtimeDir, GuestFs.RUNNER_HOME + name) } }
     }
 
     private val IDENTITY_FILES = listOf(".runner", ".credentials", ".service")
 
-    /** Removes the previous job's checkout and outputs. */
+    /**
+     * Removes the previous job's checkout and outputs. That job may have left
+     * symlinks behind, so a link is deleted as itself and never entered.
+     *
+     * Throws when anything is left, so the caller backs off rather than
+     * registering for a job that would inherit it.
+     */
     fun cleanWorkDirectory(runtimeDir: File) {
-        File(runtimeDir, "home/runner/_work").deleteRecursively()
+        GuestFs.removeTree(runtimeDir, GuestFs.RUNNER_HOME + "_work")
     }
 
     /** Whether the device should re-register per job. */

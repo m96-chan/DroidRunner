@@ -78,7 +78,7 @@ reading English.
 | `invalid-model` | no interpreter could be built from the file, with or without a delegate | `1` |
 | `unknown-device` | no such accelerator on this phone | `3` |
 | `not-installed` | the vendor runtime this device would need is not installed | `3` |
-| `invalid-request` | malformed, a path outside the job's home, **or inputs that do not fit the model** | `1` |
+| `invalid-request` | malformed, a path outside the job's home or through a symlink, **or inputs that do not fit the model** | `1` |
 | `busy` | every worker and every queued slot is taken; **nothing was attempted** | `5` |
 | `failed` | anything else that stopped a run | `1` |
 | — | the agent did not answer | `4` |
@@ -129,6 +129,23 @@ quote used to write fields of its own — `--iterations '1,"device":"qnn-htp"'`
 moved a benchmark onto the Hexagon while the caller read the numbers as the
 default driver's ([#206](https://github.com/m96-chan/DroidRunner/issues/206)).
 The message names the option, and the exit status is `1`, as the table says.
+
+**The agent follows no symlink in a path it is sent.** Job code owns every
+directory under `/home/runner`. The agent runs with the app's own access. A
+`path`, an `inputs` entry or an `outputDir` that passes through a symlink fails
+with `invalid-request`. The message names the link:
+
+```
+model must be a file under /home/runner (the job workspace): /home/runner/_work/repo/repo/models is a symlink, and the device agent follows none; pass the path it points to
+```
+
+`test model` resolves every symlink with `realpath` inside the guest before it
+sends a path. A link in the guest therefore keeps the meaning the job gave it. A
+raw HTTP caller and a batch manifest must send paths without links. A path with
+a `..` component fails with `invalid-request` too, even when it would resolve
+inside `/home/runner`. The output
+replaces a link that sits at an output file name, such as `output-0.bin`. The
+file that the link pointed to stays unchanged.
 
 **An HTTP status the agent declines a request with is reported, never returned.**
 `401` and `403` are about the capability token and `404` is about the URL: none

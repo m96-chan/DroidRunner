@@ -172,6 +172,30 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
 
+// The unit tests run GuestFs on its real native code, built here for the host
+// JVM. A Kotlin stand-in for openat and O_NOFOLLOW would prove nothing about
+// the calls that keep the agent inside the guest. Needs a host C compiler.
+val hostJniDir = layout.buildDirectory.dir("host-jni")
+val hostGuestFs = tasks.register<Exec>("hostGuestFs") {
+    val source = file("src/main/cpp/guest_fs.c")
+    val javaHome = File(System.getProperty("java.home"))
+    val mac = System.getProperty("os.name").startsWith("Mac")
+    val output = hostJniDir.get().file(if (mac) "libguest_fs.dylib" else "libguest_fs.so").asFile
+    inputs.files(source, file("src/main/cpp/guest_fs.h"))
+    outputs.file(output)
+    doFirst { output.parentFile.mkdirs() }
+    commandLine(
+        "cc", "-shared", "-fPIC", "-O2", "-Wall", "-Wextra",
+        "-I$javaHome/include", "-I$javaHome/include/${if (mac) "darwin" else "linux"}",
+        source.path, "-o", output.path,
+    )
+}
+
+tasks.withType<Test>().configureEach {
+    dependsOn(hostGuestFs)
+    systemProperty("java.library.path", hostJniDir.get().asFile.path)
+}
+
 // A published release must never be debug-signed: Android refuses to upgrade
 // across a signature change, and reinstalling this app loses the runner
 // registration and the stored GitHub credentials. This fires only when a

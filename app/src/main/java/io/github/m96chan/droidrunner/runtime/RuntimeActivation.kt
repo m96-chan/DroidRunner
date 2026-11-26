@@ -106,10 +106,18 @@ internal object RuntimeActivation {
     }
 
     private fun cleanRetired(previous: File, retired: File?) {
-        if (retired != null) check(retired.deleteRecursively()) { "Cannot clean up the previous runtime" }
+        // A retired runtime holds whatever links its jobs left; deleting
+        // through one would delete what it points at.
+        if (retired != null) deleteTree(retired, "Cannot clean up the previous runtime")
         // A process death during cleanup must not accumulate abandoned trees.
         previous.parentFile?.listFiles { file -> file.name.startsWith(previous.name + ".cleanup-") }
-            ?.forEach { check(it.deleteRecursively()) { "Cannot clean up an interrupted runtime deletion" } }
+            ?.forEach { deleteTree(it, "Cannot clean up an interrupted runtime deletion") }
+    }
+
+    /** Throws [what], with the reason the delete gave, when anything is left. */
+    private fun deleteTree(tree: File, what: String) {
+        runCatching { GuestFs.removeTree(tree) }
+            .onFailure { throw IllegalStateException("$what: ${it.message}", it) }
     }
 
     /**

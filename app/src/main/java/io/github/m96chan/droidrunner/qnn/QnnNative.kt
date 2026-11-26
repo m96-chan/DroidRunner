@@ -10,6 +10,10 @@
  */
 package io.github.m96chan.droidrunner.qnn
 
+import io.github.m96chan.droidrunner.npu.ResultContract
+import org.json.JSONObject
+import java.io.File
+
 /**
  * JNI bridge to the QNN loader (see `cpp/qnn_probe.c`), issue #82 stage 4.
  *
@@ -32,16 +36,26 @@ internal object QnnNative {
 
     /**
      * Opens [libraries], in the order given, from [directory], and asks the
-     * delegate what this device supports.
+     * delegate what this device supports. Refuses with `not-installed` when a
+     * library there does not match its pin ([QnnIntegrity]).
      *
      * Returns JSON: `{pid, libraries:[{name,loaded,error?}], capabilities?, ok}`.
      */
-    fun load(directory: String, libraries: List<String>): String =
-        if (ensureLoaded()) {
-            loadLibraries(directory, libraries.toTypedArray())
-        } else {
-            """{"ok":false,"error":"qnn_probe library not loaded"}"""
+    fun load(directory: String, libraries: List<String>): String {
+        if (!ensureLoaded()) return """{"ok":false,"error":"qnn_probe library not loaded"}"""
+        QnnIntegrity.problem(File(directory), libraries)?.let { problem ->
+            return JSONObject()
+                .put("ok", false)
+                .put("code", ResultContract.Code.NOT_INSTALLED)
+                .put("error", problem)
+                .toString()
         }
+        val result = loadLibraries(directory, libraries.toTypedArray())
+        if (runCatching { JSONObject(result).optBoolean("ok") }.getOrDefault(false)) {
+            QnnIntegrity.loaded(File(directory), libraries)
+        }
+        return result
+    }
 
     /**
      * Creates a delegate for [backend], returning the `TfLiteDelegate*` as a

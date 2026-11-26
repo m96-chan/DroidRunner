@@ -1,3 +1,16 @@
+/*
+ * Part of DroidRunner. GPL-2.0-only, with the additional permission below.
+ *
+ * Additional permission under GNU GPL version 2, as a special exception:
+ *
+ * The copyright holders of this file give you permission to combine it with
+ * Qualcomm's QNN runtime and LiteRT delegate libraries, and to convey the
+ * resulting work. This permission covers this file only; it does not extend to
+ * any other part of DroidRunner, which remains GPL-2.0-only.
+ *
+ * The notice is here because the process that holds Qualcomm's libraries reads
+ * the pins below before it loads them. Nothing in this file touches them.
+ */
 package io.github.m96chan.droidrunner.npu
 
 /**
@@ -51,6 +64,16 @@ internal object QnnArtifacts {
         val perVersion = HEXAGON[htpVersion] ?: return null
         return SHARED + perVersion
     }
+
+    /** The pinned SHA-256 of [library], whatever its generation, or null when nothing here pins it. */
+    fun sha256Of(library: String): String? =
+        (SHARED + HEXAGON.values.flatten()).firstOrNull { it.library == library }?.sha256
+
+    /** Every file of the Hexagon generation [library] belongs to, or none when it belongs to no generation. */
+    fun generationOf(library: String): List<String> =
+        HEXAGON.values.firstOrNull { entries -> entries.any { it.library == library } }
+            ?.map { it.library }
+            .orEmpty()
 
     /** Disk cost of installing for [htpVersion], for the consent step to quote. */
     fun installBytes(htpVersion: Int): Long =
